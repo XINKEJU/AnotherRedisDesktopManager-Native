@@ -1,0 +1,23 @@
+.DS_Store
+node_modules/
+/dist/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Local agent workspace data (not part of the source distribution)
+.workbuddy/
+
+# Native build artifacts (build.sh regenerates them)
+native/.build/
+native/*.app/
+*.o

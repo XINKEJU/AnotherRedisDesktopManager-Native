@@ -1,0 +1,71 @@
+{
+  "name": "another-redis-desktop-manager",
+  "version": "1.7.4",
+  "description": "A faster, better and more stable redis desktop manager.",
+  "author": "Another",
+  "private": true,
+  "main": "electron-main.js",
+  "dependencies": {
+    "electron-updater": "4.6.5",
+    "font-list": "^1.4.5"
+  },
+  "repository": "github:qishibo/AnotherRedisDesktopManager",
+  "build": {
+    "appId": "me.qii404.another-redis-desktop-manager",
+    "productName": "Another Redis Desktop Manager",
+    "artifactName": "${productName}-${os}-${version}-${arch}.${ext}",
+    "copyright": "Copyright © 2024 qii404",
+    "asar": true,
+    "directories": {
+      "output": "build-apps",
+      "buildResources": "./"
+    },
+    "electronVersion": "12.2.3",
+    "files": [
+      "!static/js/*.map",
+      "!static/css/*.map",
+      "!*.map"
+    ],
+    "publish": [{
+      "provider": "github",
+      "owner": "qishibo",
+      "repo": "AnotherRedisDesktopManager",
+      "releaseType": "prerelease"
+    }],
+    "win": {
+      "icon": "icons/icon.ico",
+      "target": [
+        {"target": "nsis", "arch": ["x64", "arm64"]},
+        {"target": "zip", "arch": ["x64"]}
+      ]
+    },
+    "nsis": {
+      "allowToChangeInstallationDirectory": true,
+      "oneClick": false,
+      "menuCategory": true,
+      "allowElevation": true
+    },
+    "linux": {
+      "icon": "icons/icon.png",
+      "category": "Utility",
+      "target": [
+        {"target": "AppImage", "arch": ["x64", "arm64"]}
+      ]
+    },
+    "snap": {
+      "plugs": ["default", "ssh-keys"]
+    },
+    "mac": {
+      "icon": "icons/icon.icns",
+      "type": "development",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {"target": "dmg", "arch": ["x64", "arm64"]}
+      ],
+      "extendInfo": {
+        "ElectronTeamID": "68JN8DV835"
+      }
+    },
+    "afterSign": "pack/scripts/notarize.js"
+  }
+}

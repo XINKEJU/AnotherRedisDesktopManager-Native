@@ -1,0 +1,428 @@
+import SwiftUI
+import AppKit
+
+// MARK: - Detail pane router (Tabs.vue / KeyDetail.vue)
+
+struct DetailPane: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        Group {
+            switch store.activeTab {
+            case .keys: KeyDetailView()
+            case .cli: CLIView()
+            case .status: StatusView()
+            case .slowLog: SlowLogView()
+            case .memory: MemoryView()
+            case .cluster: ClusterView()
+            case .pubsub: PubSubView()
+            case .monitor: MonitorView()
+            case .logs: CommandLogView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Key detail (KeyHeader.vue + 10 KeyContent*.vue + FormatViewer.vue)
+
+struct KeyDetailView: View {
+    @EnvironmentObject var store: AppStore
+    @State private var editingRow: KeyRow?
+    @State private var addingRow = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let key = store.selectedKey {
+                keyHeader(key)
+                Divider()
+                if store.selectedKeyType == .string || store.selectedKeyType == .reJSON
+                    || store.selectedKeyType == .vector || store.selectedKeyType == .unknown {
+                    scalarEditor
+                } else {
+                    collectionEditor
+                }
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "key").font(.system(size: 42)).foregroundStyle(.tertiary)
+                    Text(L10n("Select a key to view and edit its value")).foregroundStyle(.secondary)
+                    Text("10 data types · 15 format viewers · field-level editing")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .sheet(item: $editingRow) { row in
+            RowEditorSheet(row: row) { field, value, extra in
+                store.saveRow(row, field: field, value: value, extra: extra)
+            }
+            .environmentObject(store)
+            .frame(width: 520, height: 260)
+        }
+        .sheet(isPresented: $addingRow) {
+            RowEditorSheet(row: KeyRow(id: "__new__", field: "", value: "")) { field, value, extra in
+                store.saveRow(KeyRow(id: "__new__", field: field, value: value), field: field, value: value, extra: extra)
+            }
+            .environmentObject(store)
+            .frame(width: 520, height: 260)
+        }
+    }
+
+    @ViewBuilder
+    private func keyHeader(_ key: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "key.fill").foregroundStyle(.blue)
+                Text(key).font(.system(size: store.scaled(15), weight: .semibold)).lineLimit(1)
+                Spacer()
+                Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                Text("TTL \(store.selectedKeyTTL)").font(.caption)
+            }
+            HStack(spacing: 8) {
+                Button(L10n("Refresh")) { store.reloadKeyDetail() }
+                Button(L10n("Rename")) { store.showingRename = true }
+                Button(L10n("TTL")) { store.showingTTL = true }
+                Button(L10n("PERSIST")) { store.setTTL(-1) }
+                Button(L10n("DUMP")) { store.dumpKey(key) }
+                Button(L10n("Copy")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(store.editorText, forType: .string)
+                }
+                Button(L10n("JSON Editor")) { store.showingJsonEditor = true }
+                Spacer()
+                Button(L10n("Delete"), role: .destructive) { store.deleteKeys([key]) }
+            }
+            .font(.system(size: store.scaled(11)))
+        }
+        .padding(12)
+    }
+
+    // MARK: String / ReJSON / Vector / unknown -> large editor + viewers
+
+    private var scalarEditor: some View {
+        VStack(spacing: 0) {
+            if store.selectedKeyType == .reJSON {
+                HStack {
+                    Text(L10n("JSON path")).font(.caption)
+                    TextField("$", text: $store.jsonPath).textFieldStyle(.roundedBorder).frame(width: 200)
+                    Button(L10n("Load path")) { store.loadTypedValue() }
+                    Spacer()
+                }.padding(8)
+            }
+            HStack {
+                Picker(L10n("Viewer"), selection: $store.viewerName) {
+                    ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
+                }
+                .frame(width: 190)
+                .labelsHidden()
+                .onChange(of: store.viewerName) { _, _ in store.renderValue() }
+                Button(L10n("Auto detect")) {
+                    store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
+                    store.renderValue()
+                }
+                Button("Binary input…") { chooseBinaryFile() }
+                Spacer()
+                Button(L10n("Save")) { store.saveEditorText() }.buttonStyle(.borderedProminent)
+            }
+            .padding(8)
+
+            HSplitView {
+                TextEditor(text: $store.editorText)
+                    .font(.system(size: store.scaled(store.fontSize), design: .monospaced))
+                    .border(Color.secondary.opacity(0.25))
+                    .frame(minWidth: 260)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Rendered (\(store.viewerName))").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L10n("Copy")) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(store.renderedValue, forType: .string)
+                        }.font(.caption)
+                    }
+                    ScrollView {
+                        Text(highlighted(store.renderedValue, size: store.scaled(store.fontSize - 1)))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .border(Color.secondary.opacity(0.25))
+                }
+                .frame(minWidth: 260)
+            }
+            .padding(8)
+        }
+    }
+
+    // MARK: Hash / List / Set / ZSet / Stream / TimeSeries / Array -> editable rows
+
+    private var collectionEditor: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(L10n("Offset")).font(.caption)
+                TextField("", value: $store.rowOffset, format: .number).frame(width: 70).textFieldStyle(.roundedBorder)
+                Text(L10n("Limit")).font(.caption)
+                TextField("", value: $store.rowLimit, format: .number).frame(width: 70).textFieldStyle(.roundedBorder)
+                Button(L10n("Load page")) { store.loadTypedValue() }
+                Button(L10n("Previous")) { store.rowOffset = max(0, store.rowOffset - store.rowLimit); store.loadTypedValue() }
+                Button(L10n("Next")) { store.rowOffset += store.rowLimit; store.loadTypedValue() }
+                Spacer()
+                Button(L10n("Add row")) { addingRow = true }
+                if store.selectedKeyType == .stream { streamGroupMenu }
+                Button(L10n("Refresh")) { store.reloadKeyDetail() }
+            }
+            .padding(8)
+
+            HStack {
+                Text(columnTitle(0)).font(.caption.bold()).frame(width: 180, alignment: .leading)
+                Text(columnTitle(1)).font(.caption.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                if store.selectedKeyType == .zSet { Text(L10n("Score")).font(.caption.bold()).frame(width: 100) }
+                Text("").frame(width: 90)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.08))
+            Divider()
+
+            List(store.keyRows) { row in
+                HStack {
+                    Text(row.field).font(.system(size: store.scaled(11), design: .monospaced))
+                        .lineLimit(1).frame(width: 180, alignment: .leading)
+                    Text(row.value).font(.system(size: store.scaled(11), design: .monospaced))
+                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    if store.selectedKeyType == .zSet {
+                        Text(row.extra).font(.system(size: 11, design: .monospaced)).frame(width: 100)
+                    }
+                    Button(L10n("Edit")) { editingRow = row }.font(.caption)
+                    Button(L10n("Delete")) { store.deleteRow(row) }.font(.caption).foregroundStyle(.red)
+                }
+                .contextMenu {
+                    Button(L10n("Copy value")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(row.value, forType: .string)
+                    }
+                    Button(L10n("View as Hex")) {
+                        store.viewerName = "Hex"
+                        store.keyRawValue = row.raw
+                        store.renderValue()
+                    }
+                    Button(L10n("Delete row"), role: .destructive) { store.deleteRow(row) }
+                }
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: true))
+        }
+    }
+
+    private var streamGroupMenu: some View {
+        Menu(L10n("Consumer groups")) {
+            Button(L10n("XINFO GROUPS")) { store.streamGroup("INFO", group: "") }
+            Button(L10n("CREATE group")) { store.streamGroup("CREATE", group: "ardm-group") }
+            Button(L10n("READ group")) { store.streamGroup("READ", group: "ardm-group") }
+            Button(L10n("ACK 0-0")) { store.streamGroup("ACK", group: "ardm-group", id: "0-0") }
+            Button(L10n("DELCONSUMER")) { store.streamGroup("DESTROY", group: "ardm-group") }
+        }
+        .font(.caption)
+    }
+
+    private func columnTitle(_ column: Int) -> String {
+        switch store.selectedKeyType {
+        case .hash: return column == 0 ? "Field" : "Value"
+        case .zSet: return column == 0 ? "Member" : "Value"
+        case .list, .array: return column == 0 ? "Index" : "Value"
+        case .set: return column == 0 ? "Index" : "Member"
+        case .stream: return column == 0 ? "Entry ID" : "Fields"
+        case .timeSeries: return column == 0 ? "Timestamp" : "Sample"
+        default: return column == 0 ? "Key" : "Value"
+        }
+    }
+
+    private func chooseBinaryFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url) else { return }
+        store.keyRawValue = data
+        store.editorText = String(data: data, encoding: .utf8) ?? "<binary \(data.count) bytes>"
+        store.viewerName = "Hex"
+        store.renderValue()
+    }
+}
+
+// MARK: - Row editor
+
+struct RowEditorSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+    let row: KeyRow
+    let onConfirm: (String, String, String) -> Void
+    @State private var field = ""
+    @State private var value = ""
+    @State private var extra = ""
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(row.id == "__new__" ? "Add row" : "Edit row").font(.headline)
+            Form {
+                TextField(L10n("Field / index / member"), text: $field)
+                TextField(L10n("Value"), text: $value)
+                if store.selectedKeyType == .zSet { TextField(L10n("Score"), text: $extra) }
+            }
+            HStack {
+                Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(L10n("Save")) { onConfirm(field, value, extra); dismiss() }
+                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .onAppear { field = row.field; value = row.value; extra = row.extra }
+    }
+}
+
+// MARK: - JsonEditor.vue replacement
+
+struct JsonEditorSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+    @State private var text = ""
+    @State private var validation = ""
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(L10n("JSON Editor")).font(.headline)
+            HStack {
+                Button(L10n("Pretty")) { pretty() }
+                Button(L10n("Minify")) { minify() }
+                Button(L10n("Validate")) { validate() }
+                Spacer()
+                Text(validation).font(.caption).foregroundStyle(validation.hasPrefix("OK") ? .green : .red)
+            }
+            TextEditor(text: $text)
+                .font(.system(size: 12, design: .monospaced))
+                .border(Color.secondary.opacity(0.3))
+            HStack {
+                Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(L10n("Save to key")) {
+                    store.editorText = text
+                    store.saveEditorText()
+                    dismiss()
+                }.buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .onAppear { text = store.editorText }
+    }
+
+    private func jsonObject() -> Any? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private func pretty() {
+        guard let object = jsonObject(),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let formatted = String(data: data, encoding: .utf8) else { validation = "Invalid JSON"; return }
+        text = formatted
+        validation = "OK — formatted"
+    }
+
+    private func minify() {
+        guard let object = jsonObject(),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let compact = String(data: data, encoding: .utf8) else { validation = "Invalid JSON"; return }
+        text = compact
+        validation = "OK — minified"
+    }
+
+    private func validate() { validation = jsonObject() == nil ? "Invalid JSON" : "OK — valid JSON" }
+}
+
+// MARK: - CustomFormatter.vue management
+
+struct FormatterManagerSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+    @State private var selectedIndex: Int? = 0
+    @State private var name = ""
+    @State private var script = ""
+    @State private var testResult = ""
+
+    private var index: Int { selectedIndex ?? 0 }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text(L10n("Custom Formatters")).font(.headline)
+            HStack(spacing: 0) {
+                List(Array(store.customFormatters.indices), id: \.self, selection: $selectedIndex) { index in
+                    Text(store.customFormatters[index]["name"] ?? "untitled")
+                        .onTapGesture { select(index) }
+                }
+                .frame(width: 170)
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField(L10n("Name"), text: $name).textFieldStyle(.roundedBorder)
+                    Text("JavaScript runs in JavaScriptCore with `bytes` (Uint8Array).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $script)
+                        .font(.system(size: 11, design: .monospaced))
+                        .border(Color.secondary.opacity(0.3))
+                    HStack {
+                        Button(L10n("Run on current value")) { run() }
+                        Text(testResult).font(.caption).lineLimit(2)
+                        Spacer()
+                        Button(L10n("Save")) { save() }.buttonStyle(.borderedProminent)
+                        Button(L10n("Add")) { add() }
+                        Button(L10n("Delete")) { remove() }
+                    }
+                }
+                .padding(8)
+            }
+            HStack {
+                Button(L10n("Use as active viewer")) {
+                    store.customViewerScript = script
+                    store.viewerName = "Custom"
+                    store.renderValue()
+                }
+                Spacer()
+                Button(L10n("Close")) { dismiss() }
+            }
+        }
+        .padding(16)
+        .onAppear { select(0) }
+    }
+
+    private func select(_ index: Int) {
+        selectedIndex = index
+        guard store.customFormatters.indices.contains(index) else { return }
+        name = store.customFormatters[index]["name"] ?? ""
+        script = store.customFormatters[index]["script"] ?? ""
+    }
+
+    private func save() {
+        guard store.customFormatters.indices.contains(index) else { return }
+        var items = store.customFormatters
+        items[index] = ["name": name, "script": script]
+        store.customFormatters = items
+    }
+
+    private func add() {
+        var items = store.customFormatters
+        items.append(["name": "Formatter \(items.count + 1)", "script": "return new TextDecoder().decode(bytes);"])
+        store.customFormatters = items
+        select(items.count - 1)
+    }
+
+    private func remove() {
+        guard store.customFormatters.count > 1, store.customFormatters.indices.contains(index) else { return }
+        var items = store.customFormatters
+        items.remove(at: index)
+        store.customFormatters = items
+        select(0)
+    }
+
+    private func run() {
+        var error: NSError?
+        let result = ARDMFormatters.renderCustom(store.keyRawValue, script: script, error: &error)
+        testResult = error?.localizedDescription ?? String(result.prefix(160))
+    }
+}

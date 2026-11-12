@@ -1,0 +1,228 @@
+{
+  "project": "AnotherRedisDesktopManager 1.7.4",
+  "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
+  "revision": "swiftui-full-port",
+  "status_legend": {
+    "native": "等价能力已由原生 SwiftUI / AppKit / Foundation 代码实现",
+    "equivalent": "能力保留，但用系统原生组件等价替代了第三方 Web 组件",
+    "conditional": "代码已实现，运行效果依赖外部服务或可选系统组件"
+  },
+  "baseline": {
+    "electron_app_bytes": 201188875,
+    "electron_app_mb": 191.87,
+    "electron_framework_mb": 178.0,
+    "app_asar_mb": 9.88,
+    "official_mac_arm64_dmg_mb": 83.2,
+    "appkit_first_pass_mb": 1.22,
+    "swiftui_app_bytes": 3754018,
+    "swiftui_app_mb": 3.58,
+    "reduction_percent": 98.13,
+    "native_source_lines": 4816
+  },
+  "toolchain": {
+    "developer_dir": "/Applications/Xcode.app/Contents/Developer",
+    "xcode": "27.2 (27B52)",
+    "swift": "6.4.2",
+    "ui": "SwiftUI (NavigationSplitView, List(children:), Table-like editing, sheets, menus)",
+    "core": "Objective-C RESP client + services, linked into the SwiftUI executable via bridging header",
+    "arch": "arm64 single-arch, ad-hoc signed"
+  },
+  "verification": {
+    "swift_typecheck_errors": 0,
+    "runtime_probe": "32 passed, 0 failed (RESP round-trip against a local fake Redis server)",
+    "gui": "app launches, three-column SwiftUI window renders correctly (screenshot verified)",
+    "localization_probe": "Save->保存, Refresh->刷新, New Connection->新建连接, Import->导入, Host->地址, all 13 language tables load",
+    "labels_localized": 208
+  },
+  "domains": [
+    {
+      "domain": "应用框架与窗口",
+      "components": ["App.vue", "Aside.vue", "Tabs.vue", "pack/electron/win-state.js"],
+      "status": "native",
+      "native": [
+        "SwiftUI @main App + NSApplicationDelegateAdaptor",
+        "NavigationSplitView 三栏布局 + NSToolbar",
+        "完整主菜单 (File / Redis / Keys / View / Tools / Language)",
+        "Tabs.vue 多连接并发：clients 字典保存多个活动 socket，标签栏切换/关闭/批量关闭",
+        "窗口几何恢复 (UserDefaults ARDMWindowFrame)",
+        "退出时 disconnectAll 关闭全部连接"
+      ]
+    },
+    {
+      "domain": "连接管理",
+      "components": ["Connections.vue", "ConnectionMenu.vue", "ConnectionWrapper.vue", "NewConnectionDialog.vue", "FileInput.vue", "InputPassword.vue", "InputBinary.vue", "LanguageSelector.vue"],
+      "status": "native",
+      "native": [
+        "ConnectionDraft 全字段编辑 (General / SSH / TLS / Advanced 四个分页)",
+        "新建 / 编辑 / 复制 / 删除 / 分组 / 搜索 / 连接测试",
+        "JSON 持久化 + 导入 / 导出",
+        "右键菜单、行内拖拽排序、拖拽到分组改归属",
+        "NSOpenPanel 文件选择 + 安全作用域书签 (含非沙盒降级)",
+        "二进制值选择 (InputBinary.vue)"
+      ]
+    },
+    {
+      "domain": "键浏览与操作",
+      "components": ["KeyList.vue", "KeyListNormal.vue", "KeyListVirtualTree.vue", "KeyHeader.vue", "KeyDetail.vue", "OperateItem.vue", "DeleteBatch.vue", "RightClickMenu.vue", "ScrollToTop.vue", "PaginationTable.vue", "HotKeys.vue"],
+      "status": "native",
+      "native": [
+        "SCAN 游标分页 + 加载更多 + 每页键数量设置",
+        "Glob / Exact / Fuzzy 三种匹配模式",
+        "分隔符树形列表 (KeyNode + List(children:)，SwiftUI 懒加载 = 虚拟列表)",
+        "分组折叠、树节点右键 (全选/删除分组)",
+        "键右键菜单：打开、复制键名、复制 DUMP、DUMP、重命名、TTL、收藏、批量选中、删除",
+        "多选批量删除、按 pattern SCAN + UNLINK 分批删除",
+        "重命名 / TTL / PERSIST / 删除 / 刷新 / 导出",
+        "ScrollViewReader 实现的 Scroll to top",
+        "拖拽 (draggable/dropDestination)",
+        "快捷键表 + 全局键盘快捷键"
+      ]
+    },
+    {
+      "domain": "Redis 数据类型视图 (全部 10 种)",
+      "components": ["KeyContentString.vue", "KeyContentHash.vue", "KeyContentList.vue", "KeyContentSet.vue", "KeyContentZset.vue", "KeyContentStream.vue", "KeyContentReJson.vue", "KeyContentTimeSeries.vue", "KeyContentVector.vue", "KeyContentArray.vue"],
+      "status": "native",
+      "native": [
+        "按类型分派读取命令：GET / LRANGE / SMEMBERS / ZRANGE WITHSCORES / HGETALL / XRANGE / JSON.GET / TS.RANGE / VGETATTR / ARGET",
+        "RowEditorSheet 逐行/逐字段增删改，10 种类型各有对应写命令",
+        "分页加载 (offset / limit / Previous / Next)",
+        "RedisJSON 路径编辑 (jsonPath + JSON.SET/JSON.DEL)",
+        "Stream 消费组管理 (XINFO GROUPS / XGROUP CREATE / XREADGROUP / XACK / DELCONSUMER)",
+        "新建键对话框支持全部 10 种类型 + TTL"
+      ]
+    },
+    {
+      "domain": "格式化 Viewer (全部 15 个)",
+      "components": ["FormatViewer.vue", "CustomFormatter.vue", "ViewerText.vue", "ViewerHex.vue", "ViewerJson.vue", "ViewerBinary.vue", "ViewerMsgpack.vue", "ViewerPHPSerialize.vue", "ViewerJavaSerialize.vue", "ViewerPickle.vue", "ViewerBrotli.vue", "ViewerGzip.vue", "ViewerDeflate.vue", "ViewerDeflateRaw.vue", "ViewerProtobuf.vue", "ViewerOverSize.vue", "ViewerCustom.vue", "JsonEditor.vue"],
+      "status": "native",
+      "native": [
+        "ARDMFormatters 覆盖 Text/Hex/Json/Binary/Msgpack/PHPSerialize/JavaSerialize/Pickle/Brotli/Gzip/Deflate/DeflateRaw/Protobuf/OverSize/Custom",
+        "自动嗅探 detectViewerForData:",
+        "JavaScriptCore 执行自定义 viewer",
+        "FormatterManagerSheet：自定义 formatter 增删改、保存、运行测试、设为当前 viewer",
+        "JsonEditorSheet：格式化 / 压缩 / 校验 / 写回",
+        "AttributedString 语法高亮渲染"
+      ]
+    },
+    {
+      "domain": "CLI 与命令日志",
+      "components": ["CliTab.vue", "CliContent.vue", "CommandLog.vue", "JsonEditor.vue", "src/commands.js", "monaco-editor"],
+      "status": "equivalent",
+      "native": [
+        "CLI 输入 / 执行 / 结果渲染（带语法高亮）",
+        "命令历史 (↑/↓ 按钮 + 持久化)、命令自动补全候选",
+        "commands.js 229 条命令参考侧栏（JavaScriptCore 加载原 JS 文件）",
+        "命令日志记录命令 / 连接 / 耗时，可筛选、复制、清空",
+        "引号感知的命令行参数解析"
+      ],
+      "notes": "Monaco 被替换为 SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet；缺少 minimap、多光标、代码折叠等 IDE 特性"
+    },
+    {
+      "domain": "监控与运维",
+      "components": ["Status.vue", "SlowLog.vue", "MemoryAnalysis.vue", "DeleteBatch.vue"],
+      "status": "native",
+      "native": [
+        "INFO 分区表格 + 自动刷新间隔 + 命中率图表",
+        "SLOWLOG GET / RESET",
+        "MEMORY STATS 条形图 / MEMORY DOCTOR",
+        "DBSIZE、状态栏实时信息",
+        "CLUSTER SLOTS / NODES 拓扑表格 + NAT 映射 + CLUSTER INFO"
+      ]
+    },
+    {
+      "domain": "设置、主题与更新",
+      "components": ["Setting.vue", "UpdateCheck.vue", "HotKeys.vue", "pack/electron/font-manager.js", "pack/electron/update.js"],
+      "status": "native",
+      "native": [
+        "主题 (system/light/dark)、13 语言、255 个系统字体枚举、字号、页面缩放",
+        "每页键数量、分隔符、只读、树视图、DB 选择、默认 viewer、自定义 viewer 脚本",
+        "自动更新检查 (GitHub Releases API + 版本比对 + 打开 Release 页)",
+        "连接/键值导入导出、快捷键表、自定义 formatter 管理入口"
+      ]
+    },
+    {
+      "domain": "国际化",
+      "components": ["src/i18n/langs/cn.js", "de.js", "en.js", "es.js", "fr.js", "it.js", "ko.js", "pt.js", "ru.js", "tr.js", "tw.js", "ua.js", "vi.js"],
+      "status": "native",
+      "native": [
+        "复用项目原有 13 个语言文件，bundle 内 langs/ 经 JavaScriptCore 加载",
+        "tText: 英文标签反查 en.js 键再解析当前语言，208 处 UI 文案逐屏套用",
+        "菜单、工具栏、连接编辑器、键操作、设置、监控、CLI 全部走本地化链路"
+      ]
+    },
+    {
+      "domain": "传输层 (替代 ioredis / tunnel-ssh)",
+      "components": ["src/redisClient.js", "src/util.js", "src/commands.js"],
+      "status": "native",
+      "native": [
+        "RESP2/RESP3 编解码、CFStream TCP/TLS",
+        "SSH 隧道 (/usr/bin/ssh -L + SSH_ASKPASS)",
+        "ACL AUTH / SELECT / CLIENT SETNAME / PING",
+        "Sentinel 主节点发现",
+        "Cluster MOVED/ASK 重定向 + ASKING + 重新认证 + NAT 映射 + 全拓扑",
+        "TLS 双向证书 (PKCS#12 或 PEM client identity，Security.framework)",
+        "指数退避自动重连",
+        "只读模式写命令拦截",
+        "二进制参数 (NSData) 发送",
+        "Pub/Sub、PSUBSCRIBE、MONITOR 独立长连接实时推送流",
+        "命令耗时日志"
+      ]
+    },
+    {
+      "domain": "Electron 主进程能力",
+      "components": ["pack/electron/electron-main.js", "win-state.js", "update.js", "font-manager.js"],
+      "status": "native",
+      "native": [
+        "NSApplication 生命周期 + 原生菜单/工具栏",
+        "窗口几何持久化",
+        "NSUserDefaults 偏好持久化",
+        "GitHub Releases 更新检查",
+        "NSFontManager 字体枚举",
+        "ad-hoc codesign"
+      ]
+    }
+  ],
+  "conditional_capabilities": [
+    "Brotli viewer 需要系统 brotli CLI；缺失时返回错误提示而非崩溃（验证中非 brotli 输入会打印 'corrupt input' 到 stderr）",
+    "RedisJSON / TimeSeries / Vector / Array 视图需要服务端安装对应 Redis 模块",
+    "TLS 双向证书需要用户提供 PKCS#12 或 PEM 客户端身份文件",
+    "自动更新需要网络可达 api.github.com",
+    "macOS Developer ID 签名与公证需要开发者账号；当前为 ad-hoc 签名，可直接本机运行"
+  ],
+  "architectural_substitutions": [
+    "Chromium + V8 + Node.js 178 MB -> 系统 AppKit/SwiftUI/JavaScriptCore，零捆绑运行时",
+    "monaco-editor -> SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet",
+    "vue-easy-tree / vxe-table -> SwiftUI List(children:) 懒加载树",
+    "sortablejs -> SwiftUI draggable / dropDestination",
+    "ioredis -> CFStream RESP 客户端",
+    "tunnel-ssh -> /usr/bin/ssh -L",
+    "electron-updater -> NSURLSession + GitHub Releases API",
+    "font-list -> NSFontManager",
+    "electron store / localStorage -> NSUserDefaults + JSON 文件"
+  ],
+  "remaining_gaps": [
+    "Monaco 的 minimap、多光标、代码折叠、语言服务器级补全未保留（改为原生语法高亮 + 命令补全）",
+    "JavaSerialize / Pickle viewer 保持结构标记级解析，非完整对象反序列化（与上一版一致）",
+    "Developer ID 签名与公证未执行（需账号与网络）",
+    "原版逐像素的 Web 视觉样式不可能与 SwiftUI 原生控件一致；控件语义与操作路径完全一致"
+  ],
+  "volume_strategy": {
+    "removed": [
+      "Electron Framework 178 MB (Chromium + V8 + Node.js)",
+      "SwiftShader 38.93 MB",
+      "icudtl.dat 9.93 MB",
+      "resources.pak 4.90 MB",
+      "libffmpeg 2.46 MB",
+      "4 个 Helper.app",
+      "monaco-editor vendor bundle"
+    ],
+    "reused": [
+      "13 个语言 JS 文件",
+      "src/commands.js 命令参考",
+      "pack/electron/icons/icon.icns (868 KB)"
+    ],
+    "system_frameworks": [
+      "SwiftUI", "AppKit", "Foundation", "JavaScriptCore", "WebKit", "Network", "Security", "libz"
+    ]
+  }
+}

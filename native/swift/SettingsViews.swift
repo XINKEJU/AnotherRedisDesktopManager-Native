@@ -1,0 +1,169 @@
+import SwiftUI
+import AppKit
+
+// MARK: - Settings (Setting.vue / LanguageSelector.vue / UpdateCheck.vue / font-manager.js)
+
+struct SettingsView: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+    @State private var checkingUpdate = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(L10n("Settings")).font(.headline)
+                Spacer()
+                Text("All preferences persist to NSUserDefaults").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(12)
+
+            TabView {
+                appearanceTab.tabItem { Label(L10n("Appearance"), systemImage: "paintbrush") }
+                keysTab.tabItem { Label(L10n("Keys"), systemImage: "key") }
+                viewersTab.tabItem { Label(L10n("Viewers"), systemImage: "doc.text.magnifyingglass") }
+                aboutTab.tabItem { Label(L10n("About & Updates"), systemImage: "arrow.triangle.2.circlepath") }
+            }
+            .padding(12)
+
+            Divider()
+            HStack {
+                Button("Keyboard Shortcuts…") { store.showingHotKeys = true }
+                Button("Import / Export…") { store.showingImportExport = true }
+                Button("Custom Formatters…") { store.showingFormatterManager = true }
+                Spacer()
+                Button(L10n("Close")) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.borderedProminent)
+            }
+            .padding(12)
+        }
+    }
+
+    private var appearanceTab: some View {
+        Form {
+            Picker(L10n("Theme"), selection: $store.theme) {
+                Text(L10n("Follow system")).tag("system")
+                Text(L10n("Light")).tag("light")
+                Text(L10n("Dark")).tag("dark")
+            }
+            Picker(L10n("Language"), selection: $store.language) {
+                ForEach(store.languages, id: \.self) { code in
+                    Text("\(code.uppercased()) — \(languageName(code))").tag(code)
+                }
+            }
+            .onChange(of: store.language) { _, newValue in
+                ARDMLocalization.shared().currentLanguage = newValue
+            }
+            Picker(L10n("Font family"), selection: $store.fontFamily) {
+                ForEach(store.fonts, id: \.self) { Text($0).tag($0) }
+            }
+            HStack {
+                Stepper("Font size: \(Int(store.fontSize))", value: $store.fontSize, in: 9...24)
+                Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1) { Text(L10n("Zoom")) }
+                Text(String(format: "%.1f×", store.zoom)).font(.system(size: 11, design: .monospaced))
+            }
+            Text("\(store.fonts.count) system font families enumerated (font-list replacement).")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Translated sample: \(L("message.new_connection", "New Connection"))")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+    }
+
+    private var keysTab: some View {
+        Form {
+            Stepper("Keys per SCAN page: \(store.pageSize)", value: $store.pageSize, in: 50...5000, step: 50)
+            TextField(L10n("Key tree separator"), text: $store.separator)
+                .onChange(of: store.separator) { _, _ in store.buildTree() }
+            Toggle(L10n("Use tree view"), isOn: $store.showTree)
+            Toggle(L10n("Read-only mode (blocks write commands)"), isOn: $store.readOnly)
+            Divider()
+            HStack {
+                Text(L10n("Database"))
+                Spacer()
+                Picker("", selection: $store.selectedDB) {
+                    ForEach(0..<16, id: \.self) { Text("DB \($0)").tag($0) }
+                }
+                .frame(width: 110)
+                .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
+            }
+            Text("Read-only is enforced in the RESP client before any command is written.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+    }
+
+    private var viewersTab: some View {
+        Form {
+            Picker(L10n("Default viewer"), selection: $store.viewerName) {
+                ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
+            }
+            Text("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):")
+                .font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: $store.customViewerScript)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(height: 110)
+                .border(Color.secondary.opacity(0.3))
+            HStack {
+                Button(L10n("Test on current value")) { store.viewerName = "Custom"; store.renderValue() }
+                Button("Manage formatters…") { store.showingFormatterManager = true }
+                Spacer()
+                Text("\(store.customFormatters.count) saved formatters").font(.caption)
+            }
+            Text("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+    }
+
+    private var aboutTab: some View {
+        Form {
+            LabeledContent("Application", value: "Another Redis Desktop Manager (Native)")
+            LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.4")
+            LabeledContent("UI", value: "SwiftUI + AppKit (system frameworks, zero bundled runtime)")
+            LabeledContent("Redis protocol", value: "RESP2 / RESP3 over CFStream")
+            LabeledContent("Localization", value: "\(store.languages.count) languages via JavaScriptCore")
+            Divider()
+            HStack {
+                Button(L10n("Check for Updates")) {
+                    checkingUpdate = true
+                    ARDMAppServices.checkForUpdate { status, url in
+                        checkingUpdate = false
+                        store.updateStatus = status
+                        if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                .disabled(checkingUpdate)
+                if checkingUpdate { ProgressView().scaleEffect(0.6) }
+                Toggle(L10n("Open release page when available"), isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
+                    set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
+            }
+            Text(store.updateStatus.isEmpty ? "Uses the GitHub Releases API (electron-updater replacement)." : store.updateStatus)
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Text("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+    }
+
+    private func languageName(_ code: String) -> String {
+        switch code {
+        case "cn": return "简体中文"
+        case "tw": return "繁體中文"
+        case "en": return "English"
+        case "de": return "Deutsch"
+        case "es": return "Español"
+        case "fr": return "Français"
+        case "it": return "Italiano"
+        case "ko": return "한국어"
+        case "pt": return "Português"
+        case "ru": return "Русский"
+        case "tr": return "Türkçe"
+        case "ua": return "Українська"
+        case "vi": return "Tiếng Việt"
+        default: return code
+        }
+    }
+}

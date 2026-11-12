@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" id="theme-link">
+    <title>Another Redis Desktop Manager</title>
+  </head>
+  <body>
+    <!-- this script must be placed here after body -->
+    <script type="text/javascript">
+      const ipcRenderer = require('electron').ipcRenderer;
+
+      function changeCSS(theme = 'light') {
+        const themeHref = `static/theme/${theme}/index.css`;
+        document.getElementById('theme-link').href = themeHref;
+        theme == 'dark' ? document.body.classList.add('dark-mode') :
+                          document.body.classList.remove('dark-mode');
+      }
+
+      function globalChangeTheme(theme) {
+        ipcRenderer.invoke('changeTheme', theme).then(shouldUseDarkColors => {
+          // delay to avoid stuck
+          setTimeout(() => {
+            changeCSS(shouldUseDarkColors ? 'dark' : 'light');
+          }, 100);
+        });
+      }
+
+      // triggered by OS theme changed
+      ipcRenderer.on('os-theme-updated', (event, arg) => {
+        // auto change only when theme set to 'system'
+        if (arg.themeSource != 'system') {
+          return;
+        }
+
+        setTimeout(() => {
+          changeCSS(arg.shouldUseDarkColors ? 'dark' : 'light');
+        }, 100);
+      });
+
+      // theme init at startup
+      (() => {
+        let theme = localStorage.theme;
+
+        if (!['system', 'light', 'dark'].includes(theme)) {
+          theme = 'system';
+        }
+
+        // follow system OS
+        if (theme == 'system') {
+          const dark = (new URL(window.location.href)).searchParams.get('dark');
+          changeCSS(dark === 'true' ? 'dark' : 'light');
+        }
+        // setted light or dark
+        else {
+          changeCSS(theme);
+          ipcRenderer.invoke('changeTheme', theme);
+        }
+      })();
+    </script>
+
+    <div id="app"></div>
+    <!-- built files will be auto injected -->
+  </body>
+</html>
