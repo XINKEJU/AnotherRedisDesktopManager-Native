@@ -115,14 +115,14 @@ struct ConnectionSidebar: View {
                                 Button(L10n("Close Connection")) { store.closeConnection(id) }
                                 Button(L10n("Refresh")) { store.switchConnection(id); store.refreshKeys(reset: true) }
                                 Divider()
-                                Button("Close Other Tabs") {
+                                Button(L10n("Close Other Tabs")) {
                                     for other in store.openConnectionIDs where other != id { store.closeConnection(other) }
                                 }
-                                Button("Close Tabs to the Left") {
+                                Button(L10n("Close Tabs to the Left")) {
                                     guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
                                     for other in store.openConnectionIDs.prefix(index) { store.closeConnection(other) }
                                 }
-                                Button("Close Tabs to the Right") {
+                                Button(L10n("Close Tabs to the Right")) {
                                     guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
                                     for other in store.openConnectionIDs.suffix(from: index + 1) { store.closeConnection(other) }
                                 }
@@ -150,8 +150,8 @@ struct ConnectionSidebar: View {
                     Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
                     Button(L10n("Disconnect")) { store.disconnect() }
                     Divider()
-                    Button("Import / Export…") { store.showingImportExport = true }
-                    Button("New Group…") { showingNewGroup = true }
+                    Button(L10n("Import / Export…")) { store.showingImportExport = true }
+                    Button(L10n("New Group…")) { showingNewGroup = true }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .frame(width: 26)
@@ -171,7 +171,7 @@ struct ConnectionSidebar: View {
                     }
                 }
                 ForEach(groups, id: \.0) { groupName, configs in
-                    Section(groupName) {
+                    Section(L10n(groupName)) {
                         ForEach(configs, id: \.identifier) { config in
                             ConnectionRow(config: config)
                                 .tag(config.identifier)
@@ -214,7 +214,7 @@ struct ConnectionSidebar: View {
                 store.saveConnections()
                 newGroupName = ""
             }
-        } message: { Text("Creates a group with a placeholder connection. Drag connections onto a group to move them.") }
+        } message: { Text(L10n("Creates a group with a placeholder connection. Drag connections onto a group to move them.")) }
     }
 }
 
@@ -337,11 +337,11 @@ struct ConnectionEditorView: View {
             SecureField(L10n("Password / key passphrase"), text: $draft.sshPassword)
             HStack {
                 TextField(L10n("Private key path"), text: $draft.sshPrivateKey)
-                Button("Browse…") { if let path = chooseFile() { draft.sshPrivateKey = path } }
+                Button(L10n("Browse…")) { if let path = chooseFile() { draft.sshPrivateKey = path } }
             }
             SecureField(L10n("Key passphrase"), text: $draft.sshPassphrase)
             TextField(L10n("Timeout (s)"), text: $draft.sshTimeout)
-            Text("Uses /usr/bin/ssh -L with SSH_ASKPASS; replaces tunnel-ssh.")
+            Text(L10n("Uses /usr/bin/ssh -L with SSH_ASKPASS; replaces tunnel-ssh."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -356,7 +356,7 @@ struct ConnectionEditorView: View {
             fileRow("Client certificate (PEM)", $draft.tlsCert)
             fileRow("Private key (PEM)", $draft.tlsKey)
             fileRow("PKCS#12 identity (.p12)", $draft.tlsIdentityPath)
-            Text("Mutual TLS loads the client identity via Security.framework (SecPKCS12Import / SecItemImport).")
+            Text(L10n("Mutual TLS loads the client identity via Security.framework (SecPKCS12Import / SecItemImport)."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -368,7 +368,7 @@ struct ConnectionEditorView: View {
             TextField(L10n("Master name"), text: $draft.sentinelMaster)
             SecureField(L10n("Sentinel node password"), text: $draft.sentinelNodePassword)
             Divider()
-            Text("Cluster NAT map — one `internal:port=public:port` per line")
+            Text(L10n("Cluster NAT map — one `internal:port=public:port` per line"))
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $draft.natMapText)
                 .font(.system(size: 11, design: .monospaced))
@@ -382,7 +382,7 @@ struct ConnectionEditorView: View {
     private func fileRow(_ label: String, _ binding: Binding<String>) -> some View {
         HStack {
             TextField(label, text: binding)
-            Button("Browse…") { if let path = chooseFile() { binding.wrappedValue = path } }
+            Button(L10n("Browse…")) { if let path = chooseFile() { binding.wrappedValue = path } }
         }
     }
 
@@ -452,8 +452,8 @@ struct ImportExportSheet: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(selection == 0 ? connectionJSON : keyJSON, forType: .string)
                 }
-                Button("Save to File…") { saveToFile() }
-                Button("Load from File…") { loadFromFile() }
+                Button(L10n("Save to File…")) { saveToFile() }
+                Button(L10n("Load from File…")) { loadFromFile() }
                 Spacer()
                 Button(L10n("Import / Apply")) { apply() }.buttonStyle(.borderedProminent)
                 Button(L10n("Close")) { dismiss() }

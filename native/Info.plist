@@ -4,6 +4,13 @@
 <dict>
     <key>CFBundleName</key>
     <string>ARDM Native</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>zh-Hans</string>
+        <string>en</string>
+    </array>
     <key>CFBundleDisplayName</key>
     <string>Another Redis Desktop Manager</string>
     <key>CFBundleIdentifier</key>

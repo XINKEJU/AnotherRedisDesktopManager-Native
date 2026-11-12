@@ -13,7 +13,7 @@ struct SettingsView: View {
             HStack {
                 Text(L10n("Settings")).font(.headline)
                 Spacer()
-                Text("All preferences persist to NSUserDefaults").font(.caption).foregroundStyle(.secondary)
+                Text(L10n("All preferences persist to NSUserDefaults")).font(.caption).foregroundStyle(.secondary)
             }
             .padding(12)
 
@@ -27,9 +27,9 @@ struct SettingsView: View {
 
             Divider()
             HStack {
-                Button("Keyboard Shortcuts…") { store.showingHotKeys = true }
-                Button("Import / Export…") { store.showingImportExport = true }
-                Button("Custom Formatters…") { store.showingFormatterManager = true }
+                Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
+                Button(L10n("Import / Export…")) { store.showingImportExport = true }
+                Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
                 Spacer()
                 Button(L10n("Close")) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.borderedProminent)
             }
@@ -85,7 +85,7 @@ struct SettingsView: View {
                 .frame(width: 110)
                 .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
             }
-            Text("Read-only is enforced in the RESP client before any command is written.")
+            Text(L10n("Read-only is enforced in the RESP client before any command is written."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -96,7 +96,7 @@ struct SettingsView: View {
             Picker(L10n("Default viewer"), selection: $store.viewerName) {
                 ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
             }
-            Text("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):")
+            Text(L10n("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):"))
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $store.customViewerScript)
                 .font(.system(size: 11, design: .monospaced))
@@ -104,11 +104,11 @@ struct SettingsView: View {
                 .border(Color.secondary.opacity(0.3))
             HStack {
                 Button(L10n("Test on current value")) { store.viewerName = "Custom"; store.renderValue() }
-                Button("Manage formatters…") { store.showingFormatterManager = true }
+                Button(L10n("Manage formatters…")) { store.showingFormatterManager = true }
                 Spacer()
                 Text("\(store.customFormatters.count) saved formatters").font(.caption)
             }
-            Text("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore.")
+            Text(L10n("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -142,7 +142,7 @@ struct SettingsView: View {
             Text(store.updateStatus.isEmpty ? "Uses the GitHub Releases API (electron-updater replacement)." : store.updateStatus)
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
-            Text("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity.")
+            Text(L10n("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity."))
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)

@@ -116,7 +116,7 @@ extension AppStore {
             switchConnection(config.identifier)
             return
         }
-        statusText = "Connecting to \(config.name)…"
+        statusText = L10n("Connecting to") + " \(config.name)…"
         onBackground {
             let client = ARDMRedisClient(config: config)
             client.onLog = { log in
@@ -139,7 +139,7 @@ extension AppStore {
                     self.dbSize = size
                     self.separator = config.separator.isEmpty ? self.separator : config.separator
                     self.readOnly = config.readOnly
-                    self.statusText = "Connected: \(config.name) @ \(client.hostUsed):\(client.portUsed)"
+                    self.statusText = L10n("Connected:") + " \(config.name) @ \(client.hostUsed):\(client.portUsed)"
                     self.refreshKeys(reset: true)
                     self.loadStatus()
                 }
@@ -190,7 +190,7 @@ extension AppStore {
         buildTree()
         selectedKey = nil
         keyRows = []
-        statusText = "Switched to \(config?.name ?? id)"
+        statusText = L10n("Switched to") + " \(config?.name ?? id)"
         if keys.isEmpty { refreshKeys(reset: true) }
         loadStatus()
     }
@@ -225,7 +225,7 @@ extension AppStore {
         keyRows = []
         liveEvents = []
         liveRunning = false
-        statusText = "Disconnected"
+        statusText = L10n("Disconnected")
     }
 
     func changeDatabase(_ db: Int) {
@@ -255,7 +255,7 @@ extension AppStore {
 
     func refreshKeys(reset: Bool = true) {
         guard connected else { return }
-        statusText = "Scanning keys…"
+        statusText = L10n("Scanning keys…")
         onBackground {
             do {
                 var cursor: UInt = 0
@@ -271,7 +271,7 @@ extension AppStore {
                     self.buildTree()
                     if let id = self.activeConnectionID { self.keyCache[id] = self.keys }
                     self.dbSize = self.client?.dbSize(nil) ?? self.dbSize
-                    self.statusText = "\(self.keys.count) keys loaded (DB \(self.selectedDB), total \(self.dbSize))"
+                    self.statusText = "\(self.keys.count) " + L10n("keys loaded") + " · DB \(self.selectedDB) · " + L10n("total") + " \(self.dbSize)"
                 }
             } catch {
                 self.onMain { self.fail("SCAN failed: \(error.localizedDescription)") }
@@ -306,7 +306,7 @@ extension AppStore {
                     self.scanFinished = cursor == 0
                     self.buildTree()
                     if let id = self.activeConnectionID { self.keyCache[id] = self.keys }
-                    self.statusText = "\(self.keys.count) keys loaded"
+                    self.statusText = "\(self.keys.count) " + L10n("keys loaded")
                 }
             } catch {
                 self.onMain { self.fail(error.localizedDescription) }

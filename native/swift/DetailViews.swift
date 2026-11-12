@@ -7,18 +7,52 @@ struct DetailPane: View {
     @EnvironmentObject var store: AppStore
 
     var body: some View {
-        Group {
-            switch store.activeTab {
-            case .keys: KeyDetailView()
-            case .cli: CLIView()
-            case .status: StatusView()
-            case .slowLog: SlowLogView()
-            case .memory: MemoryView()
-            case .cluster: ClusterView()
-            case .pubsub: PubSubView()
-            case .monitor: MonitorView()
-            case .logs: CommandLogView()
+        VStack(spacing: 0) {
+            // A labelled, scrollable tab strip replaces the old icon-only
+            // segmented control that packed nine tabs into the title bar.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(MainTab.allCases) { tab in
+                        Button { store.activeTab = tab } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: tab.icon).font(.system(size: 11))
+                                Text(L10n(tab.title)).font(.system(size: 11))
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(store.activeTab == tab
+                                          ? Color.accentColor.opacity(0.18)
+                                          : Color.clear)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(store.activeTab == tab ? Color.accentColor : Color.secondary)
+                        .help(L10n(tab.title))
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
             }
+            .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Group {
+                switch store.activeTab {
+                case .keys: KeyDetailView()
+                case .cli: CLIView()
+                case .status: StatusView()
+                case .slowLog: SlowLogView()
+                case .memory: MemoryView()
+                case .cluster: ClusterView()
+                case .pubsub: PubSubView()
+                case .monitor: MonitorView()
+                case .logs: CommandLogView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -46,7 +80,7 @@ struct KeyDetailView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "key").font(.system(size: 42)).foregroundStyle(.tertiary)
                     Text(L10n("Select a key to view and edit its value")).foregroundStyle(.secondary)
-                    Text("10 data types · 15 format viewers · field-level editing")
+                    Text(L10n("10 data types · 15 format viewers · field-level editing"))
                         .font(.caption).foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,7 +139,7 @@ struct KeyDetailView: View {
             if store.selectedKeyType == .reJSON {
                 HStack {
                     Text(L10n("JSON path")).font(.caption)
-                    TextField("$", text: $store.jsonPath).textFieldStyle(.roundedBorder).frame(width: 200)
+                    TextField(L10n("$"), text: $store.jsonPath).textFieldStyle(.roundedBorder).frame(width: 200)
                     Button(L10n("Load path")) { store.loadTypedValue() }
                     Spacer()
                 }.padding(8)
@@ -121,7 +155,7 @@ struct KeyDetailView: View {
                     store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
                     store.renderValue()
                 }
-                Button("Binary input…") { chooseBinaryFile() }
+                Button(L10n("Binary input…")) { chooseBinaryFile() }
                 Spacer()
                 Button(L10n("Save")) { store.saveEditorText() }.buttonStyle(.borderedProminent)
             }
@@ -361,7 +395,7 @@ struct FormatterManagerSheet: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
                     TextField(L10n("Name"), text: $name).textFieldStyle(.roundedBorder)
-                    Text("JavaScript runs in JavaScriptCore with `bytes` (Uint8Array).")
+                    Text(L10n("JavaScript runs in JavaScriptCore with `bytes` (Uint8Array)."))
                         .font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $script)
                         .font(.system(size: 11, design: .monospaced))

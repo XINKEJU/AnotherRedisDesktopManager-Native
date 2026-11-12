@@ -12,7 +12,7 @@ struct ARDMNativeApp: App {
         WindowGroup(id: "ardm-main") {
             RootView()
                 .environmentObject(store)
-                .frame(minWidth: 1040, minHeight: 660)
+                .frame(minWidth: 1120, minHeight: 700)
                 .preferredColorScheme(store.preferredColorScheme)
         }
         .windowStyle(.titleBar)
@@ -27,9 +27,15 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         // win-state.js replacement: restore the last window frame.
         let defaults = UserDefaults.standard
-        if let frameString = defaults.string(forKey: "ARDMWindowFrame") {
-            let frame = NSRectFromString(frameString)
-            if frame.width > 400, let window = NSApp.windows.first { window.setFrame(frame, display: true) }
+        if let window = NSApp.windows.first {
+            let saved = defaults.string(forKey: "ARDMWindowFrame").map(NSRectFromString)
+            // A cramped restored frame makes the three columns unreadable.
+            if let frame = saved, frame.width >= 1120, frame.height >= 700 {
+                window.setFrame(frame, display: true)
+            } else {
+                window.setContentSize(NSSize(width: 1240, height: 780))
+                window.center()
+            }
         }
         AppStore.shared.startAutoRefresh()
     }
@@ -54,45 +60,45 @@ struct ARDMCommands: Commands {
             Button(L10n("New Key")) { store.showingNewKey = true }
                 .keyboardShortcut("k", modifiers: .command)
         }
-        CommandMenu("Redis") {
+        CommandMenu(L10n("Redis")) {
             Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
             Button(L10n("Disconnect")) { store.disconnect() }
             Divider()
             Button(L10n("Refresh Keys")) { store.refreshKeys(reset: true) }
                 .keyboardShortcut("r", modifiers: .command)
-            Button("Import Connections…") { store.showingImportExport = true }
-            Button("Export Connections…") { store.showingImportExport = true }
+            Button(L10n("Import Connections…")) { store.showingImportExport = true }
+            Button(L10n("Export Connections…")) { store.showingImportExport = true }
         }
-        CommandMenu("Keys") {
+        CommandMenu(L10n("Keys")) {
             Button(L10n("Delete Selected Key")) { if let key = store.selectedKey { store.deleteKeys([key]) } }
                 .keyboardShortcut(.delete, modifiers: .command)
-            Button("Batch Delete…") { store.showingBatchDelete = true }
-            Button("Rename…") { store.showingRename = true }
-            Button("Set TTL…") { store.showingTTL = true }
+            Button(L10n("Batch Delete…")) { store.showingBatchDelete = true }
+            Button(L10n("Rename…")) { store.showingRename = true }
+            Button(L10n("Set TTL…")) { store.showingTTL = true }
             Divider()
             Button(L10n("Copy Key Name")) { copySelectedKey() }
             Button(L10n("Add to Favorites")) { addFavorite() }
         }
-        CommandMenu("View") {
+        CommandMenu(L10n("Workspace")) {
             ForEach(MainTab.allCases) { tab in
-                Button(tab.title) { store.activeTab = tab }
+                Button(L10n(tab.title)) { store.activeTab = tab }
             }
             Divider()
             Button(L10n("Toggle Tree View")) { store.showTree.toggle(); store.buildTree() }
-            Button("Settings…") { store.showingSettings = true }
+            Button(L10n("Settings…")) { store.showingSettings = true }
                 .keyboardShortcut(",", modifiers: .command)
-            Button("Keyboard Shortcuts…") { store.showingHotKeys = true }
+            Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
         }
-        CommandMenu("Tools") {
+        CommandMenu(L10n("Tools")) {
             Button(L10n("Command Log")) { store.activeTab = .logs }
-            Button("Custom Formatters…") { store.showingFormatterManager = true }
-            Button("JSON Editor…") { store.showingJsonEditor = true }
+            Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
+            Button(L10n("JSON Editor…")) { store.showingJsonEditor = true }
             Divider()
-            Button("Check for Updates…") { checkUpdate() }
+            Button(L10n("Check for Updates…")) { checkUpdate() }
         }
-        CommandMenu("Language") {
+        CommandMenu(L10n("Language")) {
             ForEach(store.languages, id: \.self) { code in
-                Button(code.uppercased()) { store.language = code }
+                Button(languageDisplayName(code)) { store.language = code }
             }
         }
     }
@@ -143,7 +149,7 @@ struct RootView: View {
         .modifier(ARDMSheets())
         .alert(L10n("Error"), isPresented: Binding(get: { store.errorMessage != nil },
                                             set: { if !$0 { store.errorMessage = nil } })) {
-            Button("OK", role: .cancel) { }
+            Button(L10n("OK"), role: .cancel) { }
         } message: {
             Text(store.errorMessage ?? "")
         }
@@ -153,35 +159,37 @@ struct RootView: View {
 struct MainToolbar: ToolbarContent {
     @EnvironmentObject var store: AppStore
 
+    // Keep the title bar uncluttered. Tab switching lives in the detail pane's
+    // own labelled tab strip; everything else is grouped into one menu.
     var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button { store.refreshKeys(reset: true) } label: { Label(L10n("Refresh"), systemImage: "arrow.clockwise") }
-                .help("Refresh the key list (⌘R)")
-            Button { store.showingNewKey = true } label: { Label(L10n("New Key"), systemImage: "plus") }
-                .help(L10n("Create a new key"))
-            Button { store.showingBatchDelete = true } label: { Label(L10n("Batch Delete"), systemImage: "trash") }
-                .help(L10n("Delete keys matching a pattern"))
-            Picker(L10n("Tab"), selection: $store.activeTab) {
-                ForEach(MainTab.allCases) { tab in
-                    Label(tab.title, systemImage: tab.icon).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 330)
+        ToolbarItem(placement: .navigation) {
+            Button { store.editingConnection = nil; store.showingConnectionEditor = true } label: {
+                Label(L10n("New Connection"), systemImage: "plus")
+            }.help(L10n("New Connection"))
         }
-        ToolbarItemGroup(placement: .automatic) {
-            Picker("DB", selection: $store.selectedDB) {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Picker(L10n("Database"), selection: $store.selectedDB) {
                 ForEach(0..<16, id: \.self) { Text("DB \($0)").tag($0) }
             }
-            .frame(width: 90)
+            .frame(width: 96)
             .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
-            Toggle(L10n("Read-only"), isOn: $store.readOnly)
-                .toggleStyle(.switch)
-                .onChange(of: store.readOnly) { _, newValue in
-                    store.selectedConnection?.readOnly = newValue
-                    store.saveConnections()
-                }
+            Menu {
+                Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
+                Button(L10n("Disconnect")) { store.disconnect() }
+                Divider()
+                Button(L10n("Refresh Keys")) { store.refreshKeys(reset: true) }
+                Button(L10n("New Key")) { store.showingNewKey = true }
+                Button(L10n("Batch Delete")) { store.showingBatchDelete = true }
+                Divider()
+                Button(L10n("Import / Export…")) { store.showingImportExport = true }
+                Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
+                Button(L10n("JSON Editor…")) { store.showingJsonEditor = true }
+                Divider()
+                Button(L10n("Settings…")) { store.showingSettings = true }
+            } label: {
+                Label(L10n("Tools"), systemImage: "ellipsis.circle")
+            }
+            .help(L10n("Tools"))
         }
     }
 }
@@ -196,10 +204,10 @@ struct StatusBar: View {
             Spacer()
             if store.connected {
                 Text("DB \(store.selectedDB)").font(.caption)
-                Text("\(store.keys.count) / \(store.dbSize) keys").font(.caption)
+                Text("\(store.keys.count) / \(store.dbSize) " + L10n("keys")).font(.caption)
                 if store.liveRunning { Label(L10n("LIVE"), systemImage: "dot.radiowaves.left.and.right").font(.caption) }
             }
-            Text(store.language.uppercased()).font(.caption)
+            Text(uiIsChinese() ? "中文" : store.language.uppercased()).font(.caption)
         }
         .font(.system(size: store.scaled(11)))
         .padding(.horizontal, 12)
@@ -232,13 +240,13 @@ struct ARDMSheets: ViewModifier {
                 BatchDeleteSheet().environmentObject(store).frame(width: 480, height: 260)
             }
             .sheet(isPresented: $store.showingRename) {
-                TextInputSheet(title: "Rename Key", prompt: "New name", initial: store.selectedKey ?? "") { value in
+                TextInputSheet(title: L10n("Rename Key"), prompt: L10n("New name"), initial: store.selectedKey ?? "") { value in
                     store.renameKey(value)
                 }
                 .environmentObject(store).frame(width: 420, height: 180)
             }
             .sheet(isPresented: $store.showingTTL) {
-                TextInputSheet(title: "Set TTL", prompt: "Seconds (-1 to persist)", initial: "\(store.selectedKeyTTL)") { value in
+                TextInputSheet(title: L10n("Set TTL"), prompt: L10n("Seconds (-1 to persist)"), initial: "\(store.selectedKeyTTL)") { value in
                     if let seconds = Int(value) { store.setTTL(seconds) }
                 }
                 .environmentObject(store).frame(width: 420, height: 180)
@@ -274,7 +282,7 @@ struct TextInputSheet: View {
             HStack {
                 Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("OK") { onConfirm(value); dismiss() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                Button(L10n("OK")) { onConfirm(value); dismiss() }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
             }
         }
         .padding(24)

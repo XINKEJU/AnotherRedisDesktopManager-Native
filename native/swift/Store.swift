@@ -15,7 +15,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .memory: return "Memory"
         case .cluster: return "Cluster"
         case .pubsub: return "Pub/Sub"
-        case .monitor: return " Monitor"
+        case .monitor: return "Monitor"
         case .logs: return "Command Log"
         }
     }
@@ -98,10 +98,19 @@ func L(_ key: String, _ fallback: String? = nil) -> String {
     return value
 }
 
-/// Translate an English UI label through the project's own 13 language tables.
-/// Every label that exists in en.js is automatically localised; unknown labels stay English.
+/// Localise a UI label. The explicit Chinese table wins so the whole SwiftUI
+/// layer is translated; other languages fall back to the upstream 13 tables.
 func L10n(_ english: String) -> String {
-    ARDMLocalization.shared().tText(english)
+    if uiIsChinese(), let zh = uiChinese[english] { return zh }
+    return ARDMLocalization.shared().tText(english)
+}
+
+/// A fresh install starts in Chinese on Chinese-language macOS installations.
+func uiDefaultLanguage() -> String {
+    let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
+    if preferred.hasPrefix("zh-hans") || preferred.hasPrefix("zh-cn") || preferred == "zh" { return "cn" }
+    if preferred.hasPrefix("zh-hant") || preferred.hasPrefix("zh-tw") { return "tw" }
+    return "en"
 }
 
 // MARK: - Global application state
@@ -119,7 +128,7 @@ final class AppStore: ObservableObject {
     var clients: [String: ARDMRedisClient] = [:]
     var keyCache: [String: [String]] = [:]
     @Published var activeTab: MainTab = .keys
-    @Published var statusText = "Not connected"
+    @Published var statusText = L10n("Not connected")
     @Published var errorMessage: String?
     @Published var infoMessage: String?
 
@@ -167,7 +176,7 @@ final class AppStore: ObservableObject {
     @Published var pubsubPattern = false
 
     // Settings (persisted)
-    @Published var language: String = UserDefaults.standard.string(forKey: "ARDMLanguage") ?? "en" {
+    @Published var language: String = UserDefaults.standard.string(forKey: "ARDMLanguage") ?? uiDefaultLanguage() {
         didSet { UserDefaults.standard.set(language, forKey: "ARDMLanguage"); ARDMLocalization.shared().currentLanguage = language }
     }
     @Published var theme: String = UserDefaults.standard.string(forKey: "ARDMTheme") ?? "system" {

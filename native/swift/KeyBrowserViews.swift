@@ -23,20 +23,20 @@ struct KeyBrowserView: View {
                     }.buttonStyle(.plain)
                 }
                 Picker("", selection: $store.matchMode) {
-                    ForEach(MatchMode.allCases) { Text($0.label).tag($0) }
+                    ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
                 }
                 .frame(width: 74)
                 .labelsHidden()
                 Button { store.refreshKeys(reset: true) } label: { Image(systemName: "arrow.clockwise") }
                     .help(L10n("Refresh"))
                 Menu {
-                    Button(store.showTree ? "Flat list" : "Tree view") { store.showTree.toggle(); store.buildTree() }
-                    if !store.scanFinished { Button("Load more keys") { store.loadMoreKeys() } }
-                    Button("Batch delete…") { store.showingBatchDelete = true }
-                    Button("Export keys as JSON…") { store.showingImportExport = true }
-                    Button("Scroll to top") { scrollToTop() }
+                    Button(L10n(store.showTree ? "Flat list" : "Tree view")) { store.showTree.toggle(); store.buildTree() }
+                    if !store.scanFinished { Button(L10n("Load more keys")) { store.loadMoreKeys() } }
+                    Button(L10n("Batch delete…")) { store.showingBatchDelete = true }
+                    Button(L10n("Export keys as JSON…")) { store.showingImportExport = true }
+                    Button(L10n("Scroll to top")) { scrollToTop() }
                     Divider()
-                    Button("Copy selected key names") { copySelectedKeys() }
+                    Button(L10n("Copy selected key names")) { copySelectedKeys() }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .frame(width: 26)
@@ -45,10 +45,10 @@ struct KeyBrowserView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                Text("\(store.filteredKeys().count) keys").font(.caption).foregroundStyle(.secondary)
+                Text("\(store.filteredKeys().count) " + L10n("keys")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if !store.checkedKeys.isEmpty {
-                    Button("Delete \(store.checkedKeys.count) selected") {
+                    Button(L10n("Delete selected") + " \(store.checkedKeys.count) " + L10n("keys")) {
                         store.deleteKeys(Array(store.checkedKeys))
                     }.font(.caption)
                     Button(L10n("Clear selection")) { store.checkedKeys.removeAll() }.font(.caption)
@@ -139,8 +139,8 @@ struct KeyBrowserView: View {
         }
         Button(L10n("DUMP")) { store.dumpKey(key) }
         Divider()
-        Button("Rename…") { store.selectedKey = key; store.showingRename = true }
-        Button("Set TTL…") { store.selectedKey = key; store.showingTTL = true }
+        Button(L10n("Rename…")) { store.selectedKey = key; store.showingRename = true }
+        Button(L10n("Set TTL…")) { store.selectedKey = key; store.showingTTL = true }
         Button(L10n("Add to favorites")) {
             if !store.favoriteKeys.contains(key) { store.favoriteKeys.append(key); store.saveFavorites() }
         }
@@ -206,9 +206,9 @@ struct BatchDeleteSheet: View {
     var body: some View {
         VStack(spacing: 14) {
             Text(L10n("Batch delete keys")).font(.headline)
-            Text("SCAN matching a glob pattern, then UNLINK in chunks of 500.")
+            Text(L10n("SCAN matching a glob pattern, then UNLINK in chunks of 500."))
                 .font(.caption).foregroundStyle(.secondary)
-            TextField("Pattern (e.g. session:*)", text: $pattern)
+            TextField(L10n("Pattern (e.g. session:*)"), text: $pattern)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { preview() }
             HStack {
@@ -216,7 +216,7 @@ struct BatchDeleteSheet: View {
                 Text("\(previewCount) matching keys").font(.caption)
             }
             if confirming {
-                Text("⚠️ This permanently deletes every matching key.")
+                Text(L10n("⚠️ This permanently deletes every matching key."))
                     .foregroundStyle(.red).font(.caption)
             }
             HStack {

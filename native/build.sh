@@ -48,6 +48,11 @@ cp "$PROJECT"/src/commands.js "$APP/Contents/Resources/commands.js"
 if [ -f "$PROJECT/pack/electron/icons/icon.icns" ]; then
     cp "$PROJECT/pack/electron/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
 fi
+# Declaring a zh-Hans localization lets AppKit localise the standard
+# File/Edit/View/Window/Help menus to Chinese on Chinese macOS systems.
+mkdir -p "$APP/Contents/Resources/zh-Hans.lproj"
+printf '/* Simplified Chinese localization marker for AppKit system menus */\n' \
+    > "$APP/Contents/Resources/zh-Hans.lproj/Localizable.strings"
 
 echo "[5/6] Signing (ad-hoc) and verifying..."
 codesign --force --sign - "$APP" 2>/dev/null || echo "  (ad-hoc signing skipped)"

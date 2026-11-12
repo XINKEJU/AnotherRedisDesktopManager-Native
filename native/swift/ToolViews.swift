@@ -20,13 +20,13 @@ struct CLIView: View {
             .padding(10)
 
             HStack(spacing: 8) {
-                TextField("Enter a Redis command, e.g. HGETALL myhash", text: $store.cliInput)
+                TextField(L10n("Enter a Redis command, e.g. HGETALL myhash"), text: $store.cliInput)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: store.scaled(store.fontSize), design: .monospaced))
                     .onSubmit { store.runCLI() }
                 Button(L10n("Run")) { store.runCLI() }.buttonStyle(.borderedProminent)
-                Button("↑") { store.previousCLICommand() }.help(L10n("Previous command"))
-                Button("↓") { store.nextCLICommand() }.help(L10n("Next command"))
+                Button(L10n("↑")) { store.previousCLICommand() }.help(L10n("Previous command"))
+                Button(L10n("↓")) { store.nextCLICommand() }.help(L10n("Next command"))
                 Button(L10n("Clear")) { store.cliOutput = "" }
             }
             .padding(.horizontal, 10)
@@ -217,32 +217,42 @@ struct ClusterView: View {
                 Button(L10n("Refresh")) { store.loadClusterTopology() }
                 Button(L10n("CLUSTER INFO")) { store.execute(["CLUSTER", "INFO"]) }
             }.padding(10)
-            List {
-                Section(L10n("Slot ranges")) {
-                    ForEach(store.clusterSlots.indices, id: \.self) { index in
-                        let slot = store.clusterSlots[index]
-                        HStack {
-                            Text("\(ardmString(slot["start"])) – \(ardmString(slot["end"]))")
-                                .font(.system(size: 11, design: .monospaced)).frame(width: 140, alignment: .leading)
-                            Text(ardmString(slot["master"])).font(.system(size: 11, design: .monospaced))
-                            Spacer()
+            if !store.connected {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.grid.3x3").font(.system(size: 36)).foregroundStyle(.tertiary)
+                    Text(L10n("Not connected")).font(.headline)
+                    Text(L10n("Connect to a Redis Cluster to inspect its topology."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    Section(L10n("Slot ranges")) {
+                        ForEach(store.clusterSlots.indices, id: \.self) { index in
+                            let slot = store.clusterSlots[index]
+                            HStack {
+                                Text("\(ardmString(slot["start"])) – \(ardmString(slot["end"]))")
+                                    .font(.system(size: 11, design: .monospaced)).frame(width: 140, alignment: .leading)
+                                Text(ardmString(slot["master"])).font(.system(size: 11, design: .monospaced))
+                                Spacer()
+                            }
                         }
                     }
-                }
-                Section(L10n("Nodes")) {
-                    ForEach(store.clusterNodes.indices, id: \.self) { index in
-                        let node = store.clusterNodes[index]
-                        HStack {
-                            Text(ardmString(node["id"])).font(.system(size: 10, design: .monospaced)).frame(width: 200, alignment: .leading)
-                            Text(ardmString(node["address"])).font(.system(size: 10, design: .monospaced)).frame(width: 160, alignment: .leading)
-                            Text(ardmString(node["flags"])).font(.system(size: 10, design: .monospaced))
-                            Spacer()
+                    Section(L10n("Nodes")) {
+                        ForEach(store.clusterNodes.indices, id: \.self) { index in
+                            let node = store.clusterNodes[index]
+                            HStack {
+                                Text(ardmString(node["id"])).font(.system(size: 10, design: .monospaced)).frame(width: 200, alignment: .leading)
+                                Text(ardmString(node["address"])).font(.system(size: 10, design: .monospaced)).frame(width: 160, alignment: .leading)
+                                Text(ardmString(node["flags"])).font(.system(size: 10, design: .monospaced))
+                                Spacer()
+                            }
                         }
                     }
                 }
             }
         }
-        .onAppear { store.loadClusterTopology() }
+        .onAppear { if store.connected { store.loadClusterTopology() } }
     }
 }
 

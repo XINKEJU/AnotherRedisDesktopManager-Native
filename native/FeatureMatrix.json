@@ -31,8 +31,10 @@
     "swift_typecheck_errors": 0,
     "runtime_probe": "32 passed, 0 failed (RESP round-trip against a local fake Redis server)",
     "gui": "app launches, three-column SwiftUI window renders correctly (screenshot verified)",
-    "localization_probe": "Save->保存, Refresh->刷新, New Connection->新建连接, Import->导入, Host->地址, all 13 language tables load",
-    "labels_localized": 208
+    "localization_probe": "中文界面截图实测：菜单栏、工具栏、标签条、空态、状态栏全部中文；其余 12 语言仍走 en.js 反查",
+    "labels_localized": 217,
+    "chinese_table_entries": 303,
+    "gui_layout": "工具栏精简为 3 个控件，9 个功能标签移到详情区中文标签条；窗口最小 1120x700，未连接时不触发集群命令"
   },
   "domains": [
     {
@@ -41,8 +43,9 @@
       "status": "native",
       "native": [
         "SwiftUI @main App + NSApplicationDelegateAdaptor",
-        "NavigationSplitView 三栏布局 + NSToolbar",
-        "完整主菜单 (File / Redis / Keys / View / Tools / Language)",
+        "NavigationSplitView 三栏布局 + 精简 NSToolbar（新建连接 / 数据库选择 / 工具菜单）",
+        "详情区中文标签条（键 / 命令行 / 状态 / 慢日志 / 内存 / 集群 / 发布订阅 / 监控 / 命令日志）",
+        "完整中文主菜单 (文件 / 编辑 / 显示 / Redis / 键 / 工作区 / 工具 / 语言 / 窗口 / 帮助)，AppKit 系统菜单由 zh-Hans.lproj 本地化",
         "Tabs.vue 多连接并发：clients 字典保存多个活动 socket，标签栏切换/关闭/批量关闭",
         "窗口几何恢复 (UserDefaults ARDMWindowFrame)",
         "退出时 disconnectAll 关闭全部连接"
@@ -146,8 +149,9 @@
       "status": "native",
       "native": [
         "复用项目原有 13 个语言文件，bundle 内 langs/ 经 JavaScriptCore 加载",
-        "tText: 英文标签反查 en.js 键再解析当前语言，208 处 UI 文案逐屏套用",
-        "菜单、工具栏、连接编辑器、键操作、设置、监控、CLI 全部走本地化链路"
+        "303 条显式简体中文表 (swift/UILabels.swift) 覆盖 217/222 个界面标签；其余为 $ / 箭头 / SSH / TLS 等符号与专有名词",
+        "tText: 英文标签反查 en.js 键再解析当前语言，保留给其余 12 语言",
+        "默认语言跟随系统：中文 macOS 首次启动即为简体中文；菜单、工具栏、连接编辑器、键操作、设置、监控、CLI、状态栏全部走本地化链路"
       ]
     },
     {
