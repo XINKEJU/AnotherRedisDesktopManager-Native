@@ -272,22 +272,26 @@ struct RootView: View {
     @EnvironmentObject var store: AppStore
 
     var body: some View {
-        NavigationSplitView {
-            ConnectionSidebar()
-                // Persisted sidebar width (upstream localStorage.sideWidth, 200–1500px).
-                .navigationSplitViewColumnWidth(min: 200,
-                                                ideal: CGFloat(min(1500, max(200, store.sidebarWidth))),
-                                                max: 1500)
-        } content: {
-            KeyBrowserView()
-                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 520)
-        } detail: {
-            DetailPane()
+        // Hand-rolled three-column split instead of NavigationSplitView: the
+        // split view draws its dividers through the title bar and under the
+        // status bar, no matter what bounds the view is given. These dividers
+        // are ordinary views, so they stop exactly where the columns stop.
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ConnectionSidebar()
+                    .frame(width: CGFloat(min(520, max(200, store.sidebarWidth))))
+                    .layoutPriority(1)
+                ColumnDivider(limit: 520, lower: 200, value: $store.sidebarWidth)
+                KeyBrowserView()
+                    .frame(width: 340)
+                    .layoutPriority(1)
+                Divider()
+                DetailPane()
+                    .frame(maxWidth: .infinity)
+            }
+
+            StatusBar(toolsMenu: true)
         }
-        // The three columns are fixed for this tool; the sidebar-collapse button
-        // in the title bar is removed in the app delegate instead.
-        .toolbar { MainToolbar() }
-        .safeAreaInset(edge: .bottom) { StatusBar() }
         .modifier(ARDMSheets())
         .alert(L10n("Error"), isPresented: Binding(get: { store.errorMessage != nil },
                                             set: { if !$0 { store.errorMessage = nil } })) {
@@ -298,88 +302,131 @@ struct RootView: View {
     }
 }
 
-struct MainToolbar: ToolbarContent {
+/// The one overflow menu the window still needs (connect/disconnect, refresh,
+/// database switcher, import/export, settings). It used to live in the title
+/// bar toolbar, but attaching a toolbar makes the window lay its content out
+/// under the title bar, which dragged the column dividers up through it.
+struct ToolsMenu: View {
     @EnvironmentObject var store: AppStore
 
-    // The toolbar holds no actions of its own any more. New Connection lives in
-    // the sidebar, where the connections are, and the database picker moved into
-    // the sidebar tree under each open connection. What is left is one overflow
-    // menu for the commands that appear nowhere else.
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Section {
-                    Button {
-                        if let c = store.selectedConnection { store.connect(to: c) }
-                    } label: {
-                        Label(L10n("Connect"), systemImage: "play.fill")
-                    }
-                    Button { store.disconnect() } label: {
-                        Label(L10n("Disconnect"), systemImage: "stop.fill")
-                    }
+    var body: some View {
+        Menu {
+            Section {
+                Button {
+                    if let c = store.selectedConnection { store.connect(to: c) }
+                } label: {
+                    Label(L10n("Connect"), systemImage: "play.fill")
                 }
-                Section {
-                    Button { store.refreshKeys(reset: true) } label: {
-                        Label(L10n("Refresh Keys"), systemImage: "arrow.clockwise")
-                    }
-                    Button { store.showingNewKey = true } label: {
-                        Label(L10n("New Key"), systemImage: "plus.square")
-                    }
-                    Button { store.showingBatchDelete = true } label: {
-                        Label(L10n("Batch Delete"), systemImage: "trash")
-                    }
+                Button { store.disconnect() } label: {
+                    Label(L10n("Disconnect"), systemImage: "stop.fill")
                 }
-                if store.connected {
-                    Section {
-                        Menu {
-                            ForEach(0..<16, id: \.self) { db in
-                                Button {
-                                    store.changeDatabase(db)
-                                } label: {
-                                    if store.selectedDB == db {
-                                        Label("db\(db)", systemImage: "checkmark")
-                                    } else {
-                                        Text("db\(db)")
-                                    }
+            }
+            Section {
+                Button { store.refreshKeys(reset: true) } label: {
+                    Label(L10n("Refresh Keys"), systemImage: "arrow.clockwise")
+                }
+                Button { store.showingNewKey = true } label: {
+                    Label(L10n("New Key"), systemImage: "plus.square")
+                }
+                Button { store.showingBatchDelete = true } label: {
+                    Label(L10n("Batch Delete"), systemImage: "trash")
+                }
+            }
+            if store.connected {
+                Section {
+                    Menu {
+                        ForEach(0..<16, id: \.self) { db in
+                            Button {
+                                store.changeDatabase(db)
+                            } label: {
+                                if store.selectedDB == db {
+                                    Label("db\(db)", systemImage: "checkmark")
+                                } else {
+                                    Text("db\(db)")
                                 }
                             }
-                        } label: {
-                            Label(L10n("Database"), systemImage: "cylinder.split.1x2")
                         }
+                    } label: {
+                        Label(L10n("Database"), systemImage: "cylinder.split.1x2")
                     }
                 }
-                Section {
-                    Button { store.showingImportExport = true } label: {
-                        Label(L10n("Import / Export…"), systemImage: "arrow.up.arrow.down")
-                    }
-                    Button { store.showingFormatterManager = true } label: {
-                        Label(L10n("Custom Formatters…"), systemImage: "wand.and.stars")
-                    }
-                    Button { store.showingJsonEditor = true } label: {
-                        Label(L10n("JSON Editor…"), systemImage: "curlybraces")
-                    }
-                }
-                Section {
-                    Button { store.showingSettings = true } label: {
-                        Label(L10n("Settings…"), systemImage: "gearshape")
-                    }
-                }
-            } label: {
-                // Generic sliders read cleanly at 13pt; the crossed wrench and
-                // screwdriver collapsed into a scribble at this size.
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 13))
             }
-            .menuIndicator(.hidden)
-            .help(L10n("Tools"))
-            .accessibilityLabel(L10n("Tools"))
-            .accessibilityIdentifier("toolbar.tools")
+            Section {
+                Button { store.showingImportExport = true } label: {
+                    Label(L10n("Import / Export…"), systemImage: "arrow.up.arrow.down")
+                }
+                Button { store.showingFormatterManager = true } label: {
+                    Label(L10n("Custom Formatters…"), systemImage: "wand.and.stars")
+                }
+                Button { store.showingJsonEditor = true } label: {
+                    Label(L10n("JSON Editor…"), systemImage: "curlybraces")
+                }
+            }
+            Section {
+                Button { store.showingSettings = true } label: {
+                    Label(L10n("Settings…"), systemImage: "gearshape")
+                }
+            }
+        } label: {
+            // Generic sliders read cleanly at 13pt; the crossed wrench and
+            // screwdriver collapsed into a scribble at this size.
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 13))
         }
+        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(L10n("Tools"))
+        .accessibilityLabel(L10n("Tools"))
+        .accessibilityIdentifier("toolbar.tools")
+    }
+}
+
+// MARK: - Draggable column divider
+
+/// A 1pt rule with a wider invisible drag strip. Dragging adjusts the sidebar
+/// width the way the old split view did, but the rule itself is an ordinary
+/// view: it ends where the columns end instead of running through the title
+/// bar and the status bar.
+struct ColumnDivider: View {
+    @EnvironmentObject var store: AppStore
+    let limit: Double
+    let lower: Double
+    @Binding var value: Double
+    @State private var dragStart: Double?
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 7)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            if dragStart == nil { dragStart = value }
+                            let base = dragStart ?? value
+                            value = Swift.min(limit, Swift.max(lower, base + Double(g.translation.width)))
+                        }
+                        .onEnded { _ in dragStart = nil }
+                )
+        }
+        .frame(width: 7)
+        .frame(maxHeight: .infinity)
+        .accessibilityLabel("sidebar divider")
     }
 }
 
 struct StatusBar: View {
     @EnvironmentObject var store: AppStore
+    var toolsMenu = false
 
     /// The bar used to be whatever the last operation wrote into `statusText`,
     /// so it alternated between "500 / 3038 keys · DB 0" and "13 rows" and lost
@@ -421,6 +468,10 @@ struct StatusBar: View {
                 .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(L10n("LIVE"))
+            }
+            if toolsMenu {
+                ToolsMenu()
+                    .foregroundStyle(.secondary)
             }
         }
         .font(.system(size: ARDMFont.small))

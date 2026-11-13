@@ -64,7 +64,7 @@ struct SettingsView: View {
             }
             HStack {
                 Text(L10n("Sidebar width"))
-                Slider(value: $store.sidebarWidth, in: 200...1500, step: 10)
+                Slider(value: $store.sidebarWidth, in: 200...520, step: 10)
                 Text("\(Int(store.sidebarWidth)) px").font(store.monoFont(11)).frame(width: 60, alignment: .trailing)
             }
             Text("\(store.fonts.count) system font families enumerated (font-list replacement).")

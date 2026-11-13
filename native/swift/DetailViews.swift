@@ -474,14 +474,21 @@ struct KeyDetailView: View {
     /// single most recognisable part of the reference layout.
     private var codeSurface: some View {
         let shown = showsRenderedPane ? store.renderedValue : store.editorText
-        return ARDMCodeView(
-            text: showsRenderedPane ? $store.renderedValue : $store.editorText,
-            isEditable: !showsRenderedPane,
-            fontSize: store.scaled(13),
-            fontName: store.fontFamily,
-            language: ARDMCodeLanguage.detect(shown, viewer: store.viewerName),
-            identifier: "detail.editor"
-        )
+        // GeometryReader pins the NSTextView wrapper to exactly the rectangle
+        // the VStack allots. Left free, the scroll view reports a fitting size
+        // larger than its slot and its gutter bleeds over the editor footer
+        // and the status bar.
+        return GeometryReader { geo in
+            ARDMCodeView(
+                text: showsRenderedPane ? $store.renderedValue : $store.editorText,
+                isEditable: !showsRenderedPane,
+                fontSize: store.scaled(13),
+                fontName: store.fontFamily,
+                language: ARDMCodeLanguage.detect(shown, viewer: store.viewerName),
+                identifier: "detail.editor"
+            )
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
     }

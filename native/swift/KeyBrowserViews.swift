@@ -11,18 +11,25 @@ struct KeyBrowserView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
+        // Every strip here is priority 1 on purpose: the list is the only
+        // flexible member, so when the column runs out of height the list
+        // shrinks first and the load-more bar always survives at full height.
         VStack(spacing: 0) {
             databaseTabs
-            Divider()
+                .layoutPriority(1)
+            Divider().layoutPriority(1)
             headerRow
+                .layoutPriority(1)
             searchRow
+                .layoutPriority(1)
             groupingRow
+                .layoutPriority(1)
             // Contextual, not permanent: the filter row only exists while it is
             // switched on, and the selection bar only while keys are checked.
-            if showingFilter { filterRow }
-            if !store.checkedKeys.isEmpty { selectionRow }
+            if showingFilter { filterRow.layoutPriority(1) }
+            if !store.checkedKeys.isEmpty { selectionRow.layoutPriority(1) }
 
-            Divider()
+            Divider().layoutPriority(1)
 
             ScrollViewReader { proxy in
                 keyList
@@ -30,6 +37,7 @@ struct KeyBrowserView: View {
             }
 
             loadMoreBar
+                .layoutPriority(1)
         }
         .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
         .onChange(of: store.separator) { _, _ in store.buildTree() }

@@ -42,6 +42,9 @@ struct ARDMCodeView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
+        // SwiftUI owns the frame; leaving the bridge to auto-translate let the
+        // scroll view grow past its slot and bleed over neighbouring rows.
+        scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
