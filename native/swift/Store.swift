@@ -401,6 +401,8 @@ final class AppStore: ObservableObject {
     @Published var showingConnectionEditor = false
     @Published var editingConnection: ARDMConnectionConfig?
     @Published var showingSettings = false
+    /// ⌘K quick-open palette (spotlight-style key jump).
+    @Published var showingQuickOpen = false
     @Published var showingNewKey = false
     @Published var showingBatchDelete = false
     @Published var showingRename = false

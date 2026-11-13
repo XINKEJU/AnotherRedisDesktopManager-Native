@@ -323,32 +323,38 @@ struct KeyBrowserView: View {
     /// Two equal halves, always visible. A 3000-key database is 90% "load more";
     /// hiding that behind a menu made the column look finished at 500 rows.
     private var loadMoreBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 0) {
-                Button { store.loadMoreKeys() } label: {
-                    Text(L10n("Load more"))
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(store.scanFinished)
-                .accessibilityIdentifier("key.loadMore")
-
-                Divider().frame(height: 14)
-
-                Button { store.loadAllKeys() } label: {
-                    Text(L10n("Load all"))
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(store.scanFinished)
-                .accessibilityIdentifier("key.loadAll")
+        // Floating glass pill instead of a full-width divider strip: the list
+        // scrolls under it and the two actions read as one control.
+        HStack(spacing: 0) {
+            Button { store.loadMoreKeys() } label: {
+                Text(L10n("Load more"))
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .contentShape(Rectangle())
             }
-            .font(.system(size: ARDMFont.small))
-            .foregroundStyle(store.scanFinished ? Color.secondary.opacity(0.55) : Color.accentColor)
+            .buttonStyle(.plain)
+            .disabled(store.scanFinished)
+            .accessibilityIdentifier("key.loadMore")
+
+            Rectangle()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(width: 1, height: 14)
+
+            Button { store.loadAllKeys() } label: {
+                Text(L10n("Load all"))
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(store.scanFinished)
+            .accessibilityIdentifier("key.loadAll")
         }
+        .font(.system(size: ARDMFont.small))
+        .foregroundStyle(store.scanFinished ? Color.secondary.opacity(0.55) : Color.accentColor)
+        .padding(.horizontal, 8)
+        .ardmGlass(in: Capsule())
+        .padding(.horizontal, 14)
+        .padding(.bottom, 7)
+        .padding(.top, 2)
     }
 
     // MARK: Toolbar pieces

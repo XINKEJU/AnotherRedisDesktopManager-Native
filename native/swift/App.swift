@@ -161,6 +161,9 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         if flag("--show-settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { store.showingSettings = true }
         }
+        if flag("--show-quick-open") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { store.showingQuickOpen = true }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -181,6 +184,12 @@ struct ARDMCommands: Commands {
             Button(L("message.new_connection", "New Connection")) { newConnection() }
                 .keyboardShortcut("n", modifiers: .command)
             Button(L10n("New Key")) { store.showingNewKey = true }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+        }
+        CommandGroup(after: .newItem) {
+            // Spotlight-style jump to any loaded key; the palette owns ⌘K the
+            // way "Open Quickly" owns ⌘⇧O in Xcode.
+            Button(L10n("Quick Open…")) { store.showingQuickOpen = true }
                 .keyboardShortcut("k", modifiers: .command)
         }
         CommandMenu(L10n("Redis")) {
@@ -483,8 +492,9 @@ struct StatusBar: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status.bar")
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(.bar)
+        .padding(.vertical, 5)
+        // Liquid Glass on macOS 26+, bar material below it.
+        .ardmGlass(in: Rectangle())
     }
 }
 
@@ -504,6 +514,11 @@ struct ARDMSheets: ViewModifier {
                 SettingsView()
                     .environmentObject(store)
                     .frame(minWidth: 640, minHeight: 560)
+            }
+            .sheet(isPresented: $store.showingQuickOpen) {
+                QuickOpenSheet()
+                    .environmentObject(store)
+                    .presentationBackground(.clear)
             }
             .sheet(isPresented: $store.showingNewKey) {
                 NewKeySheet().environmentObject(store).frame(width: 480, height: 300)

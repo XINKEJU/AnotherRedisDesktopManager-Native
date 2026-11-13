@@ -57,6 +57,58 @@ enum ARDMFont {
     static let monoRow: CGFloat = 11.5
 }
 
+// MARK: - Liquid Glass (macOS 26 Tahoe and later)
+
+/// Builds the glass variant outside the ViewBuilder: assignments are statements
+/// and ViewBuilder only accepts declarations and view expressions.
+@available(macOS 26.0, *)
+private func ardmGlassVariant(tint: Color?, interactive: Bool) -> Glass {
+    var glass = Glass.regular
+    if let tint { glass = glass.tint(tint) }
+    if interactive { glass = glass.interactive() }
+    return glass
+}
+
+extension View {
+    /// Liquid Glass where the OS provides it, `.regularMaterial` below macOS 26.
+    /// The deployment target is macOS 14, so every call site needs this bridge;
+    /// on a 26+ host this renders the real glass with backdrop refraction, on
+    /// older systems it silently degrades to the nearest system material.
+    ///
+    /// `glassEffect`'s default shape is a capsule, so the shape is always passed
+    /// explicitly here — a bare `.glassEffect()` on a rectangular bar would come
+    /// out as a pill.
+    @ViewBuilder
+    func ardmGlass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(ardmGlassVariant(tint: tint, interactive: interactive), in: shape)
+        } else {
+            self.background(.regularMaterial, in: shape)
+        }
+    }
+
+    /// Groups sibling glass shapes so they blend and morph instead of drawing
+    /// individual frosted circles over each other. No-op below macOS 26.
+    @ViewBuilder
+    func ardmGlassContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 12) { content() }
+        } else {
+            content()
+        }
+    }
+
+    /// Prominent buttons pick up the glass button style on 26+, bordered below.
+    @ViewBuilder
+    func ardmGlassButton() -> some View {
+        if #available(macOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+    }
+}
+
 // MARK: - Controls
 
 /// Square, quiet icon button.

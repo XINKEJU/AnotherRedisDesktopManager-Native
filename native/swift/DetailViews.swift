@@ -414,6 +414,12 @@ struct KeyDetailView: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
         }
+        // One glass slab behind both chip rows (macOS 26+): the chips read as a
+        // single floating control instead of paint on the detail background.
+        .padding(.vertical, 3)
+        .ardmGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 8)
+        .padding(.top, 2)
     }
 
     private func selectViewer(_ viewer: String) {
@@ -496,25 +502,23 @@ struct KeyDetailView: View {
     /// Discard / save, bottom right, exactly where the reference puts them. The
     /// save button used to sit in the format row, mixed in with the viewers.
     private var editorFooter: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 8) {
-                Text("\(store.keyRawValue.count) " + L10n("bytes"))
-                    .font(.system(size: ARDMFont.micro))
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-                Spacer()
-                Button(L10n("Revert")) { store.reloadKeyDetail() }
-                    .controlSize(.small)
-                Button(L10n("Save")) { store.saveEditorText() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(!canEditValue)
-                    .help(L10n("Save re-encodes the value using the active viewer"))
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
+        HStack(spacing: 8) {
+            Text("\(store.keyRawValue.count) " + L10n("bytes"))
+                .font(.system(size: ARDMFont.micro))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+            Spacer()
+            Button(L10n("Revert")) { store.reloadKeyDetail() }
+                .controlSize(.small)
+            Button(L10n("Save")) { store.saveEditorText() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!canEditValue)
+                .help(L10n("Save re-encodes the value using the active viewer"))
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .ardmGlass(in: Rectangle())
     }
 
     private var canEditValue: Bool {
