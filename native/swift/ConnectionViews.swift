@@ -99,6 +99,54 @@ struct ConnectionSidebar: View {
     @State private var showingNewGroup = false
     @State private var newGroupName = ""
 
+
+    /// One connection tab. Extracted from `body` because the inline version with
+    /// its accessibility modifiers and context menu pushed the type checker over
+    /// its time budget on older Swift compilers.
+    private func tabChip(_ id: String) -> some View {
+        let config = store.connections.first { $0.identifier == id }
+        let name = config?.name ?? id
+        let active = id == store.activeConnectionID
+        return HStack(spacing: 4) {
+            Circle()
+                .fill(dotColor(store.connectionStates[id]))
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+            Text(name).font(store.uiFont(10)).lineLimit(1)
+            Button { store.closeConnection(id) } label: {
+                Image(systemName: "xmark").font(store.uiFont(8))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n("Close tab") + ": " + name)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 5).fill(
+            active ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n("Connection tab") + ": " + name)
+        .accessibilityValue(active ? L10n("Selected") : "")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.switchConnection(id) }
+        .onTapGesture { store.switchConnection(id) }
+        .contextMenu {
+            Button(L10n("Close Connection")) { store.closeConnection(id) }
+            Button(L10n("Refresh")) { store.switchConnection(id); store.refreshKeys(reset: true) }
+            Divider()
+            Button(L10n("Close Other Tabs")) {
+                for other in store.openConnectionIDs where other != id { store.closeConnection(other) }
+            }
+            Button(L10n("Close Tabs to the Left")) {
+                guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
+                for other in store.openConnectionIDs.prefix(index) { store.closeConnection(other) }
+            }
+            Button(L10n("Close Tabs to the Right")) {
+                guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
+                for other in store.openConnectionIDs.suffix(from: index + 1) { store.closeConnection(other) }
+            }
+        }
+    }
+
     private var groups: [(String, [ARDMConnectionConfig])] {
         let filtered = store.connections.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.group.localizedCaseInsensitiveContains(query) }
         let grouped = Dictionary(grouping: filtered) { $0.group.isEmpty ? "Ungrouped" : $0.group }
@@ -112,44 +160,7 @@ struct ConnectionSidebar: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         ForEach(store.openConnectionIDs, id: \.self) { id in
-                            let config = store.connections.first { $0.identifier == id }
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(dotColor(store.connectionStates[id]))
-                                    .frame(width: 6, height: 6)
-                                    .accessibilityHidden(true)
-                                Text(config?.name ?? id).font(store.uiFont(10)).lineLimit(1)
-                                Button { store.closeConnection(id) } label: {
-                                    Image(systemName: "xmark").font(store.uiFont(8))
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(L10n("Close tab") + ": " + (config?.name ?? id))
-                            }
-                            .padding(.horizontal, 6).padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(
-                                id == store.activeConnectionID ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12)))
-                            .accessibilityElement(children: .contain)
-                            .accessibilityLabel(L10n("Connection tab") + ": " + (config?.name ?? id))
-                            .accessibilityValue(id == store.activeConnectionID ? L10n("Selected") : "")
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityAction { store.switchConnection(id) }
-                            .onTapGesture { store.switchConnection(id) }
-                            .contextMenu {
-                                Button(L10n("Close Connection")) { store.closeConnection(id) }
-                                Button(L10n("Refresh")) { store.switchConnection(id); store.refreshKeys(reset: true) }
-                                Divider()
-                                Button(L10n("Close Other Tabs")) {
-                                    for other in store.openConnectionIDs where other != id { store.closeConnection(other) }
-                                }
-                                Button(L10n("Close Tabs to the Left")) {
-                                    guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
-                                    for other in store.openConnectionIDs.prefix(index) { store.closeConnection(other) }
-                                }
-                                Button(L10n("Close Tabs to the Right")) {
-                                    guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
-                                    for other in store.openConnectionIDs.suffix(from: index + 1) { store.closeConnection(other) }
-                                }
-                            }
+                            tabChip(id)
                         }
                     }
                 }
