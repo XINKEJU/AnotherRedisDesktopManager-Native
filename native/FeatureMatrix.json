@@ -1162,12 +1162,14 @@
       "core": "88 passed, 0 failed（从仓库路径运行，编译零警告）",
       "updater": "15 passed, 0 failed（真实 .app 与 fixture 两种输入分别跑过）",
       "cwd_independence": "在 /tmp 下调用 run.sh 全量通过，证明不依赖当前目录",
-      "workflow_yaml": "YAML 解析通过（jobs = tests, build）"
+      "workflow_yaml": "YAML 解析通过（jobs = tests, build）",
+      "github_actions": "run 43392172338（main@87d0003）：tests 作业在 macOS 15.8.2 上 88/88 + 15/15 通过（约 15 s，updater 用 fixture 而非真实构建）；build 作业通过，minos=14.0 / arm64 / 4.52 MB，package.sh 产出 zip + SHA256SUMS 并上传 artifact"
     },
     "known_limits": [
-      "CI 尚未在真实 GitHub runner 上跑过：tests 作业只依赖 clang/python3，风险低；build 作业依赖 Xcode 15.x + macOS 14 SDK，若 Swift 代码用到仅新 SDK 才有的符号会在该作业暴露",
+      "macos-14 标签已被 GitHub 下线：作业在 1 秒内被 canceled 且拿不到 runner（看起来像 workflow 写错）。已改用 macos-15；旧标签 macos-13 同样不可用",
       "GUI 未纳入自动化：SwiftUI 布局、菜单、两步更新确认框仍需发布前手测",
-      "core 探针会向登录钥匙串写入并删除 ardm-verify/auth 条目，并向 UserDefaults 写入自定义格式化器（仅为测试键，退出即失效）"
+      "core 探针会向登录钥匙串写入并删除 ardm-verify/auth 条目，并向 UserDefaults 写入自定义格式化器（仅为测试键，退出即失效）",
+      "CI 中 updater 的签名/篡改用例跑的是 fixture bundle；真实 .app 的签名断言仍由本机 run.sh 覆盖（构建产物存在时优先用它）"
     ]
   }
 }
