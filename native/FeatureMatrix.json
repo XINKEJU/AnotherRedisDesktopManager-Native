@@ -1211,13 +1211,15 @@
     "verification": {
       "tests": "107 passed, 0 failed（core 92 + updater 15）",
       "build": "0 错误 0 警告；.app 5,172,531 B（4.93 MB）；minos 14.0 / arm64",
-      "gui": "截图确认三栏、中文标签、工具栏与状态栏正常，无裁切错位"
+      "gui": "截图确认三栏、中文标签、工具栏与状态栏正常，无裁切错位",
+      "github_actions": "run 43395234048（main@1b0cd11）：tests 作业 92/92 + 15/15 通过；build 作业通过，minos=14.0 / arm64 / 4.62 MB（Xcode 16 工具链，比本机 4.93 MB 小）"
     },
     "known_limits": [
       "filteredKeys 仍是全量线性扫描：200k 键、绝大多数命中时每次按键约 60 ms（旧实现 530 ms）。要再降需要倒排/前缀索引，收益不足以抵消复杂度",
       "lowercasedKeysCache 在首次搜索时额外占用一份键列表内存（约 200k 键 ≈ 12 MB），只在用到搜索时才构建",
       "本地筛选改用小写副本做 contains，与 localizedCaseInsensitiveContains 在土耳其语 i、德语 ß 等少数脚本上可能有差异；Redis 键名场景不受影响",
-      "无障碍仅覆盖交互控件与结构区域，未做 VoiceOver 逐项朗读回归；动态类型（dynamicTypeSize）与高对比度未额外适配"
+      "无障碍仅覆盖交互控件与结构区域，未做 VoiceOver 逐项朗读回归；动态类型（dynamicTypeSize）与高对比度未额外适配",
+      "无障碍修饰符叠加后，连接标签页那段表达式在 Xcode 16 的 Swift 6 驱动下触发『unable to type-check in reasonable time』，本机新工具链却能编过——已抽出 tabChip(_:) 并上 CI 验证。后续再往长表达式里加修饰符要留意编译预算"
     ]
   }
 }
