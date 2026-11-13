@@ -43,6 +43,7 @@
     "chinese_table_entries": 303,
     "chinese_table_coverage": "217/222 个界面标签，其余为 $ / ↑ / ↓ / SSH / TLS 等符号与专有名词",
     "gui_layout": "工具栏精简为 3 个控件，9 个功能标签移到详情区中文标签条；窗口最小 1120×700，未连接时不触发集群命令",
+    "round3_note": "49/49 只覆盖 ObjC 内核的协议往返与纯函数，不加载任何 SwiftUI 视图、无真实 Redis/SSH/TLS/集群、无静态调用链检查、无安全断言；第三轮据此发现 6 项 P0 缺陷与 9 处空壳断链（见 deep_audit.probe_blind_spots）",
     "new_capability_checks": [
       "Msgpack / PHPSerialize / Gzip / Deflate / DeflateRaw / Hex / Binary 编码→解码往返",
       "11 个可写回 viewer 清单、Json 大整数写回原样透传、Protobuf schema 字段名作用于 varint",
@@ -387,7 +388,8 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "A. 仍缺失（28 条域内缺口，按域见各 domain.gaps）：多显示器窗口校验、全局 keymaster 快捷键、掉线状态 UI、加密口令存储、逐字节 Hex 网格编辑器、表格列排序、父子勾选联动、虚拟滚动窗口复用、Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组折叠、Zset 批量编辑、4 个 viewer 的写回、完整 Java/Pickle 反序列化、.proto 文件解析、Json 展示侧 BigInt 保精度、外部 shell 脚本 viewer、Monaco IDE 特性、KEYSPACE 分区统计、慢日志阈值展示、pipeline 缓冲、SSH 交互式二次认证、自动安装更新、Developer ID 签名与公证",
+    "【第三轮更正】以下 A~E 是第二轮口径，已被顶层 deep_audit 段取代：第三轮另发现 64 条未登记的行为差距、6 项 P0 缺陷、9 处空壳断链，并识别出 12 条矩阵误标与 4 条幻影缺口。不要再用 28 或本清单作为最终覆盖率依据",
+    "A. 仍缺失（第二轮口径的 28 条域内缺口，按域见各 domain.gaps）：多显示器窗口校验、全局 keymaster 快捷键、掉线状态 UI、加密口令存储、逐字节 Hex 网格编辑器、表格列排序、父子勾选联动、虚拟滚动窗口复用、Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组折叠、Zset 批量编辑、4 个 viewer 的写回、完整 Java/Pickle 反序列化、.proto 文件解析、Json 展示侧 BigInt 保精度、外部 shell 脚本 viewer、Monaco IDE 特性、KEYSPACE 分区统计、慢日志阈值展示、pipeline 缓冲、SSH 交互式二次认证、自动安装更新、Developer ID 签名与公证",
     "B. 降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf schema 为 JSON 字段映射而非 .proto 解析；JavaSerialize/Pickle/Protobuf 为结构标记级展示；Json 仅写回保大整数精度；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用",
     "C. 文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）",
     "D. 条件依赖：RedisJSON/TimeSeries/Vector/Array 需服务端模块；HTTL/HEXPIRE 需 Redis >= 7.4；mTLS 需用户证书；更新需网络与已发布 Release；签名公证需开发者账号",
@@ -422,7 +424,8 @@
   "audit": {
     "date": "2026-11-13",
     "round": 2,
-    "verdict": "IMPROVED BUT STILL NOT 100% FEATURE PARITY",
+    "verdict": "IMPROVED BUT STILL NOT 100% FEATURE PARITY（第三轮深度审计证明此结论仍偏乐观，见 deep_audit 段）",
+    "round3_correction": "第三轮逐文件实证发现：本轮的 28 条缺口是低估值，且 audit.verified_working 与 domains[].native 中至少 12 条属于虚标或方向误标；所有修正集中在顶层 deep_audit 段，本段保留作为历史记录，不再作为最终口径",
     "method": "在第一轮逐文件比对（原版 58 个 Vue 组件 / 23 个 JS 模块 / 16,731 行）基础上，对本轮改动的 15 个文件与 3 个新增 Swift 文件逐项核查『是否存在可执行代码』，并把回归探针从 32 条扩充到 49 条断言；结合启动截图复核界面",
     "round1_gaps": 39,
     "round2_remaining_gap_descriptions": 28,
@@ -454,6 +457,213 @@
     "missing_fine_grained_features": 28,
     "degraded_or_ineffective_items": 1,
     "degraded_item_note": "第一轮 6 项失效/虚标中已修复 5 项，剩余 1 项为 RESP3 HELLO 未协商（属文档表述夸大，原版亦未启用）",
-    "verdict": "功能骨架与主要操作路径全覆盖，第二轮已补齐流式扫描、字段 TTL、viewer 写回、事务、DUMP 导入、模块命令面与 13 语言链路；仍不能宣称『所有功能都 100% 保留』"
+    "round3_status": "第二轮的 28 条口径已被 deep_audit 段取代：第三轮逐文件实证又发现 6 项 P0 正确性与安全缺陷、9 处空壳断链、64 条此前未登记的行为差距、12 条矩阵误标与 4 条幻影缺口。28 不是最终数字",
+    "verdict": "功能骨架与主要操作路径全覆盖，第二轮补齐了一批细粒度能力；但第三轮深度审计证明功能等价程度显著低于此前表述，且矩阵自身存在虚标。不能宣称『所有功能都保留』，也不能把 49/49 当作功能验收"
+  },
+  "deep_audit": {
+    "date": "2026-11-13",
+    "round": 3,
+    "trigger": "用户指出 49/49 只是协议往返 + ObjC 内核断言，不构成功能验收，要求再次深度探索与原版的功能差距",
+    "method": "四路并行逐文件实证：① 原版核心基础设施 9 个 JS + 4 个 electron 主进程 JS；② 连接/设置/窗口 14 个 Vue；③ 键浏览/运维 14 个 Vue；④ 10 个 KeyContent + 15 个 Viewer + 5 个编辑器/CLI 组件。随后反向核查原生版 14 个 Swift + 3 个 ObjC .m 的 UI→Store→ObjC 调用链、全部 UserDefaults 键读写、全部按钮 action、以及定义但无调用点的方法。每条结论均带 文件:行号 证据，找不到即写『未找到』并给出检索范围",
+    "scope": {
+      "original_vue_components": 58,
+      "original_js_modules": 23,
+      "original_source_lines": 16731,
+      "native_compiled_swift_files": 14,
+      "native_compiled_objc_sources": 3,
+      "native_compiled_lines": 6346,
+      "note": "UI.m（812 行）不在 build.sh 编译列表，属整文件死代码；不计入对比"
+    },
+    "quantified": {
+      "p0_correctness_and_security_defects": 6,
+      "dead_links_and_empty_shells": 9,
+      "new_behavior_gaps_not_in_round2": 64,
+      "matrix_mislabels_or_false_claims": 12,
+      "phantom_gaps_in_previous_audits": 4,
+      "total_records": 95,
+      "note": "类别之间有少量交叉（例如 AUTH 明文日志既是 P0 缺陷也是行为差距）；total_records 是记录条数，不是去重后的独立问题数"
+    },
+    "verdict": "ROUND 3: THE 28-GAP PICTURE WAS STILL AN UNDERCOUNT. 前两轮把『有入口/有方法定义』当成了『功能等价』，第三轮按可执行行为核对后，发现大量语义偏差、死分支、只写不读的配置与安全缺陷，并发现矩阵自身有 12 条虚标/误标。49/49 只证明协议层与纯函数没崩，不证明功能等价",
+    "p0_defects": [
+      {
+        "id": "P0-1",
+        "title": "AUTH 密码明文进入命令日志",
+        "original": "CommandLog.vue:53-65 过滤 PING、AUTH 参数显示 ***、参数逐项 100 字符截断、cost 两位小数、上限 5000 条；redisClient.js:22-26 还有 withoutLogging 一次性开关",
+        "native": "Redis.m:555-561 发 AUTH，Redis.m:681-689 把 args 全量 componentsJoinedByString 写入 log.command；无掩码、无截断、无 PING 过滤；Redis.m:385 上限 500，RedisKit.swift:85,125 亦为 500",
+        "impact": "密码在命令日志面板可见、可被复制；保活 PING 每 30 秒污染日志"
+      },
+      {
+        "id": "P0-2",
+        "title": "只读模式可被长连接绕过，且黑名单不完整",
+        "original": "redisClient.js:12-19 在 Redis.prototype.sendCommand 原型层按 commands.js:133-237 的 103 条 writeCMD 黑名单统一拦截",
+        "native": "Redis.m:344-358 只硬编码 75 项，其中 CONFIG SET / CLIENT KILL / XGROUP DESTROY 含空格，与 Redis.m:619 的单 token 比较永不匹配→实际 72 项；DEBUG/MODULE/REPLICAOF/FAILOVER/ACL SETUSER 等 admin 危险命令缺失；Redis.m:733 startLiveWithCommand 直接 writeData 绕过 send: 检查",
+        "impact": "只读连接仍可通过 MONITOR/PubSub 长连接路径执行任意命令"
+      },
+      {
+        "id": "P0-3",
+        "title": "TLS CA 配置完全无效且证书链校验被全局关闭",
+        "original": "redisClient.js:325-342 读 ca/key/cert、设置 servername，显式跳过 checkServerIdentity",
+        "native": "tlsCA 仅出现在 Redis.m:120,144,188,206 的持久化与拷贝；Redis.m:448-456 configureTLSForRead 完全不引用它，且 :450 设 kCFStreamSSLValidatesCertificateChain=NO",
+        "impact": "自定义 CA 证书不起作用；所有 TLS 连接不做证书链校验"
+      },
+      {
+        "id": "P0-4",
+        "title": "SSH 转发目标硬编码为本机，多个 SSH 配置从不消费",
+        "original": "redisClient.js:166-201 dstAddr=config.host、keepaliveInterval 10000、readyTimeout=timeout×1000、autoClose=false；SSH 私钥经 bookmark 读取",
+        "native": "Redis.m:409 -L 参数固定 local:127.0.0.1:port，忽略 config.host；sshTimeout / sshPassphrase 在 ARDM.h:29-30 定义并持久化但内核无消费；无 keepaliveInterval / readyTimeout / autoClose",
+        "impact": "无法连接 SSH 跳板机背后的另一台 Redis；私钥口令与超时设置无效"
+      },
+      {
+        "id": "P0-5",
+        "title": "集群重定向 IPv6 不兼容、ASK 后不恢复连接",
+        "original": "redisClient.js:252-275 用 lastIndexOf(':') 拆 host:port@bus，兼容 IPv6；ioredis 自带 MOVED 槽位缓存",
+        "native": "Redis.m:638 按单冒号 componentsSeparatedByString 拆地址，IPv6 必失败；:663 仅失败时恢复原连接，ASK 成功后不恢复；:495-497 CLUSTER NODES 把 cols[1] 整串当 address，未拆 host/port；无槽位缓存",
+        "impact": "IPv6 / IPv6 集群节点场景重定向失效"
+      },
+      {
+        "id": "P0-6",
+        "title": "大整数精度在协议层与 Json viewer 双重丢失",
+        "original": "redisClient.js:221 stringNumbers=true；ViewerJson.vue:8 与 JsonEditor.vue:18 用 @qii404/json-bigint 保精度",
+        "native": "Redis.m:287 整数回复转 NSNumber longLongValue；Services.m:386-389 Json viewer 用 NSJSONSerialization 走 Double。第二轮的 BigInt 修复只覆盖 encode:as:Json 的写回原样透传（Services.m:483-486）",
+        "impact": "超过 2^53 的整数在读取与展示时精度丢失"
+      }
+    ],
+    "dead_links_and_empty_shells": [
+      "D-01 stopKeepalive() 定义在 ExtraFeatures.swift:109，全库无调用点；断开连接后 30 秒 PING 定时器继续运行（矩阵却称断开时已停止）",
+      "D-02 refreshPTTL() 定义在 DataTypes.swift:293，全库无调用点；selectedKeyTTLMillis（Store.swift:145）恒为 -1，毫秒 TTL 显示永远是 -1 ms",
+      "D-03 resolveBookmark: 定义在 Transport.m:192，全库无调用点；ConnectionViews.swift:395-398 把 ARDMScopedBookmarks 写入 UserDefaults 但从不读取恢复，纯只写不读",
+      "D-04 StatusView 的 Auto refresh 开关是 ToolViews.swift:89 的私有 @State，:98 绑定后全文再无读取；真正刷新由 App.swift:41 的常驻 Timer 驱动，与开关无关",
+      "D-05 statusRefreshSeconds 的 Stepper（ToolViews.swift:97）可改值，但 MonitorLogic.swift:108 的 Timer 间隔在创建时一次性求值，改值不重建 Timer → 设置不生效",
+      "D-06 execute()（RedisKit.swift:100-107）只把结果写进 cliOutput + notify，不切到 CLI tab；ToolViews.swift:100,189,218 的 DBSIZE / MEMORY DOCTOR / CLUSTER INFO 按钮点了看不到结果",
+      "D-07 Zset 的 ZRANGE ... WITHSCORES 有序分页分支（DataTypes.swift:107）不可达：loadTypedValue 在 :75-77 对 .zSet 无条件走 scanRows 的 ZSCAN；ZREVRANGE / ASC / DESC 全库未找到",
+      "D-08 scanCommand(for:...)（DataTypes.swift:201）定义后无调用点，逻辑在 scanRows:226-233 另写一遍；sendArguments:（Redis.m:466-468）是空壳转调",
+      "D-09 UI.m 整文件（812 行）不在 build.sh:25,33 编译列表；另有 typeOfKey / ttlOfKey / valueOfKey / infoSection / asyncSend / protobufSchema getter 等 9 个方法定义后无有效调用点"
+    ],
+    "matrix_mislabels": [
+      "M-01 矩阵称断开时 stopKeepalive()，实际未接线（见 D-01）",
+      "M-02 矩阵称 HTTL 带 Redis >= 7.4 版本判定，实际只有 DataTypes.swift:243 的注释与 try? sendSync 静默吞错，无版本比较代码",
+      "M-03 矩阵称按类型分派 ZRANGE WITHSCORES 有序分页，实际是死分支（见 D-07）",
+      "M-04 矩阵称新建键支持全部 10 种类型，实际 RedisKit.swift:459-469 对 timeSeries/vector/array 落 default: SET，创建出的是 string",
+      "M-05 矩阵把安全作用域书签列为 FileInput.vue 的等价替代；原版 FileInput.vue 是 Electron 文件对话框 + 书签，原生版 macOS 书签机制是新增能力且从不解析",
+      "M-06 矩阵把 CLUSTER SLOTS/NODES 拓扑表格列为等价能力；原版 CLUSTER 只用于连接路由与命令补全，不存在独立拓扑视图，这是原生版新增",
+      "M-07 矩阵把 MEMORY STATS 条形图 / MEMORY DOCTOR 列为等价能力；原版 MemoryAnalysis.vue:175 是逐 key MEMORY USAGE + 最小尺寸过滤，属语义替换而非等价",
+      "M-08 矩阵把 HTTL/HEXPIRE 字段 TTL 标为『本轮新增』；原版 KeyContentHash.vue:186,287 本来就有，属于补齐而非新增",
+      "M-09 矩阵列『缺少 PaginationTable.vue 的表格内列排序与结果内筛选』为缺口；该组件全仓库零引用（孤儿），且自身并无列排序，真正的 sortable 在 Status.vue:131,143,149",
+      "M-10 矩阵把键收藏、Glob/Exact/Fuzzy 三模式、键树拖拽列为等价能力；原版全仓库无 key 级收藏，KeyList.vue:256-266 只有 SCAN MATCH 与 EXISTS 精确搜索，KeyListVirtualTree.vue:24-48 未启用 draggable —— 这些都是原生版新增",
+      "M-11 矩阵称右键菜单可『复制 DUMP』；原生 KeyBrowserViews.swift:162-164 复制的是字符串 DUMP <key> 命令文本，不是 DUMP 返回值",
+      "M-12 矩阵称 SLOWLOG GET / RESET 等价；原版 SlowLog.vue 无 RESET（仅 GET 与 CONFIG GET 阈值），RESET 是原生版新增"
+    ],
+    "phantom_gaps": [
+      "原版 Setting.vue 只有 6 个设置项（主题/语言/缩放/字体/keysPageSize/连接导入导出）；separator、connectionReadOnly 是每连接字段，cliTips/searchTips/customDbName 是每连接 localStorage 键 —— 矩阵按『全局设置面板』比对的方向本身有误",
+      "原版 ConnectionMenu.vue 没有 DUMP 导出，导出在 KeyList.vue:293-320（Dump_YYYYMMDD.csv，每行 hexKey,hexValue,PTTL）；矩阵把导出/导入都归到连接菜单",
+      "原版 KeyList 键列表不显示 TTL，精确搜索走 EXISTS（KeyList.vue:237-248）并禁用 load more；矩阵按『分页表格』描述的若干能力并不存在于原版",
+      "原版 PaginationTable.vue 是零引用孤儿组件，原版也没有列头排序交互；真正的列排序在 Status.vue，矩阵据此提出的缺口是幻影"
+    ],
+    "new_behavior_gaps_by_domain": {
+      "传输层与协议": [
+        "T-01 连接超时：原版 redisClient.js:210,231 connectTimeout=30000；原生 CFStream 无超时，Redis.m:528-531 直接 open",
+        "T-02 重试策略：原版 :211,344-355 最多 3 次、min(times*200,1000) 线性退避、超限报错并断连；原生 Redis.m:506-516 为 5 次指数 100/200/400/800/1600ms",
+        "T-03 IPv6：原版 :208 family=0 兼容 ::1；原生 ARDMFreeLocalPort:391,437 用 AF_INET，SSH 隧道固定 127.0.0.1",
+        "T-04 集群刷新：原版 :246 slotsRefreshTimeout=30000；原生未找到",
+        "T-05 SSH 选项：原版 :166-201 keepaliveInterval 10000 / readyTimeout / autoClose=false / 私钥 Buffer 还原；原生仅 -N -i 与 StrictHostKeyChecking",
+        "T-06 SSH + Cluster：原版 :131-142,277-323 先一隧道→cluster nodes→逐节点建隧道→initNatMap→重连；原生 Redis.m:523-525 只有一条隧道，clusterTopology:471-503 仅供展示",
+        "T-07 SSH + Sentinel：原版 :103-119 查到 master 后为 master 再建隧道并用 nodePassword 连接；原生 :539-553 直连 master，无二次隧道",
+        "T-08 HGETALL：原版 :41-48 setReplyTransformer 把扁平数组还原为 [k,v] 对；原生未找到，CLI 直发 HGETALL 仍是扁平数组",
+        "T-09 命令日志：原版 CommandLog.vue:44,53-65 过滤 PING、AUTH 掩码、参数 100 字符截断、cost 两位小数、上限 5000；原生四项全无且上限 500"
+      ],
+      "连接管理": [
+        "C-01 原版 NewConnectionDialog.vue:362-365 Sentinel 与 Cluster 互斥校验；原生 ConnectionViews.swift:327,367-369 两个开关独立，可同时保存",
+        "C-02 原版 :425-475 测试连接 5 秒超时、retryStrategy=()=>false 禁重试、ready 竞态保护、断开前挂空 error 监听；原生 RedisKit.swift:153-166 无超时无禁重试",
+        "C-03 原版 :13 编辑态 hidepass 隐藏明文切换，InputPassword.vue:20-47 明文切换 6 秒自动复原；原生 ConnectionDraft.init 原样回填 auth/sshPassword 且明文存 JSON",
+        "C-04 原版 ConnectionWrapper.vue:195-208,219-221 连接颜色标记落库并恢复；原生未找到",
+        "C-05 原版 :76-83,176-191 连接 error / 创建失败自动 emit closeConnection，并通过 lastSelectedDb_<name> 恢复上次 DB；原生无自动断连与按连接 DB 记忆",
+        "C-06 原版 ConnectionMenu.vue:307-366 导入 CMD 文件（splitargs 逐行执行 + 成功/失败计数）、:367-393 清空 DB 输入 y 确认；原生只有 DUMP 快照导入",
+        "C-07 原版 :114-145 连接悬浮信息（host/port/username/separator/READONLY/SSH/CLUSTER/SENTINEL）；原生未找到",
+        "C-08 原版 storage.js:287-319 连接包导入兼容旧数组、校验 groupId、剥离 key/db 重建；原生 Transport.m:75-82 是纯 JSON 数组导入，无 bundle 容器与校验"
+      ],
+      "键浏览与操作": [
+        "K-01 原版 KeyList.vue:147-163 按集群每个 master 并发 scanBufferStream，搜索态 SCAN COUNT 强制 10000、load all 用 50000；原生 RedisKit.swift:267-287 单连接 SCAN，无集群并发与 load all",
+        "K-02 原版 :237-248 精确搜索走 EXISTS 且禁用 load more；原生 matchMode 的 exact 实现未找到等价语义",
+        "K-03 原版 OperateItem.vue:176-185 CONFIG GET databases，失败回退 16 并从 INFO keyspace 猜 maxDb>16 扩展；原生 App.swift:173 硬编码 0..<16",
+        "K-04 原版 :195-220,255-263 INFO keyspace 每 DB key 数显示与自定义 DB 名（localStorage custom_db）；原生未找到",
+        "K-05 原版 :347-388 搜索历史 Set + querySearch 模糊补全，关窗时持久化最后 200 条；原生无搜索历史持久化",
+        "K-06 原版 KeyList.vue:293-320 导出 Dump_YYYYMMDD.csv（hexKey,hexValue,PTTL）；原生导出为 ardm-keys.json 的 JSON，且 DUMP 导入第三列按秒而非 PTTL 毫秒解释",
+        "K-07 原版 util.js:240-323 键树：叶子 `k` 后缀、文件夹 F 前缀、递归 keyCount、仅展开节点排序、openStatus 恢复；原生 RedisKit.swift:339-350 只有 dict.keys.sorted()",
+        "K-08 原版 KeyListVirtualTree.vue:319-388 父子勾选联动 + Shift 连选、:395-405 20 万 key 截断告警、:423-425 ≤20 个 key 自动全展开；原生只有手动 Select all in group",
+        "K-09 原版 DeleteBatch.vue:70-109 预览扫描 + 暂停/恢复，:127-184 每 5000 个 key 一次 DEL（集群逐 key）；原生 KeyBrowserViews.swift:261-277 有预览，但无暂停，且 RedisKit.swift:489-491 用 stride 500 + UNLINK",
+        "K-10 原版 10 个 KeyContent 组件每行 dumpCommand 生成可粘贴的完整写命令；原生 writeCommandString（DataTypes.swift:301-305）存在但语义与 UI 入口覆盖不全（如 Vector 的异步 VADD 拼装）"
+      ],
+      "数据类型视图": [
+        "V-01 原版 KeyContentString.vue:54,72-79 与 ReJson:71-78 保存后用 EXPIRE 恢复 TTL（ttl>0），TTL<=0 时 PERSIST；原生 saveEditorText（DataTypes.swift:309-331）只有 SET / JSON.SET，保存会丢 TTL",
+        "V-02 原版 KeyContentList.vue:222-241 编辑用 LINSERT AFTER + LREM 保序，reply=-1 报值已不存在；原生 DataTypes.swift:156-159 用 LSET",
+        "V-03 原版 KeyContentZset.vue:135-179 默认 ZRANGE/ZREVRANGE + WITHSCORES 有序分页、ASC/DESC 切换，仅搜索时用 ZSCAN；原生无条件 ZSCAN（见 D-07）",
+        "V-04 原版 KeyContentHash.vue:168 HLEN 总数、:129-139 用 node-version-compare 判 Redis>=7.4/Valkey>=9.0 才显示 TTL 列、:290,329 写入后 $set/splice 本地增量更新；原生无 HLEN、无版本判定、写入后 reloadKeyDetail 全量重载",
+        "V-05 原版 KeyContentStream.vue:197-253 XREVRANGE 倒序 + COUNT+1 去重 + lastId 游标、:280-289 ID 时间 tooltip、:387-425 XINFO CONSUMERS 展开面板；原生用 XRANGE - + COUNT，无去重与展开",
+        "V-06 原版 KeyContentTimeSeries.vue:221-244 TS.REVRANGE 带 FILTER_BY_VALUE、:193-213 TS.INFO labels/rules 扁平化、:339 TS.ADD ON_DUPLICATE LAST；原生三条均缺失",
+        "V-07 原版 KeyContentVector.vue:366-399 按 VINFO quant-type 追加 Q8/BIN/NOQUANT、:302-313 VEMB/VGETATTR 元素详情、:278-294 <8.4 降级 VRANDMEMBER 并禁搜索；原生 NOQUANT 硬编码，无 VEMB、无版本降级",
+        "V-08 原版 10 个组件写入后普遍不重新 initShow（#786）以避免滚动位置丢失；原生 saveRow/deleteRow 均 reloadKeyDetail 全量重载（DataTypes.swift:131,144,328）",
+        "V-09 原版每个内容组件有表头搜索框与 vxe-table 虚拟滚动（scroll-y enabled）；原生 List 懒加载但无表头搜索与列级虚拟滚动"
+      ],
+      "格式化 Viewer": [
+        "F-01 原版 FormatViewer.vue:172-228 自动识别 13 步严格顺序并用真实库探测（util.js:81-163）；原生 Services.m:367-376 只有 7 个魔数分支，缺 PHP/Brotli/DeflateRaw/Protobuf/不可见→Hex，且 p[0]==0x78 会把 x 开头文本误判为 Deflate、p[0]<=0x92 会误判大量数据为 Msgpack",
+        "F-02 原版 :79,118-120 超过 20MB 强制 OverSize 且禁用选择器，ViewerOverSize.vue:16,22 显示首 20000 字符；原生 OverSize 只在 viewer 列表与手动渲染分支（Services.m:364,461-464），detectViewerForData 从不返回它",
+        "F-03 原版 ViewerText.vue:27-50 + FormatViewer.vue:222-225 不可见二进制内容编辑需 $confirm 确认、拒绝则回滚并自动切 Hex；原生未找到",
+        "F-04 原版 :148-154 切换 viewer 先置空再 $nextTick 强制重建组件，:157-163 getContent() 返回 false 是全局阻止保存协议；原生只 renderValue()，改用 encodableViewers() 白名单拦截",
+        "F-05 原版 ViewerProtobuf.vue:126-246 可多选 .proto 文件、protobufjs 递归收集类型、按 key-hex 记忆绑定、type.verify + encode 写回；原生只是 {fieldNumber: fieldName} JSON 映射，且 Protobuf 被列为 decode-only",
+        "F-06 原版 ViewerMsgpack.vue:7 用 algo-msgpack-with-bigint + JSONbig 保大整数；原生 Services.m:205-261 手工解码缺 bin(c4-c6)/ext(c7-c9)/uint64(cf)/int64(d3)/fixext/map16·32",
+        "F-07 原版 ViewerPHPSerialize.vue:21-25 保留 __PHP_Incomplete_Class_Name 并按类名只读；原生 Services.m:303-313 把 a: 一律转 NSDictionary，无 O:/C:/R/r 对象语义，写回只产 a:",
+        "F-08 原版 ViewerJavaSerialize.vue:13-27 用 java-object-serialization 的 ObjectInputStream 还原 fields；原生 Services.m:400-415 仅提取可打印字符；Pickle 亦只列 opcode 名（:417-437），无栈还原",
+        "F-09 原版 ViewerCustom.vue:59-151 用 child_process.shell.exec 跑外部可执行文件，支持 {VALUE}/{HEX}/{HEX_FILE}/{FIELD}/{SCORE}/{MEMBER} 模板且 >8000 hex 写临时文件；原生 JavaScriptCore 只注入 bytes，且 Custom 被错误地列为可写回 viewer",
+        "F-10 原版 encodableViewers 语义为 Text/Hex/Binary/Json/Msgpack/PHP/Gzip/Deflate/DeflateRaw/Brotli/Protobuf；原生 Services.m:470-473 多了 Custom、少了 Protobuf —— 数量同为 11 但集合不同"
+      ],
+      "CLI 与命令日志": [
+        "L-01 原版 CliTab.vue:33,59 用 @qii404/redis-splitargs 返回 Buffer 数组，二进制安全；原生 MonitorLogic.swift:187-204 parseCommandLine 返回 [String]",
+        "L-02 原版 :163-188,255-268 的 SUBSCRIBE/PSUBSCRIBE/MONITOR 结果特判与 Stop 流程；原生 runCLI（MonitorLogic.swift:140-185）无特判",
+        "L-03 原版 :330-346 resolveResult 递归渲染 dict/array 并特判 ioredis pipeline [[null,v1]] 形状；原生 ardmString 为通用扁平化",
+        "L-04 原版 :119-162 命令参考是 autocomplete 下拉（历史 + allCMD 前缀 + 子命令数组展开）；原生另建独立参考侧栏，语义不同（属新增，非等价）",
+        "L-05 原版 :286-300 写命令执行后 refreshKeyList(add/del)、SELECT 广播 changeDb；原生未找到写后刷新键列表",
+        "L-06 原版 :97 用 client.duplicate() 为 CLI 建立独立连接，避免 CLI 的长命令/MONITOR 阻塞主连接的键浏览；原生复用同一个 client（RedisKit.swift:121 的 client）跑 CLI 与所有 UI 请求，无并发隔离"
+      ],
+      "监控与运维": [
+        "O-01 原版 Status.vue:117-162 INFO keyspace 分区统计表（db/keys/expires/avg_ttl 三列 sortable + Node 列）、:165-192 全量 INFO 表可排序可过滤；原生 ToolViews.swift:109-121 列头是静态 Text，MonitorLogic.swift:7-29 无 keyspace 专项统计",
+        "O-02 原版 SlowLog.vue:84-118 每 master 节点 SLOWLOG GET 20000 + CONFIG GET slowlog-log-slower-than / max-len 阈值展示与 cost 排序；原生 MonitorLogic.swift:31-36 只有 SLOWLOG GET 128",
+        "O-03 原版 MemoryAnalysis.vue:110-193 逐 key MEMORY USAGE、最小尺寸 KB 过滤、20 万上限、暂停/恢复与按 size 排序；原生 MonitorLogic.swift:38-52 只有 MEMORY STATS 聚合，ToolViews.swift:189 另有 MEMORY DOCTOR",
+        "O-04 原版 :165-193 用 withoutLogging=true 让 MEMORY USAGE 不进命令日志；原生无此开关",
+        "O-05 原版 CommandLog.vue:24-30 过滤框 / Only Write 复选框 / 清空 / 点击单元格复制命令；原生 ToolViews.swift 的命令日志面板覆盖范围更窄（与 T-09 呼应）"
+      ],
+      "应用框架与系统集成": [
+        "A-01 原版 App.vue:51-82 侧栏宽度可拖拽 200~1500px 并持久化 localStorage.sideWidth；原生 NavigationSplitView 宽度无持久化",
+        "A-02 原版 Tabs.vue:22-29,287-392 标签右键四种关闭（其他/右侧/左侧/当前）、滚轮切换、中键关闭、ctrl+w、key 标签复用替换、CLI/批量/内存/慢日志可用随机数多开；原生标签为固定 9 个 tab，无右键与多开",
+        "A-03 原版 HotKeys.vue:25-41 + Aside.vue:58-78 + shortcut.js:5-26 共 13 条全局快捷键且在输入框内强制生效；原生只做菜单快捷键与说明表",
+        "A-04 原版 addon.js:44-118 + electron-main.js:166-169 支持命令行参数启动（--host/--cluster/--ssh-*/--sentinel-*/--ssl-*），非 --save 时删除临时连接；原生未找到 argv 解析",
+        "A-05 原版 win-state.js:18-32 用主屏 workArea 校验窗口越界、:80 用 getNormalBounds 存恢复尺寸；原生 App.swift:32,46 只存 frame 字符串",
+        "A-06 原版 electron-main.js:9-15,140-148 单实例锁与 second-instance restore/focus，:33-47 与 main.js:33-44 双 uncaughtException 兜底自动断连；原生未找到",
+        "A-07 原版 addon.js:32-43 外链统一由 shell.openExternal 打开、electron-main.js:177-185 OS 主题变化 50ms 延时推送；原生主题走 SwiftUI 系统外观，无外链/主题事件链路"
+      ]
+    },
+    "probe_blind_spots": [
+      "49 条断言只加载 ObjC 内核（Redis.m / Services.m / Transport.m），完全不加载任何 SwiftUI 视图，因此 stopKeepalive / refreshPTTL / Auto refresh Toggle / execute 结果不可见 / ZRANGE 死分支 等断链不可能被发现",
+      "自建假 Redis 只实现约 20 个命令的 happy path：无错误注入、无 MOVED/ASK、无集群、无 Sentinel、无 SSH、无 TLS、无 ACL、无 RESP3，因此 P0-2/3/4/5 全部在探针视野之外",
+      "断言形态是『返回值非空 / 等于预期值』而非行为等价：ZSCAN 与 ZRANGE 都返回数组，LSET 与 LINSERT+LREM 都能写成功，SET 与 SET+EXPIRE 都回 OK —— 语义偏差全部漏检",
+      "没有静态检查：无调用点的方法、只写不读的 UserDefaults 键、不可达分支、孤儿组件、整文件未编译（UI.m）都不会让探针失败",
+      "没有安全/隐私断言：AUTH 是否进日志、只读模式是否可绕过、证书是否校验，均不在断言集合内",
+      "没有设置生效性检查：修改 Stepper / Toggle 后是否重建 Timer、字体是否真的套用，只能靠人工逐屏验证",
+      "结论：49/49 准确证明了『协议往返与纯函数在构造输入下不崩』，它与功能等价性之间没有蕴含关系"
+    ],
+    "what_real_acceptance_would_require": [
+      "真实 Redis 7.4 / 8.4 + RedisJSON / TimeSeries / Vector / Array 模块，逐个命令抓取两侧实际发出的 RESP 帧做 diff",
+      "TLS / mTLS / SSH 跳板 / Sentinel / Cluster（含 IPv6 与 NAT）真实环境连接用例",
+      "UI 自动化或人工逐屏检查：每个设置项改值后界面是否变化、每个按钮点击后结果是否可见",
+      "静态检查：无调用点方法、只写不读键、不可达分支、编译清单外的源码",
+      "安全断言：日志脱敏、只读绕过、证书校验、大整数精度、二进制可逆",
+      "数据往返：原版导出的 Dump_YYYYMMDD.csv 能被原生版导入且值/TTL 一致，反之亦然"
+    ],
+    "recommended_priority": [
+      "P0（正确性/安全，建议立即修）：P0-1 日志脱敏、P0-2 只读绕过与黑名单、P0-3 tlsCA、P0-4 SSH 目标与选项、P0-5 集群地址解析、P0-6 大整数",
+      "P1（空壳接线，低成本高收益）：D-01 停止保活、D-02 接上 refreshPTTL、D-04/D-05 让自动刷新开关与间隔真正生效、D-06 execute 结果切到 CLI、D-03 解析书签或删除该设置",
+      "P2（语义偏差）：V-01 TTL 恢复、V-02 List 保序、V-03 Zset 有序读取、F-01 自动识别、O-03 逐 key MEMORY USAGE、L-01 二进制 CLI 参数",
+      "P3（深度功能）：.proto 解析与写回、Java/Pickle 真反序列化、SSH 多节点隧道、键树父子联动与虚拟复用、命令行参数启动、标签多开与快捷键",
+      "文档：先把本轮 12 条矩阵误标与 4 条幻影缺口修正，再谈覆盖率数字"
+    ]
   }
 }
