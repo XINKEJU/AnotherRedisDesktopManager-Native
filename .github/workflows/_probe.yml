@@ -1,0 +1,12 @@
+name: _probe
+on:
+  workflow_dispatch:
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ubuntu runner works"
+  macos:
+    runs-on: macos-14
+    steps:
+      - run: sw_vers
