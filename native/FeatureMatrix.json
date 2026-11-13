@@ -3,9 +3,11 @@
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
   "revision": "swiftui-full-port",
   "status_legend": {
-    "native": "等价能力已由原生 SwiftUI / AppKit / Foundation 代码实现",
-    "equivalent": "能力保留，但用系统原生组件等价替代了第三方 Web 组件",
-    "conditional": "代码已实现，运行效果依赖外部服务或可选系统组件"
+    "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
+    "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
+    "partial": "主要功能路径已实现，但存在经源码核对确认的细粒度功能缺失",
+    "conditional": "代码已实现，运行效果依赖外部服务或可选系统组件",
+    "ineffective": "设置/声明存在，但代码未真正生效或指向错误目标"
   },
   "baseline": {
     "electron_app_bytes": 201188875,
@@ -39,8 +41,13 @@
   "domains": [
     {
       "domain": "应用框架与窗口",
-      "components": ["App.vue", "Aside.vue", "Tabs.vue", "pack/electron/win-state.js"],
-      "status": "native",
+      "components": [
+        "App.vue",
+        "Aside.vue",
+        "Tabs.vue",
+        "pack/electron/win-state.js"
+      ],
+      "status": "partial",
       "native": [
         "SwiftUI @main App + NSApplicationDelegateAdaptor",
         "NavigationSplitView 三栏布局 + 精简 NSToolbar（新建连接 / 数据库选择 / 工具菜单）",
@@ -49,12 +56,25 @@
         "Tabs.vue 多连接并发：clients 字典保存多个活动 socket，标签栏切换/关闭/批量关闭",
         "窗口几何恢复 (UserDefaults ARDMWindowFrame)",
         "退出时 disconnectAll 关闭全部连接"
+      ],
+      "gaps": [
+        "缺少原版 win-state.js 的多显示器窗口位置校验",
+        "原版全局 keymaster 快捷键（⌘M 最小化、⌘Enter 最大化等）仅实现了菜单快捷键与快捷键说明表"
       ]
     },
     {
       "domain": "连接管理",
-      "components": ["Connections.vue", "ConnectionMenu.vue", "ConnectionWrapper.vue", "NewConnectionDialog.vue", "FileInput.vue", "InputPassword.vue", "InputBinary.vue", "LanguageSelector.vue"],
-      "status": "native",
+      "components": [
+        "Connections.vue",
+        "ConnectionMenu.vue",
+        "ConnectionWrapper.vue",
+        "NewConnectionDialog.vue",
+        "FileInput.vue",
+        "InputPassword.vue",
+        "InputBinary.vue",
+        "LanguageSelector.vue"
+      ],
+      "status": "partial",
       "native": [
         "ConnectionDraft 全字段编辑 (General / SSH / TLS / Advanced 四个分页)",
         "新建 / 编辑 / 复制 / 删除 / 分组 / 搜索 / 连接测试",
@@ -62,12 +82,29 @@
         "右键菜单、行内拖拽排序、拖拽到分组改归属",
         "NSOpenPanel 文件选择 + 安全作用域书签 (含非沙盒降级)",
         "二进制值选择 (InputBinary.vue)"
+      ],
+      "gaps": [
+        "缺少 ConnectionWrapper.vue 的定时 PING 保活（startPingInterval）与掉线状态 UI",
+        "InputBinary.vue 的 Hex 逐字节输入/编辑缺失；原生版二进制文件读入后非 UTF-8 数据仅显示 <binary N bytes> 占位",
+        "缺少连接配置的加密口令存储（原版 InputPassword 走系统凭据能力）"
       ]
     },
     {
       "domain": "键浏览与操作",
-      "components": ["KeyList.vue", "KeyListNormal.vue", "KeyListVirtualTree.vue", "KeyHeader.vue", "KeyDetail.vue", "OperateItem.vue", "DeleteBatch.vue", "RightClickMenu.vue", "ScrollToTop.vue", "PaginationTable.vue", "HotKeys.vue"],
-      "status": "native",
+      "components": [
+        "KeyList.vue",
+        "KeyListNormal.vue",
+        "KeyListVirtualTree.vue",
+        "KeyHeader.vue",
+        "KeyDetail.vue",
+        "OperateItem.vue",
+        "DeleteBatch.vue",
+        "RightClickMenu.vue",
+        "ScrollToTop.vue",
+        "PaginationTable.vue",
+        "HotKeys.vue"
+      ],
+      "status": "partial",
       "native": [
         "SCAN 游标分页 + 加载更多 + 每页键数量设置",
         "Glob / Exact / Fuzzy 三种匹配模式",
@@ -79,12 +116,30 @@
         "ScrollViewReader 实现的 Scroll to top",
         "拖拽 (draggable/dropDestination)",
         "快捷键表 + 全局键盘快捷键"
+      ],
+      "gaps": [
+        "缺少 ConnectionMenu.vue 的 DUMP 快照文件导入（RESTORE key ttl <hex> REPLACE，含成功/失败计数）；原生版只能导出 JSON",
+        "缺少 PTTL 毫秒级 TTL 与 DUMP/RESTORE 往返",
+        "缺少 KeyListVirtualTree.vue 的树节点展开状态持久化与父子勾选联动",
+        "缺少 PaginationTable.vue 的表格内列排序与结果内筛选",
+        "树形列表用 List(children:) 懒加载，但无原版百万键级别的虚拟滚动窗口复用"
       ]
     },
     {
       "domain": "Redis 数据类型视图 (全部 10 种)",
-      "components": ["KeyContentString.vue", "KeyContentHash.vue", "KeyContentList.vue", "KeyContentSet.vue", "KeyContentZset.vue", "KeyContentStream.vue", "KeyContentReJson.vue", "KeyContentTimeSeries.vue", "KeyContentVector.vue", "KeyContentArray.vue"],
-      "status": "native",
+      "components": [
+        "KeyContentString.vue",
+        "KeyContentHash.vue",
+        "KeyContentList.vue",
+        "KeyContentSet.vue",
+        "KeyContentZset.vue",
+        "KeyContentStream.vue",
+        "KeyContentReJson.vue",
+        "KeyContentTimeSeries.vue",
+        "KeyContentVector.vue",
+        "KeyContentArray.vue"
+      ],
+      "status": "partial",
       "native": [
         "按类型分派读取命令：GET / LRANGE / SMEMBERS / ZRANGE WITHSCORES / HGETALL / XRANGE / JSON.GET / TS.RANGE / VGETATTR / ARGET",
         "RowEditorSheet 逐行/逐字段增删改，10 种类型各有对应写命令",
@@ -92,12 +147,41 @@
         "RedisJSON 路径编辑 (jsonPath + JSON.SET/JSON.DEL)",
         "Stream 消费组管理 (XINFO GROUPS / XGROUP CREATE / XREADGROUP / XACK / DELCONSUMER)",
         "新建键对话框支持全部 10 种类型 + TTL"
+      ],
+      "gaps": [
+        "Hash / Set / Zset 用 HGETALL / SMEMBERS / ZRANGE 一次性全量读取；原版用 ioredis hscanBufferStream / sscanBufferStream / zscanBufferStream 流式扫描，大键会阻塞并吃内存",
+        "缺少 Hash 字段级 TTL（HTTL 查询、HEXPIRE 设置，原版 KeyContentHash.vue 第 180/287 行）",
+        "缺少每行的 DUMP 命令生成与复制（原版 10 个 KeyContent 组件均有 dumpCommand）",
+        "Vector 缺失最多：VSIM 相似度搜索弹窗、VRANGE / VRANDMEMBER 浏览、量化选项、向量元素详情 parseVectorText、VADD / VSETATTR 的完整参数",
+        "TimeSeries 缺 TS.INFO 详情面板、TS.REVRANGE 反向查询、时间戳格式化、聚合/过滤参数、TS.CREATE 建序列",
+        "Array 缺 ARSCAN / ARGREP / ARINFO / ARLEN 与 initInfo 信息面板",
+        "Stream 缺 XINFO CONSUMERS 消费者列表展开、条目 ID 时间格式化、分组行折叠；原生版只有 5 个粗粒度动作",
+        "Zset 缺 ZSCAN 流式分支与 score 校验之外的批量编辑"
       ]
     },
     {
       "domain": "格式化 Viewer (全部 15 个)",
-      "components": ["FormatViewer.vue", "CustomFormatter.vue", "ViewerText.vue", "ViewerHex.vue", "ViewerJson.vue", "ViewerBinary.vue", "ViewerMsgpack.vue", "ViewerPHPSerialize.vue", "ViewerJavaSerialize.vue", "ViewerPickle.vue", "ViewerBrotli.vue", "ViewerGzip.vue", "ViewerDeflate.vue", "ViewerDeflateRaw.vue", "ViewerProtobuf.vue", "ViewerOverSize.vue", "ViewerCustom.vue", "JsonEditor.vue"],
-      "status": "native",
+      "components": [
+        "FormatViewer.vue",
+        "CustomFormatter.vue",
+        "ViewerText.vue",
+        "ViewerHex.vue",
+        "ViewerJson.vue",
+        "ViewerBinary.vue",
+        "ViewerMsgpack.vue",
+        "ViewerPHPSerialize.vue",
+        "ViewerJavaSerialize.vue",
+        "ViewerPickle.vue",
+        "ViewerBrotli.vue",
+        "ViewerGzip.vue",
+        "ViewerDeflate.vue",
+        "ViewerDeflateRaw.vue",
+        "ViewerProtobuf.vue",
+        "ViewerOverSize.vue",
+        "ViewerCustom.vue",
+        "JsonEditor.vue"
+      ],
+      "status": "partial",
       "native": [
         "ARDMFormatters 覆盖 Text/Hex/Json/Binary/Msgpack/PHPSerialize/JavaSerialize/Pickle/Brotli/Gzip/Deflate/DeflateRaw/Protobuf/OverSize/Custom",
         "自动嗅探 detectViewerForData:",
@@ -105,12 +189,27 @@
         "FormatterManagerSheet：自定义 formatter 增删改、保存、运行测试、设为当前 viewer",
         "JsonEditorSheet：格式化 / 压缩 / 校验 / 写回",
         "AttributedString 语法高亮渲染"
+      ],
+      "gaps": [
+        "所有 viewer 只有解码展示（render: 返回 NSString），没有原版 getContent()/encode 的编码写回链路：Msgpack、PHPSerialize、Gzip/Deflate/Brotli、Protobuf 均无法编辑后按原格式写回 Redis",
+        "ViewerProtobuf.vue（289 行）支持加载 .proto schema 解码；原生版 ARDMProtobufDump 仅做无 schema 的 wire-format 猜测",
+        "JavaSerialize / Pickle 是结构标记级输出，不是 java-object-serialization / pickleparser 的完整对象反序列化",
+        "缺少 @qii404/json-bigint 的 BigInt 保精度 JSON 解析",
+        "CustomFormatter.vue 支持外部 shell / Node 脚本，原生版自定义脚本仅在 JavaScriptCore 中拿到 bytes（Uint8Array）",
+        "Brotli 依赖系统 brotli CLI，缺失时只返回提示，不解压"
       ]
     },
     {
       "domain": "CLI 与命令日志",
-      "components": ["CliTab.vue", "CliContent.vue", "CommandLog.vue", "JsonEditor.vue", "src/commands.js", "monaco-editor"],
-      "status": "equivalent",
+      "components": [
+        "CliTab.vue",
+        "CliContent.vue",
+        "CommandLog.vue",
+        "JsonEditor.vue",
+        "src/commands.js",
+        "monaco-editor"
+      ],
+      "status": "partial",
       "native": [
         "CLI 输入 / 执行 / 结果渲染（带语法高亮）",
         "命令历史 (↑/↓ 按钮 + 持久化)、命令自动补全候选",
@@ -118,46 +217,93 @@
         "命令日志记录命令 / 连接 / 耗时，可筛选、复制、清空",
         "引号感知的命令行参数解析"
       ],
-      "notes": "Monaco 被替换为 SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet；缺少 minimap、多光标、代码折叠等 IDE 特性"
+      "notes": "Monaco 被替换为 SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet；缺少 minimap、多光标、代码折叠等 IDE 特性",
+      "gaps": [
+        "缺少 CliTab.vue 的 MULTI / EXEC / DISCARD 事务队列（原生版 CLI 直接逐条执行）",
+        "monaco-editor 的 minimap、多光标、代码折叠、language-service 级补全未保留"
+      ]
     },
     {
       "domain": "监控与运维",
-      "components": ["Status.vue", "SlowLog.vue", "MemoryAnalysis.vue", "DeleteBatch.vue"],
-      "status": "native",
+      "components": [
+        "Status.vue",
+        "SlowLog.vue",
+        "MemoryAnalysis.vue",
+        "DeleteBatch.vue"
+      ],
+      "status": "partial",
       "native": [
         "INFO 分区表格 + 自动刷新间隔 + 命中率图表",
         "SLOWLOG GET / RESET",
         "MEMORY STATS 条形图 / MEMORY DOCTOR",
         "DBSIZE、状态栏实时信息",
         "CLUSTER SLOTS / NODES 拓扑表格 + NAT 映射 + CLUSTER INFO"
+      ],
+      "gaps": [
+        "Status.vue 的自动刷新是 2 秒定时任务并带 KEYSPACE 分区查询；原生版自动刷新粒度与图表数据来源不同",
+        "缺少 SlowLog.vue 的 CONFIG GET slowlog-log-slower-than / max-len 阈值展示"
       ]
     },
     {
       "domain": "设置、主题与更新",
-      "components": ["Setting.vue", "UpdateCheck.vue", "HotKeys.vue", "pack/electron/font-manager.js", "pack/electron/update.js"],
-      "status": "native",
+      "components": [
+        "Setting.vue",
+        "UpdateCheck.vue",
+        "HotKeys.vue",
+        "pack/electron/font-manager.js",
+        "pack/electron/update.js"
+      ],
+      "status": "partial",
       "native": [
         "主题 (system/light/dark)、13 语言、255 个系统字体枚举、字号、页面缩放",
         "每页键数量、分隔符、只读、树视图、DB 选择、默认 viewer、自定义 viewer 脚本",
         "自动更新检查 (GitHub Releases API + 版本比对 + 打开 Release 页)",
         "连接/键值导入导出、快捷键表、自定义 formatter 管理入口"
+      ],
+      "gaps": [
+        "【失效】fontFamily 设置写入 NSUserDefaults，但没有任何视图读取使用——选择字体不改变界面",
+        "【失效】zoom / fontSize 只作用于部分文本（store.scaled），未全局生效",
+        "【错误】自动更新检查指向上游 Electron 仓库 qishibo/AnotherRedisDesktopManager 的 releases/latest，不是本原生版仓库，结果对原生版无意义",
+        "原版 electron-updater 会自动下载并安装更新；原生版只能打开发布页，无下载安装"
       ]
     },
     {
       "domain": "国际化",
-      "components": ["src/i18n/langs/cn.js", "de.js", "en.js", "es.js", "fr.js", "it.js", "ko.js", "pt.js", "ru.js", "tr.js", "tw.js", "ua.js", "vi.js"],
-      "status": "native",
+      "components": [
+        "src/i18n/langs/cn.js",
+        "de.js",
+        "en.js",
+        "es.js",
+        "fr.js",
+        "it.js",
+        "ko.js",
+        "pt.js",
+        "ru.js",
+        "tr.js",
+        "tw.js",
+        "ua.js",
+        "vi.js"
+      ],
+      "status": "partial",
       "native": [
         "复用项目原有 13 个语言文件，bundle 内 langs/ 经 JavaScriptCore 加载",
         "303 条显式简体中文表 (swift/UILabels.swift) 覆盖 217/222 个界面标签；其余为 $ / 箭头 / SSH / TLS 等符号与专有名词",
         "tText: 英文标签反查 en.js 键再解析当前语言，保留给其余 12 语言",
         "默认语言跟随系统：中文 macOS 首次启动即为简体中文；菜单、工具栏、连接编辑器、键操作、设置、监控、CLI、状态栏全部走本地化链路"
+      ],
+      "gaps": [
+        "【严重】13 语言中只有简体中文真正生效：uiChinese 表仅在 uiIsChinese() 时查用，其余 12 语言走 en.js 反查，只能命中约 27/163 个标签，界面基本仍是英文",
+        "tw（繁体中文）默认语言会被判定为中文环境，但同样没有繁体文案表"
       ]
     },
     {
       "domain": "传输层 (替代 ioredis / tunnel-ssh)",
-      "components": ["src/redisClient.js", "src/util.js", "src/commands.js"],
-      "status": "native",
+      "components": [
+        "src/redisClient.js",
+        "src/util.js",
+        "src/commands.js"
+      ],
+      "status": "partial",
       "native": [
         "RESP2/RESP3 编解码、CFStream TCP/TLS",
         "SSH 隧道 (/usr/bin/ssh -L + SSH_ASKPASS)",
@@ -170,12 +316,22 @@
         "二进制参数 (NSData) 发送",
         "Pub/Sub、PSUBSCRIBE、MONITOR 独立长连接实时推送流",
         "命令耗时日志"
+      ],
+      "gaps": [
+        "【虚标】解析器能识别 RESP3 的 # , _ ( % ~ > 类型，但客户端从不发送 HELLO 3，实际始终运行在 RESP2；原版 redisClient.js 同样未启用 RESP3，属于文档表述夸大而非功能退化",
+        "缺少 pipeline / 事务批量执行（原版 ioredis multi().execBuffer）",
+        "SSH 隧道依赖系统 /usr/bin/ssh 与 SSH_ASKPASS 环境变量，无法处理交互式二次认证"
       ]
     },
     {
       "domain": "Electron 主进程能力",
-      "components": ["pack/electron/electron-main.js", "win-state.js", "update.js", "font-manager.js"],
-      "status": "native",
+      "components": [
+        "pack/electron/electron-main.js",
+        "win-state.js",
+        "update.js",
+        "font-manager.js"
+      ],
+      "status": "partial",
       "native": [
         "NSApplication 生命周期 + 原生菜单/工具栏",
         "窗口几何持久化",
@@ -183,6 +339,10 @@
         "GitHub Releases 更新检查",
         "NSFontManager 字体枚举",
         "ad-hoc codesign"
+      ],
+      "gaps": [
+        "更新检查目标仓库错误（见设置域）",
+        "ad-hoc 签名，未做 Developer ID 签名与公证"
       ]
     }
   ],
@@ -205,10 +365,11 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "Monaco 的 minimap、多光标、代码折叠、语言服务器级补全未保留（改为原生语法高亮 + 命令补全）",
-    "JavaSerialize / Pickle viewer 保持结构标记级解析，非完整对象反序列化（与上一版一致）",
-    "Developer ID 签名与公证未执行（需账号与网络）",
-    "原版逐像素的 Web 视觉样式不可能与 SwiftUI 原生控件一致；控件语义与操作路径完全一致"
+    "A. 完全缺失（39 条域内缺口，归纳约 24 类能力，按域见各 domain.gaps）：流式 SCAN、字段级 TTL、PTTL、事务、DUMP/RESTORE 导入、行级 DUMP 命令、viewer 编码写回、Protobuf schema、完整 Java/Pickle 反序列化、BigInt、Vector 相似度与浏览、TimeSeries 详情与反向查询、Array 扫描/检索、Stream 消费者展开、Hex 二进制输入、树状态持久化、PING 保活、键导入、12 语言界面、更新下载安装、Monaco IDE 特性、表格排序筛选、父子勾选联动、全局 keymaster 快捷键",
+    "B. 降级实现：10 种类型的读取为单次全量而非流式；Stream/Vector/TimeSeries/Array 只保留最小读写命令；JavaSerialize/Pickle/Protobuf 为结构标记级展示；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱",
+    "C. 失效或错误：fontFamily 存而不用、zoom 仅局部生效、更新检查指向上游 Electron 仓库、RESP3 声称未实际协商、非中文 12 语言几乎未翻译",
+    "D. 条件依赖：RedisJSON/TimeSeries/Vector/Array 需服务端模块；Developer ID 签名需开发者账号",
+    "E. 不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻"
   ],
   "volume_strategy": {
     "removed": [
@@ -226,7 +387,42 @@
       "pack/electron/icons/icon.icns (868 KB)"
     ],
     "system_frameworks": [
-      "SwiftUI", "AppKit", "Foundation", "JavaScriptCore", "WebKit", "Network", "Security", "libz"
+      "SwiftUI",
+      "AppKit",
+      "Foundation",
+      "JavaScriptCore",
+      "WebKit",
+      "Network",
+      "Security",
+      "libz"
     ]
+  },
+  "audit": {
+    "date": "2026-11-13",
+    "verdict": "NOT 100% FEATURE PARITY",
+    "method": "逐文件比对原版 58 个 Vue 组件 / 23 个 JS 模块（16,731 行）与原生版实际编译的 11 个 Swift 文件 + 3 个 ObjC .m（约 5,300 行），按『代码中是否存在可执行实现』而非『矩阵是否提及』判定",
+    "domain_skeleton_coverage": "11/11 个功能域均有对应实现入口",
+    "vue_components_mentioned_in_matrix": "58/58",
+    "fine_grained_gaps": 39,
+    "degraded_or_ineffective_items": 6,
+    "verified_working": [
+      "RESP2 编解码 / TCP / TLS / mTLS / SSH 隧道 / Sentinel / Cluster MOVED+ASK+NAT 拓扑",
+      "Pub/Sub、PSUBSCRIBE、MONITOR 独立长连接流、只读写命令拦截、二进制参数、指数退避重连",
+      "10 种数据类型的基本读取 + 单行/单字段增删改、分页、RedisJSON 路径、Stream 消费组 5 个粗粒度动作",
+      "15 个 viewer 的解码展示 + 自定义 JavaScriptCore viewer + 自动嗅探",
+      "CLI 历史 / 补全 / 229 条命令参考 / 命令日志、INFO / 慢日志 / 内存 / 集群拓扑",
+      "多连接标签、键收藏与持久化、批量删除、拖拽、右键菜单、简体中文界面、主题",
+      "32/32 RESP 协议回归、0 Swift 类型错误、应用可启动并渲染"
+    ],
+    "important_caveat": "32/32 是自建假 Redis 的协议往返测试，不是功能验收；它无法覆盖 UI 深度、命令覆盖面与设置生效性",
+    "corrected_claim": "此前『100% 功能保留』应更正为：功能域与主要操作路径全覆盖，细粒度能力未逐项等价",
+    "gap_count_note": "39 条为按功能域逐条列出的缺口描述，归纳后约 24 类独立能力"
+  },
+  "parity_summary": {
+    "fully_equivalent_domains": 0,
+    "partial_domains": 11,
+    "missing_fine_grained_features": 39,
+    "degraded_or_ineffective_items": 6,
+    "verdict": "功能域骨架齐备，但细粒度功能未达 100% 等价；不能宣称『所有功能都保留』"
   }
 }
