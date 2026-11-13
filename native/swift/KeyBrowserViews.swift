@@ -7,17 +7,21 @@ struct KeyBrowserView: View {
     @EnvironmentObject var store: AppStore
     @State private var treeSelection: String?
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var showingFilter = false
     @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            // OperateItem.vue: search, match mode, refresh, and all secondary actions.
-            HStack(spacing: 5) {
+            // One compact row. The old layout stacked four permanent bars
+            // (search / count / filter / sort header) on top of a 260–330pt wide
+            // column, which left almost no room for keys. Everything that is not
+            // search, refresh or the overflow menu now lives inside that menu.
+            HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 TextField(L10n("Search keys"), text: $store.searchText)
                     .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 90)
+                    .frame(minWidth: 80)
                     .focused($searchFocused)
                     .accessibilityLabel(L10n("Search keys"))
                     .accessibilityIdentifier("key.search")
@@ -29,143 +33,23 @@ struct KeyBrowserView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(L10n("Clear search"))
                 }
-                if !store.searchHistory.isEmpty {
-                    Menu {
-                        ForEach(Array(store.searchHistory.prefix(20)), id: \.self) { term in
-                            Button(term) {
-                                store.searchText = term
-                                store.recordSearch(term)
-                                store.refreshKeys(reset: true)
-                            }
-                        }
-                    } label: { Image(systemName: "clock.arrow.circlepath") }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 22)
-                    .help(L10n("Search history"))
-                    .accessibilityLabel(L10n("Search history"))
-                }
-                Picker("", selection: $store.matchMode) {
-                    ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
-                }
-                .frame(width: 74)
-                .labelsHidden()
-                .accessibilityLabel(L10n("Match mode"))
-                .accessibilityIdentifier("key.matchMode")
+                matchModeMenu
                 Button { store.refreshKeys(reset: true) } label: { Image(systemName: "arrow.clockwise") }
                     .help(L10n("Refresh"))
                     .accessibilityLabel(L10n("Refresh keys"))
                     .accessibilityIdentifier("key.refresh")
-                Menu {
-                    Button(L10n(store.showTree ? "Flat list" : "Tree view")) { store.showTree.toggle(); store.buildTree() }
-                    if !store.scanFinished { Button(L10n("Load more keys")) { store.loadMoreKeys() } }
-                    Button(L10n("Batch delete…")) { store.showingBatchDelete = true }
-                    Button(L10n("Export keys as JSON…")) { store.showingImportExport = true }
-                    Button(L10n("Scroll to top")) { scrollToTop() }
-                    Divider()
-                    Button(L10n("Copy selected key names")) { copySelectedKeys() }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton)
-                .frame(width: 26)
-                .accessibilityLabel(L10n("More actions"))
+                moreMenu
             }
-            .padding(8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
             .fixedSize(horizontal: false, vertical: true)
 
-            HStack {
-                Text("\(store.filteredKeys().count) " + L10n("keys"))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("key.count")
-                    .accessibilityLabel("\(store.filteredKeys().count) " + L10n("keys"))
-                Spacer()
-                if !store.filteredKeys().isEmpty {
-                    Button(L10n("Select all")) {
-                        store.checkedKeys.formUnion(store.filteredKeys())
-                    }.font(.caption)
-                }
-                if !store.checkedKeys.isEmpty {
-                    Button(L10n("Delete selected") + " \(store.checkedKeys.count) " + L10n("keys")) {
-                        store.deleteKeys(Array(store.checkedKeys))
-                    }.font(.caption)
-                    Button(L10n("Clear selection")) { store.checkedKeys.removeAll() }.font(.caption)
-                }
-            }
-            .padding(.horizontal, 10)
-            .fixedSize(horizontal: false, vertical: true)
-
-            // Second-pass filter: narrows what SCAN already returned, in memory only.
-            if !store.keys.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    TextField(L10n("Filter loaded keys"), text: $store.localFilter)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.caption)
-                        .accessibilityLabel(L10n("Filter loaded keys"))
-                        .accessibilityIdentifier("key.filter")
-                    Button { store.localFilterRegex.toggle() } label: {
-                        Text(".*").font(.system(size: 10, design: .monospaced))
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(store.localFilterRegex ? Color.accentColor : Color.secondary)
-                    .help(L10n("Treat the filter as a regular expression"))
-                    .accessibilityLabel(L10n("Treat the filter as a regular expression"))
-                    .accessibilityValue(store.localFilterRegex ? L10n("On") : L10n("Off"))
-                    if !store.localFilter.isEmpty {
-                        Text("\(store.filteredKeys().count)/\(store.keys.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Button { store.localFilter = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L10n("Clear filter"))
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 5)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+            // Contextual, not permanent: the filter row only exists while it is
+            // switched on, and the selection bar only while keys are checked.
+            if showingFilter { filterRow }
+            if !store.checkedKeys.isEmpty { selectionRow }
 
             Divider()
-
-            // PaginationTable.vue's sortable header: clicking "Key" cycles scan
-            // order → A→Z → Z→A; the menu also offers length ordering.
-            if !store.showTree {
-                HStack(spacing: 4) {
-                    Button { store.toggleNameSort() } label: {
-                        HStack(spacing: 3) {
-                            Text(L10n("Key"))
-                            Image(systemName: store.keySortOrder.isDescending ? "chevron.down" : "chevron.up")
-                                .opacity(store.keySortOrder.isByName ? 1 : 0.25)
-                        }
-                        .font(.caption)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n("Sort by key name"))
-                    .accessibilityLabel(L10n("Sort by key name"))
-                    .accessibilityValue(L10n(store.keySortOrder.label))
-                    Spacer()
-                    Menu {
-                        Picker("", selection: $store.keySortOrder) {
-                            ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 22)
-                    .help(L10n("Sort order"))
-                    .accessibilityLabel(L10n("Sort order"))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
-                .background(Color.secondary.opacity(0.06))
-                Divider()
-            }
 
             ScrollViewReader { proxy in
             Group {
@@ -184,8 +68,6 @@ struct KeyBrowserView: View {
             } else {
                 List(store.filteredKeys(), id: \.self, selection: $store.selectedKey) { key in
                     HStack {
-                        Image(systemName: "key").foregroundStyle(.blue)
-                            .accessibilityHidden(true)
                         Text(key).lineLimit(1)
                         Spacer()
                         Button { toggleCheck(key) } label: {
@@ -212,6 +94,134 @@ struct KeyBrowserView: View {
         .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
     }
 
+    // MARK: Toolbar pieces
+
+    /// Match mode used to be a 74pt picker; a menu with the current mode as its
+    /// help text costs a single 22pt glyph and keeps the search field usable.
+    private var matchModeMenu: some View {
+        Menu {
+            Picker("", selection: $store.matchMode) {
+                ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "asterisk")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 22)
+        .help(L10n("Match mode") + ": " + L10n(store.matchMode.label))
+        .accessibilityLabel(L10n("Match mode"))
+        .accessibilityValue(L10n(store.matchMode.label))
+        .accessibilityIdentifier("key.matchMode")
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button(L10n(store.showTree ? "Flat list" : "Tree view")) {
+                store.showTree.toggle()
+                store.buildTree()
+            }
+            Button(showingFilter ? L10n("Hide filter") : L10n("Filter loaded keys…")) {
+                showingFilter.toggle()
+            }
+            .accessibilityIdentifier("key.filter.toggle")
+            Divider()
+            Picker(L10n("Sort order"), selection: $store.keySortOrder) {
+                ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button(L10n("Select all")) { store.checkedKeys.formUnion(store.filteredKeys()) }
+            if !store.checkedKeys.isEmpty {
+                Button(L10n("Clear selection")) { store.checkedKeys.removeAll() }
+            }
+            if !store.scanFinished {
+                Button(L10n("Load more keys")) { store.loadMoreKeys() }
+            }
+            Divider()
+            Button(L10n("Batch delete…")) { store.showingBatchDelete = true }
+            Button(L10n("Export keys as JSON…")) { store.showingImportExport = true }
+            Button(L10n("Copy selected key names")) { copySelectedKeys() }
+            Divider()
+            if !store.searchHistory.isEmpty {
+                Menu(L10n("Search history")) {
+                    ForEach(Array(store.searchHistory.prefix(20)), id: \.self) { term in
+                        Button(term) {
+                            store.searchText = term
+                            store.recordSearch(term)
+                            store.refreshKeys(reset: true)
+                        }
+                    }
+                }
+            }
+            Button(L10n("Scroll to top")) { scrollToTop() }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 24)
+        .help(L10n("More actions"))
+        .accessibilityLabel(L10n("More actions"))
+        .accessibilityIdentifier("key.more")
+    }
+
+    /// Second-pass filter: narrows what SCAN already returned, in memory only.
+    private var filterRow: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(L10n("Filter loaded keys"), text: $store.localFilter)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+                .accessibilityLabel(L10n("Filter loaded keys"))
+                .accessibilityIdentifier("key.filter")
+            Button { store.localFilterRegex.toggle() } label: {
+                Text(".*").font(.system(size: 10, design: .monospaced))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(store.localFilterRegex ? Color.accentColor : Color.secondary)
+            .help(L10n("Treat the filter as a regular expression"))
+            .accessibilityLabel(L10n("Treat the filter as a regular expression"))
+            .accessibilityValue(store.localFilterRegex ? L10n("On") : L10n("Off"))
+            if !store.localFilter.isEmpty {
+                Text("\(store.filteredKeys().count)/\(store.keys.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Button { store.localFilter = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n("Clear filter"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var selectionRow: some View {
+        HStack(spacing: 8) {
+            Text(L10n("Selected") + " \(store.checkedKeys.count)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button(L10n("Delete selected")) { store.deleteKeys(Array(store.checkedKeys)) }
+                .font(.caption)
+            Button(L10n("Copy selected key names")) { copySelectedKeys() }
+                .font(.caption)
+            Spacer(minLength: 4)
+            Button { store.checkedKeys.removeAll() } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n("Clear selection"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 5)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// Explicit DisclosureGroup tree so expansion state is observable and persistable
     /// (List(children:) keeps its state inside SwiftUI with no way to save it).
     private func treeRow(_ node: KeyNode) -> AnyView {
@@ -229,8 +239,6 @@ struct KeyBrowserView: View {
                         .accessibilityValue(checked ? L10n("On") : L10n("Off"))
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { toggleCheck(node.fullPath) }
-                    Image(systemName: "key").foregroundStyle(.blue)
-                        .accessibilityHidden(true)
                     Text(node.name).lineLimit(1)
                     Spacer()
                 }

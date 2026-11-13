@@ -121,6 +121,7 @@ struct KeyDetailView: View {
     @State private var pendingAction: ModuleAction?
     @State private var editingRow: KeyRow?
     @State private var addingRow = false
+    @State private var showPreview = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -173,37 +174,59 @@ struct KeyDetailView: View {
             .environmentObject(store)
             .frame(width: 520, height: 260)
         }
+        .onChange(of: store.selectedKey) { _, _ in showPreview = false }
     }
 
+    /// Title, type and TTL on one line, plus two icon actions and one overflow
+    /// menu. The previous version printed eight text buttons under the title,
+    /// which filled the whole width and still wrapped out of view on a narrow
+    /// detail pane.
     @ViewBuilder
     private func keyHeader(_ key: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "key.fill").foregroundStyle(.blue)
-                Text(key).font(store.uiFont(15, weight: .semibold)).lineLimit(1)
-                Spacer()
-                Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-                Text(store.ttlInMilliseconds ? "PTTL \(store.selectedKeyTTLMillis) ms" : "TTL \(store.selectedKeyTTL)").font(.caption)
-                if store.selectedKeyType == .hash { Text("HLEN \(store.hashLen)").font(.caption) }
+        HStack(spacing: 6) {
+            Image(systemName: "key.fill").foregroundStyle(.blue)
+                .font(store.uiFont(12))
+                .accessibilityHidden(true)
+            Text(key).font(store.uiFont(15, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
+                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            Text(store.ttlInMilliseconds ? "PTTL \(store.selectedKeyTTLMillis) ms" : "TTL \(store.selectedKeyTTL)")
+                .font(.caption).foregroundStyle(.secondary)
+            if store.selectedKeyType == .hash {
+                Text("HLEN \(store.hashLen)").font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 8) {
-                Button(L10n("Refresh")) { store.reloadKeyDetail() }
+            Spacer(minLength: 8)
+            Button { store.reloadKeyDetail() } label: { Image(systemName: "arrow.clockwise") }
+                .help(L10n("Refresh"))
+                .accessibilityLabel(L10n("Refresh"))
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(store.editorText, forType: .string)
+            } label: { Image(systemName: "doc.on.doc") }
+                .help(L10n("Copy"))
+                .accessibilityLabel(L10n("Copy"))
+            Menu {
                 Button(L10n("Rename")) { store.showingRename = true }
                 Button(L10n("TTL")) { store.showingTTL = true }
                 Button(L10n("PERSIST")) { store.setTTL(-1) }
                 Button(L10n("DUMP")) { store.dumpKey(key) }
-                Button(L10n("Copy")) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(store.editorText, forType: .string)
-                }
                 Button(L10n("JSON Editor")) { store.showingJsonEditor = true }
-                Spacer()
+                Divider()
                 Button(L10n("Delete"), role: .destructive) { store.deleteKeys([key]) }
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
-            .font(store.uiFont(11))
+            .menuStyle(.borderlessButton)
+            .frame(width: 24)
+            .help(L10n("More actions"))
+            .accessibilityLabel(L10n("More actions"))
+            .accessibilityIdentifier("detail.key.more")
         }
-        .padding(12)
+        .font(store.uiFont(11))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
     }
 
     // MARK: String / ReJSON / Vector / unknown -> large editor + viewers
@@ -219,11 +242,14 @@ struct KeyDetailView: View {
                     Spacer()
                 }.padding(8)
             }
-            HStack {
+            // Viewer picker + the two actions used every day; the byte-level
+            // tools live in the overflow menu so no label has to truncate itself
+            // to "二进制…" / "Paste he…" like the earlier flat row did.
+            HStack(spacing: 6) {
                 Picker(L10n("Viewer"), selection: $store.viewerName) {
                     ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
                 }
-                .frame(width: 190)
+                .frame(width: 150)
                 .labelsHidden()
                 .accessibilityLabel(L10n("Viewer"))
                 .onChange(of: store.viewerName) { _, _ in store.renderValue() }
@@ -231,12 +257,27 @@ struct KeyDetailView: View {
                     store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
                     store.renderValue()
                 }
-                Button(L10n("Binary input…")) { chooseBinaryFile() }
-                Button(L10n("Paste hex…")) { showingHexInput = true }
-                Button(L10n("Hex grid…")) { store.openHexEditor() }
-                    .help(L10n("Edit the value byte by byte"))
-                Button(L10n("Protobuf schema")) { store.loadProtobufSchema() }
-                Spacer()
+                Button { showPreview.toggle() } label: {
+                    Image(systemName: showPreview ? "eye.fill" : "eye")
+                }
+                .disabled(!canEditValue)
+                .help(L10n("Preview"))
+                .accessibilityLabel(L10n("Preview"))
+                .accessibilityValue(showPreview ? L10n("On") : L10n("Off"))
+                Spacer(minLength: 6)
+                Menu {
+                    Button(L10n("Binary input…")) { chooseBinaryFile() }
+                    Button(L10n("Paste hex…")) { showingHexInput = true }
+                    Button(L10n("Hex grid…")) { store.openHexEditor() }
+                    Button(L10n("Protobuf schema")) { store.loadProtobufSchema() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
+                .help(L10n("More actions"))
+                .accessibilityLabel(L10n("More actions"))
+                .accessibilityIdentifier("detail.viewer.more")
                 Button(L10n("Save")) { store.saveEditorText() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!ARDMFormatters.encodableViewers().contains(store.viewerName))
@@ -290,16 +331,15 @@ struct KeyDetailView: View {
                 .padding(.horizontal, 8)
             }
 
-            HSplitView {
-                TextEditor(text: $store.editorText)
-                    .font(store.monoFont(store.fontSize))
-                    .border(Color.secondary.opacity(0.25))
-                    .frame(minWidth: 260)
-                    .accessibilityLabel(L10n("Value editor"))
-                    .accessibilityIdentifier("detail.editor")
+            // One pane instead of two. The side-by-side split printed the same
+            // JSON twice — raw on the left, highlighted on the right — and halved
+            // the width of both. The eye button swaps to the rendered view when the
+            // active viewer can be re-encoded; binary viewers only have a render.
+            if showsRenderedPane {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Rendered (\(store.viewerName))").font(.caption).foregroundStyle(.secondary)
+                        Text(L10n("Rendered") + " (\(store.viewerName))")
+                            .font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button(L10n("Copy")) {
                             NSPasteboard.general.clearContents()
@@ -307,55 +347,73 @@ struct KeyDetailView: View {
                         }.font(.caption)
                     }
                     ScrollView {
-                        Text(highlighted(store.renderedValue, size: store.scaled(store.fontSize - 1)))
+                        Text(highlighted(store.renderedValue, size: store.scaled(store.fontSize)))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .border(Color.secondary.opacity(0.25))
                 }
-                .frame(minWidth: 260)
+                .padding(8)
+            } else {
+                TextEditor(text: $store.editorText)
+                    .font(store.monoFont(store.fontSize))
+                    .border(Color.secondary.opacity(0.25))
+                    .padding(8)
+                    .accessibilityLabel(L10n("Value editor"))
+                    .accessibilityIdentifier("detail.editor")
             }
-            .padding(8)
         }
     }
+
+    private var canEditValue: Bool {
+        ARDMFormatters.encodableViewers().contains(store.viewerName)
+    }
+
+    /// Rendered-only when the viewer cannot encode back (gzip, pickle, …) or when
+    /// the eye is on; otherwise the editable text is the primary surface.
+    private var showsRenderedPane: Bool { showPreview || !canEditValue }
 
     // MARK: Hash / List / Set / ZSet / Stream / TimeSeries / Array -> editable rows
 
     private var collectionEditor: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(L10n("Offset")).font(.caption)
-                TextField("", value: $store.rowOffset, format: .number).frame(width: 70).textFieldStyle(.roundedBorder)
-                Text(L10n("Limit")).font(.caption)
-                TextField("", value: $store.rowLimit, format: .number).frame(width: 70).textFieldStyle(.roundedBorder)
-                Button(L10n("Load page")) { store.loadTypedValue() }
-                if !store.rowScanFinished {
-                    Button(L10n("Load more rows")) { store.scanRows(reset: false) }
-                }
-                TextField(L10n("Pattern (e.g. session:*)"), text: $store.rowSearchPattern)
-                    .textFieldStyle(.roundedBorder).frame(width: 150)
+            // Paging, refresh and "add" stay on the bar; the per-type extras
+            // (stream groups, TimeSeries options, module commands) moved into one
+            // menu. The old single row carried up to eleven controls and had to be
+            // read at 10pt to fit a normal window.
+            HStack(spacing: 6) {
+                Text(L10n("Offset")).font(.caption).foregroundStyle(.secondary)
+                TextField("", value: $store.rowOffset, format: .number)
+                    .frame(width: 54).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel(L10n("Offset"))
+                Text(L10n("Limit")).font(.caption).foregroundStyle(.secondary)
+                TextField("", value: $store.rowLimit, format: .number)
+                    .frame(width: 54).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel(L10n("Limit"))
+                Button { store.reloadKeyDetail() } label: { Image(systemName: "arrow.clockwise") }
+                    .help(L10n("Refresh"))
+                    .accessibilityLabel(L10n("Refresh"))
+                Button {
+                    store.rowOffset = max(0, store.rowOffset - store.rowLimit)
+                    store.loadTypedValue()
+                } label: { Image(systemName: "chevron.left") }
+                    .disabled(store.rowOffset == 0)
+                    .help(L10n("Previous"))
+                    .accessibilityLabel(L10n("Previous"))
+                Button {
+                    store.rowOffset += store.rowLimit
+                    store.loadTypedValue()
+                } label: { Image(systemName: "chevron.right") }
+                    .help(L10n("Next"))
+                    .accessibilityLabel(L10n("Next"))
+                TextField(L10n("Pattern"), text: $store.rowSearchPattern)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 70, maxWidth: 150)
+                    .accessibilityLabel(L10n("Pattern"))
                     .onSubmit { store.loadTypedValue() }
-                Button(L10n("Previous")) { store.rowOffset = max(0, store.rowOffset - store.rowLimit); store.loadTypedValue() }
-                Button(L10n("Next")) { store.rowOffset += store.rowLimit; store.loadTypedValue() }
-                Spacer()
+                Spacer(minLength: 4)
                 Button(L10n("Add row")) { addingRow = true }
-                if store.selectedKeyType == .zSet {
-                    Button(L10n("Batch…")) { store.showingZSetBatch = true }
-                        .help(L10n("Batch edit matching members"))
-                }
-                if store.selectedKeyType == .stream { streamGroupMenu }
-                if store.selectedKeyType == .stream {
-                    Toggle(L10n("Reverse (XREVRANGE)"), isOn: $store.streamReverse)
-                        .toggleStyle(.checkbox)
-                        .onChange(of: store.streamReverse) { _, _ in store.loadTypedValue() }
-                }
-                moduleMenu
-                if store.selectedKeyType == .timeSeries {
-                    Toggle(L10n("Reverse range"), isOn: $store.timeSeriesReverse)
-                        .toggleStyle(.checkbox)
-                        .onChange(of: store.timeSeriesReverse) { _, _ in store.loadTypedValue() }
-                }
-                Button(L10n("Refresh")) { store.reloadKeyDetail() }
+                collectionMenu
             }
             .padding(8)
 
@@ -388,12 +446,14 @@ struct KeyDetailView: View {
                 Text(columnTitle(1)).font(.caption.bold()).frame(maxWidth: .infinity, alignment: .leading)
                 if store.selectedKeyType == .zSet { Text(L10n("Score")).font(.caption.bold()).frame(width: 100) }
                 if store.selectedKeyType == .hash { Text(L10n("Field TTL")).font(.caption.bold()).frame(width: 80) }
-                Text("").frame(width: 90)
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Color.secondary.opacity(0.08))
             Divider()
 
+            // Row actions moved into the context menu and a double-click: the old
+            // layout put a "编辑" and a red "删除" button on every single row, which
+            // turned a five-field hash into ten competing buttons.
             List(store.keyRows) { row in
                 HStack {
                     Text(row.field).font(store.monoFont(11))
@@ -407,10 +467,12 @@ struct KeyDetailView: View {
                         Text(store.fieldTTLs[row.field].map(String.init) ?? "–")
                             .font(store.monoFont(11)).frame(width: 80)
                     }
-                    Button(L10n("Edit")) { editingRow = row }.font(.caption)
-                    Button(L10n("Delete")) { store.deleteRow(row) }.font(.caption).foregroundStyle(.red)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { editingRow = row }
+                .help(L10n("Double-click to edit"))
                 .contextMenu {
+                    Button(L10n("Edit")) { editingRow = row }
                     Button(L10n("Copy value")) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(row.value, forType: .string)
@@ -471,34 +533,57 @@ struct KeyDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private var moduleMenu: some View {
-        let actions = store.moduleActions()
-        if !actions.isEmpty {
-            Menu(L10n("Advanced commands")) {
-                ForEach(actions) { action in
-                    Button(L10n(action.title)) {
-                        if action.prompt == nil {
-                            store.execute(action.build(store.selectedKey ?? "", ""))
-                        } else {
-                            pendingAction = action
+    /// One overflow menu for everything that used to be a separate control in
+    /// the row: load-more, zset batch, stream groups/reverse, TimeSeries reverse
+    /// and the Redis-module commands.
+    private var collectionMenu: some View {
+        Menu {
+            if !store.rowScanFinished {
+                Button(L10n("Load more rows")) { store.scanRows(reset: false) }
+            }
+            if store.selectedKeyType == .zSet {
+                Button(L10n("Batch…")) { store.showingZSetBatch = true }
+            }
+            if !store.moduleActions().isEmpty {
+                Menu(L10n("Advanced commands")) {
+                    ForEach(store.moduleActions()) { action in
+                        Button(L10n(action.title)) {
+                            if action.prompt == nil {
+                                store.execute(action.build(store.selectedKey ?? "", ""))
+                            } else {
+                                pendingAction = action
+                            }
                         }
                     }
                 }
             }
-            .font(.caption)
+            if store.selectedKeyType == .stream {
+                Menu(L10n("Consumer groups")) {
+                    Button(L10n("XINFO GROUPS")) { store.streamGroup("INFO", group: "") }
+                    Button(L10n("CREATE group")) { store.streamGroup("CREATE", group: "ardm-group") }
+                    Button(L10n("READ group")) { store.streamGroup("READ", group: "ardm-group") }
+                    Button(L10n("ACK 0-0")) { store.streamGroup("ACK", group: "ardm-group", id: "0-0") }
+                    Button(L10n("DELCONSUMER")) { store.streamGroup("DESTROY", group: "ardm-group") }
+                }
+                Button(store.streamReverse ? "✓ " + L10n("Reverse (XREVRANGE)") : L10n("Reverse (XREVRANGE)")) {
+                    store.streamReverse.toggle()
+                    store.loadTypedValue()
+                }
+            }
+            if store.selectedKeyType == .timeSeries {
+                Button(store.timeSeriesReverse ? "✓ " + L10n("Reverse range") : L10n("Reverse range")) {
+                    store.timeSeriesReverse.toggle()
+                    store.loadTypedValue()
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
-    }
-
-    private var streamGroupMenu: some View {
-        Menu(L10n("Consumer groups")) {
-            Button(L10n("XINFO GROUPS")) { store.streamGroup("INFO", group: "") }
-            Button(L10n("CREATE group")) { store.streamGroup("CREATE", group: "ardm-group") }
-            Button(L10n("READ group")) { store.streamGroup("READ", group: "ardm-group") }
-            Button(L10n("ACK 0-0")) { store.streamGroup("ACK", group: "ardm-group", id: "0-0") }
-            Button(L10n("DELCONSUMER")) { store.streamGroup("DESTROY", group: "ardm-group") }
-        }
-        .font(.caption)
+        .menuStyle(.borderlessButton)
+        .frame(width: 24)
+        .help(L10n("More actions"))
+        .accessibilityLabel(L10n("More actions"))
+        .accessibilityIdentifier("detail.rows.more")
     }
 
     private func columnTitle(_ column: Int) -> String {

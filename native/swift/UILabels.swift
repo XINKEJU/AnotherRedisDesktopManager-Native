@@ -389,6 +389,22 @@ let uiChinese: [String: String] = [
     "Toggle Full Screen": "切换全屏",
     "Minimize": "最小化",
     "Apply": "应用",
+    // Labels introduced when the toolbars were collapsed into overflow menus.
+    "Hide filter": "隐藏筛选",
+    "Filter loaded keys…": "筛选已加载的键…",
+    "Search history": "搜索历史",
+    "Load more rows": "加载更多行",
+    "Advanced commands": "高级命令",
+    "Protobuf schema": "Protobuf 结构",
+    "Paste hex…": "粘贴 16 进制…",
+    "Pattern": "匹配模式",
+    "Reverse (XREVRANGE)": "反序（XREVRANGE）",
+    "Reverse range": "反序区间",
+    "This connection is not in cluster mode.": "该连接未启用集群模式。",
+    "Preview": "预览",
+    "Rendered": "渲染结果",
+    "rows": "行",
+    "Double-click to edit": "双击编辑",
 
 ]
 

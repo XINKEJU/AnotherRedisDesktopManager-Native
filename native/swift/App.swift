@@ -297,14 +297,16 @@ struct MainToolbar: ToolbarContent {
 struct StatusBar: View {
     @EnvironmentObject var store: AppStore
 
+    // The DB index and the UI language used to be repeated here even though the
+    // toolbar picker and the Language menu already show them. The bar now only
+    // carries what appears nowhere else: socket state, counters, live mode.
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Circle().fill(store.connected ? Color.green : Color.gray).frame(width: 8, height: 8)
                 .accessibilityHidden(true)
-            Text(store.statusText).lineLimit(1)
-            Spacer()
+            Text(store.statusText).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
             if store.connected {
-                Text("DB \(store.selectedDB)").font(.caption)
                 Text("\(store.keys.count) / \(store.dbSize) " + L10n("keys")).font(.caption)
                 if store.liveRunning {
                     Label(L10n("LIVE"), systemImage: "dot.radiowaves.left.and.right")
@@ -312,8 +314,6 @@ struct StatusBar: View {
                         .accessibilityLabel(L10n("LIVE"))
                 }
             }
-            Text(uiIsChinese() ? "中文" : store.language.uppercased()).font(.caption)
-                .accessibilityLabel(L10n("Language") + ": " + (uiIsChinese() ? "中文" : store.language.uppercased()))
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status.bar")

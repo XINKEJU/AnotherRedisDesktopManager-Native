@@ -316,6 +316,17 @@ struct ClusterView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !store.activeClusterMode {
+                // Sending CLUSTER SLOTS to a standalone server answers
+                // "ERR This instance has cluster support disabled", which used to
+                // surface as a modal error alert just for opening this tab.
+                VStack(spacing: 10) {
+                    Image(systemName: "square.grid.3x3").font(store.uiFont(36)).foregroundStyle(.tertiary)
+                    Text(L10n("This connection is not in cluster mode.")).font(.headline)
+                    Text(L10n("Connect to a Redis Cluster to inspect its topology."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     Section(L10n("Slot ranges")) {
@@ -343,7 +354,11 @@ struct ClusterView: View {
                 }
             }
         }
-        .onAppear { if store.connected { store.loadClusterTopology() } }
+        .onAppear {
+            if store.connected && store.activeClusterMode {
+                store.loadClusterTopology()
+            }
+        }
     }
 }
 

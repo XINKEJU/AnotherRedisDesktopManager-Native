@@ -382,6 +382,9 @@ static NSInteger ARDMKeychainMigrationCount = 0;
 
 + (NSString *)secretForAccount:(NSString *)account {
     if (account.length == 0) return nil;
+    // Automation hook: an ad-hoc re-signed build triggers a macOS keychain prompt
+    // on every launch, which blocks a headless UI screenshot run.
+    if (getenv("ARDM_SKIP_KEYCHAIN")) return nil;
     NSMutableDictionary *query = [[self baseQueryForAccount:account] mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
     query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;

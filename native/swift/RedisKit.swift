@@ -611,7 +611,7 @@ extension AppStore {
                     self.keyRawValue = Data()
                     self.editorText = ""
                 }
-                self.scanRows(reset: true)
+                self.scanRows(reset: true, type: type)
                 self.refreshPTTL()
                 return
             }
@@ -624,7 +624,7 @@ extension AppStore {
                     self.keyRawValue = Data()
                     self.editorText = ""
                 }
-                self.scanRows(reset: true)
+                self.scanRows(reset: true, type: type)
                 self.refreshPTTL()
                 return
             }

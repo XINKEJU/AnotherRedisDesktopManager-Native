@@ -335,9 +335,13 @@ extension AppStore {
     // MARK: - Cursor-based streaming reads (HSCAN / SSCAN / ZSCAN)
 
     /// Reads one cursor batch; append mode implements the "load more" path for huge keys.
-    func scanRows(reset: Bool) {
+    /// `explicitType` exists because `reloadKeyDetail` learns the type on the
+    /// network queue and only publishes it later on the main queue; reading
+    /// `selectedKeyType` here would still be the PREVIOUS key's type, so the very
+    /// first hash/set/zset selection silently drew an empty table.
+    func scanRows(reset: Bool, type explicitType: ARDMKeyType? = nil) {
         guard let key = selectedKey, connected else { return }
-        let type = selectedKeyType
+        let type = explicitType ?? selectedKeyType
         guard type == .hash || type == .set || type == .zSet else { return }
         if !reset && rowScanFinished { return }
         let cursor = reset ? "0" : rowScanCursor

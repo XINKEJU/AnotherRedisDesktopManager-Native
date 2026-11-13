@@ -412,6 +412,13 @@ final class AppStore: ObservableObject {
         connections.first { $0.identifier == selectedConnectionID }
     }
 
+    /// Whether the connection that owns the live socket is in cluster mode.
+    /// Sidebar selection and the active tab can differ when several connections
+    /// are open, so the cluster tab must look at the tab, not the selection.
+    var activeClusterMode: Bool {
+        connections.first { $0.identifier == activeConnectionID }?.cluster ?? false
+    }
+
     func saveConnections() {
         ARDMConnectionConfig.saveAll(connections)
         objectWillChange.send()
