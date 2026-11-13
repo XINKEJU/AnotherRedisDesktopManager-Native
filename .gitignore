@@ -21,3 +21,4 @@ yarn-error.log*
 native/.build/
 native/*.app/
 *.o
+native/dist/

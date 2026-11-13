@@ -21,9 +21,24 @@ NS_ASSUME_NONNULL_BEGIN
 
 /** UpdateCheck.vue / electron-updater replacement (this native repo's Releases API). */
 + (void)checkForUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable releasePage))completion;
-/** Downloads the latest macOS release asset into ~/Downloads and returns its file URL. */
+/** Info about the release found by the last successful check (nil before that). */
++ (NSString * _Nullable)pendingUpdateVersion;
++ (NSString * _Nullable)pendingUpdateAssetName;
+/** YES when the release published a SHA-256 the downloader could consume. */
++ (BOOL)pendingUpdateHasChecksum;
+
+/**
+ Downloads the latest macOS release asset into ~/Downloads and verifies it.
+ A published SHA-256 is mandatory when this build is ad-hoc signed, because an
+ ad-hoc signature carries no provenance; mismatches delete the file.
+ */
 + (void)downloadUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable localFile))completion;
-/** Mounts a downloaded .dmg/.zip, replaces the installed .app bundle, and relaunches it. */
+
+/**
+ Extracts, re-verifies the archive and the bundle's code signature, stages the
+ new bundle next to the destination, and swaps it in atomically. The previous
+ version is kept as `<App>.app.previous`; a failed swap restores it.
+ */
 + (void)installUpdateAtURL:(NSURL *)url completion:(void (^)(NSString *status))completion
     NS_SWIFT_NAME(installUpdate(_:completion:));
 

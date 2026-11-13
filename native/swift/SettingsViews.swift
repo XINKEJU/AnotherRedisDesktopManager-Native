@@ -7,6 +7,8 @@ struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) var dismiss
     @State private var checkingUpdate = false
+    @State private var pendingArchive: URL?
+    @State private var confirmInstall = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -139,27 +141,29 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(checkingUpdate)
-                Button(L10n("Download & install")) {
+                Button(L10n("Download & verify")) {
                     checkingUpdate = true
+                    store.updateStatus = L10n("Downloading…")
                     ARDMAppServices.downloadUpdate { status, file in
-                        guard let file else {
-                            checkingUpdate = false
-                            store.updateStatus = status
-                            return
-                        }
+                        checkingUpdate = false
                         store.updateStatus = status
-                        // Mount the .dmg / unzip the .zip, replace the installed .app, relaunch.
-                        ARDMAppServices.installUpdate(file) { installStatus in
-                            checkingUpdate = false
-                            store.updateStatus = status + " · " + installStatus
-                        }
+                        guard let file else { return }
+                        pendingArchive = file
+                        confirmInstall = true      // never replace the app without an explicit OK
                     }
                 }
-                .disabled(checkingUpdate)
+                .disabled(checkingUpdate || ARDMAppServices.pendingUpdateVersion() == nil)
                 if checkingUpdate { ProgressView().scaleEffect(0.6) }
                 Toggle(L10n("Open release page when available"), isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
                     set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
+            }
+            if let version = ARDMAppServices.pendingUpdateVersion() {
+                Text(L10n("Pending:") + " \(version) · "
+                     + (ARDMAppServices.pendingUpdateHasChecksum()
+                        ? L10n("SHA-256 available")
+                        : L10n("no SHA-256 published")))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Text(store.updateStatus.isEmpty ? "Uses the GitHub Releases API (electron-updater replacement)." : store.updateStatus)
                 .font(.caption).foregroundStyle(.secondary)
@@ -168,6 +172,34 @@ struct SettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+        .alert(L10n("Install this update?"), isPresented: $confirmInstall) {
+            Button(L10n("Cancel"), role: .cancel) { pendingArchive = nil }
+            Button(L10n("Install and relaunch")) { installPendingUpdate() }
+        } message: {
+            Text(installPrompt)
+        }
+    }
+
+    private var installPrompt: String {
+        let version = ARDMAppServices.pendingUpdateVersion() ?? "?"
+        let trust = ARDMAppServices.pendingUpdateHasChecksum()
+            ? L10n("The archive's SHA-256 matches the published checksum.")
+            : L10n("No checksum published; only the code signature can be verified.")
+        return L10n("The app in /Applications will be replaced.")
+            + " " + L10n("Version") + ": \(version). "
+            + L10n("The current version is kept as .previous for rollback.")
+            + "\n" + trust
+    }
+
+    private func installPendingUpdate() {
+        guard let archive = pendingArchive else { return }
+        checkingUpdate = true
+        store.updateStatus = L10n("Verifying the signature and swapping the app…")
+        ARDMAppServices.installUpdate(archive) { status in
+            checkingUpdate = false
+            store.updateStatus = status
+            pendingArchive = nil
+        }
     }
 
     private func languageName(_ code: String) -> String {

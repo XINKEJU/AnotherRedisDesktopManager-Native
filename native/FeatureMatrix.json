@@ -1094,5 +1094,45 @@
     },
     "verification": "bash build.sh：0 错误 0 警告，19 s；.app 4,966,451 B（4.74 MB，较 Electron 191.87 MB 减 97.53%）；vtool minos=14.0；lipo: thin arm64；GUI 启动存活；harness 88/88",
     "next": "P0-2 重写更新器（校验签名 → 临时目录 → 原子替换 → 失败保留旧版）；P1 事务临界区、harness 入库并接 CI、无障碍标注"
+  },
+  "round10_updater": {
+    "date": "2026-11-13",
+    "round": 10,
+    "trigger": "用户『重写更新器』",
+    "closes": [
+      "round9_distribution.open_findings.p0[0]（无校验直接安装 → 远程代码执行）",
+      "round9_distribution.open_findings.p0[1]（先删旧版再复制 → 失败即自毁）"
+    ],
+    "design": {
+      "trust_model": "签名只证明完整性，不证明来源：ad-hoc 签名没有 team identifier，因此 ad-hoc 构建强制要求 Release 附带 SHA-256；将来若改用 Developer ID 签名，则以 team identifier 作为来源依据，校验和变为可选但仍会核对。",
+      "verify_points": [
+        "下载后立即计算 SHA-256，与 Release 的 SHA256SUMS / *.sha256 / checksums.txt 比对，不一致直接删除文件",
+        "安装前再算一次（文件在 ~/Downloads 可能被替换，防 TOCTOU）",
+        "解包后对 .app 做 SecStaticCodeCheckValidity(kSecCSCheckAllArchitectures|kSecCSStrictValidate)",
+        "拷贝进 /Applications 的暂存目录后再校验一次（防拷贝损坏）",
+        "CFBundleIdentifier 必须是 me.qii404.ardm.native，否则拒绝（防替换成别的应用）",
+        "Developer ID 构建时要求 team identifier 与当前运行版本一致"
+      ],
+      "swap": "暂存到目标同卷的 .ardm-new-<uuid>.app → 旧版改名为 <App>.app.previous → 新版 rename 到位；任一步失败即回滚，全程不出现『只有一份』的窗口。rollback 槽只保留一版。",
+      "ui": "『下载并校验』与『安装并重启』拆成两步，中间插入系统确认对话框（显示版本号、校验和状态、将替换 /Applications、旧版保留位置）；确认后才允许替换。"
+    },
+    "changes": [
+      "Transport.m：新增 ARDMSHA256OfFile / ARDMChecksumForAsset / ARDMInspectBundle / ARDMInstallBundle / ARDMFetchText；重写 checkForUpdate / downloadUpdate / installUpdate",
+      "Transport.h：新增 pendingUpdateVersion / pendingUpdateAssetName / pendingUpdateHasChecksum，更新三个方法的契约说明",
+      "SettingsViews.swift：两步式更新 UI + 确认对话框 + 校验和状态 + 12 条中文标签",
+      "package.sh：codesign 校验 → ditto --keepParent 打包 → 生成 SHA256SUMS（缺它则 ad-hoc 构建无法自动更新）"
+    ],
+    "verification": {
+      "build": "0 错误 0 警告，.app 4,994,563 B（4.76 MB，减 97.52%），minos 14.0 / arm64",
+      "updater_probe": "15 passed, 0 failed（SHA-256 与 shasum 一致、4 种校验和格式解析、真机 bundle 严格校验通过、篡改资源后被拒 -67054、换装保留 .previous、只读目录拒绝且不留痕、外来 bundle 被拒、摘要不符中止且不写 /Applications）",
+      "existing_harness": "88 passed, 0 failed（未回归）",
+      "package": "dist/ARDM-Native-1.7.4-arm64.zip + SHA256SUMS；解包后 .app 存在、codesign --verify --deep --strict 通过、shasum -c OK"
+    },
+    "known_limits": [
+      "/Applications 的实际替换未在本机执行（避免改动用户系统）；暂存、校验、rename、回滚各分支均已单测覆盖",
+      "rollback 为手动：旧版保留为 .previous，需用户自行改回，未做『一键回滚』",
+      "仍为 ad-hoc 签名：每次重新构建 CDHash 变化，macOS 会重新询问钥匙串授权（需 Developer ID + 公证才能根治）",
+      "Release 必须同时上传 zip 与 SHA256SUMS，否则 ad-hoc 构建会拒绝安装（这是故意的）"
+    ]
   }
 }
