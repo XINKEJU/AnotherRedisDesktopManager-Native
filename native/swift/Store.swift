@@ -21,13 +21,15 @@ enum MainTab: String, CaseIterable, Identifiable {
         }
     }
     var icon: String {
+        // All outline glyphs at one optical weight. The filled key and the
+        // tortoise for the slow log were the two that broke the row.
         switch self {
-        case .keys: return "key.fill"
-        case .cli: return "chevron.left.forwardslash.chevron.right"
+        case .keys: return "key"
+        case .cli: return "terminal"
         case .status: return "waveform.path.ecg"
-        case .slowLog: return "tortoise.fill"
+        case .slowLog: return "clock"
         case .memory: return "memorychip"
-        case .cluster: return "square.grid.3x3"
+        case .cluster: return "square.grid.2x2"
         case .pubsub: return "dot.radiowaves.left.and.right"
         case .monitor: return "eye"
         case .logs: return "list.bullet.rectangle"

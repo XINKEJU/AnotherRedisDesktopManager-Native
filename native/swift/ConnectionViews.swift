@@ -103,6 +103,7 @@ struct ConnectionSidebar: View {
     /// the database rows be clickable without making them list selection.
     @State private var sidebarSelection: String?
     @State private var expandedConnections: Set<String> = []
+    @FocusState private var searchFocused: Bool
 
 
     /// One connection tab. Extracted from `body` because the inline version with
@@ -112,20 +113,25 @@ struct ConnectionSidebar: View {
         let config = store.connections.first { $0.identifier == id }
         let name = config?.name ?? id
         let active = id == store.activeConnectionID
-        return HStack(spacing: 4) {
+        return HStack(spacing: 5) {
             Circle()
                 .fill(dotColor(store.connectionStates[id]))
                 .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
-            Text(name).font(store.uiFont(10)).lineLimit(1)
+            Text(name).font(store.uiFont(11)).lineLimit(1)
             Button { store.closeConnection(id) } label: {
-                Image(systemName: "xmark").font(store.uiFont(8))
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+                    .frame(width: 12, height: 12)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
             .accessibilityLabel(L10n("Close tab") + ": " + name)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .padding(.leading, 7)
+        .padding(.trailing, 4)
+        .frame(height: 22)
         .background(RoundedRectangle(cornerRadius: 5).fill(
             active ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12)))
         .accessibilityElement(children: .contain)
@@ -203,20 +209,30 @@ struct ConnectionSidebar: View {
 
     private func databaseRow(_ db: Int, config: ARDMConnectionConfig, counts: [Int: Int]) -> some View {
         let current = store.databaseIndex(for: config.identifier) == db
-        return HStack(spacing: 6) {
+        return HStack(spacing: 5) {
             Image(systemName: "cylinder.split.1x2")
-                .font(store.uiFont(10))
+                .font(.system(size: ARDMIcon.inline))
                 .foregroundStyle(current ? Color.accentColor : Color.secondary)
+                .frame(width: 14, alignment: .center)
                 .accessibilityHidden(true)
             Text("db\(db)")
-                .font(store.uiFont(12))
+                .font(store.uiFont(11))
                 .fontWeight(current ? .semibold : .regular)
                 .foregroundStyle(current ? Color.accentColor : Color.primary)
             Spacer(minLength: 2)
             if let count = counts[db], count > 0 {
-                Text("\(count)").font(store.uiFont(10)).foregroundStyle(.secondary)
+                Text("\(count)")
+                    .font(store.uiFont(10))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(minHeight: 21)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(current ? Color.accentColor.opacity(0.10) : Color.clear)
+        )
         .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 4))
         // Two ways in on purpose: the tap handles the common case, and the tag
         // keeps the click working on list styles that route clicks through
@@ -281,38 +297,47 @@ struct ConnectionSidebar: View {
                 Divider()
             }
 
-            HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                TextField(L10n("Search"), text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 70)
-                    .accessibilityLabel(L10n("Search connections"))
-                    .accessibilityIdentifier("sidebar.search")
-                Button { store.editingConnection = nil; store.showingConnectionEditor = true } label: {
-                    Image(systemName: "plus")
+            HStack(spacing: 4) {
+                ARDMSearchField(placeholder: L10n("Search"),
+                                text: $query,
+                                focus: $searchFocused,
+                                identifier: "sidebar.search")
+                ARDMIconButton(systemName: "plus", help: L("message.new_connection", "New Connection")) {
+                    store.editingConnection = nil
+                    store.showingConnectionEditor = true
                 }
-                .help(L("message.new_connection", "New Connection"))
-                .accessibilityLabel(L("message.new_connection", "New Connection"))
                 .accessibilityIdentifier("sidebar.newConnection")
-                Button { if let c = store.selectedConnection { store.connect(to: c) } } label: {
-                    Image(systemName: "bolt.fill")
+                ARDMIconButton(systemName: "play.fill",
+                               help: L10n("Connect"),
+                               tint: store.selectedConnection == nil ? .secondary : .accentColor) {
+                    if let c = store.selectedConnection { store.connect(to: c) }
                 }
-                .help(L10n("Connect"))
-                .accessibilityLabel(L10n("Connect"))
                 .disabled(store.selectedConnection == nil)
-                Menu {
-                    Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
-                    Button(L10n("Disconnect")) { store.disconnect() }
-                    Divider()
-                    Button(L10n("Import / Export…")) { store.showingImportExport = true }
-                    Button(L10n("New Group…")) { showingNewGroup = true }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton)
-                .frame(width: 26)
-                .accessibilityLabel(L10n("More actions"))
+                ARDMIconMenu(help: L10n("More actions")) {
+                    Section {
+                        Button {
+                            if let c = store.selectedConnection { store.connect(to: c) }
+                        } label: {
+                            Label(L10n("Connect"), systemImage: "play.fill")
+                        }
+                        Button {
+                            store.disconnect()
+                        } label: {
+                            Label(L10n("Disconnect"), systemImage: "stop.fill")
+                        }
+                    }
+                    Section {
+                        Button { store.showingImportExport = true } label: {
+                            Label(L10n("Import / Export…"), systemImage: "arrow.up.arrow.down")
+                        }
+                        Button { showingNewGroup = true } label: {
+                            Label(L10n("New Group…"), systemImage: "folder.badge.plus")
+                        }
+                    }
+                }
             }
-            .padding(8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .fixedSize(horizontal: false, vertical: true)
 
             List(selection: $sidebarSelection) {
@@ -344,6 +369,10 @@ struct ConnectionSidebar: View {
                 }
             }
             .listStyle(.sidebar)
+            // Sidebar rows default to 28pt, which turns the sixteen database
+            // rows into a column twice the height of the key list beside it.
+            // Connections keep their two-line height; db rows collapse to 21pt.
+            .environment(\.defaultMinListRowHeight, 20)
         }
         .onAppear { sidebarSelection = store.selectedConnectionID }
         .onChange(of: sidebarSelection) { _, newValue in
@@ -390,20 +419,42 @@ struct ConnectionRow: View {
     @State private var editing = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: store.connectionStates[config.identifier]?.isOnline == true ? "bolt.fill" : "server.rack")
+        HStack(spacing: 7) {
+            // The glyph says what the row is; the colour says how it is doing.
+            // It used to swap to `bolt.fill` once connected, which read like the
+            // "connect" toolbar button rather than a state.
+            Image(systemName: "server.rack")
+                .font(.system(size: ARDMIcon.row))
                 .foregroundStyle(dotColor(store.connectionStates[config.identifier]))
-            VStack(alignment: .leading, spacing: 1) {
+                .frame(width: 16, height: 16)
+            VStack(alignment: .leading, spacing: 0) {
                 Text(config.name).lineLimit(1)
                 // The database is a row in the tree below once connected, so
                 // naming the configured default here would just contradict it.
                 Text("\(config.host):\(config.port)")
-                    .font(store.uiFont(10)).foregroundStyle(.secondary)
+                    .font(store.uiFont(10))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 2)
-            if config.readOnly { Image(systemName: "lock").font(store.uiFont(9)) }
-            if config.tlsEnabled { Image(systemName: "lock.shield").font(store.uiFont(9)) }
-            if config.sshEnabled { Image(systemName: "network").font(store.uiFont(9)) }
+            if config.readOnly {
+                Image(systemName: "lock")
+                    .font(.system(size: ARDMIcon.inline - 1))
+                    .frame(width: 12)
+                    .foregroundStyle(.tertiary)
+            }
+            if config.tlsEnabled {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: ARDMIcon.inline - 1))
+                    .frame(width: 12)
+                    .foregroundStyle(.tertiary)
+            }
+            if config.sshEnabled {
+                Image(systemName: "network")
+                    .font(.system(size: ARDMIcon.inline - 1))
+                    .frame(width: 12)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .font(store.uiFont(12))
         // One element instead of five: the status and capability glyphs are

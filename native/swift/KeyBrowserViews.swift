@@ -17,30 +17,26 @@ struct KeyBrowserView: View {
             // column, which left almost no room for keys. Everything that is not
             // search, refresh or the overflow menu now lives inside that menu.
             HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                TextField(L10n("Search keys"), text: $store.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 80)
-                    .focused($searchFocused)
-                    .accessibilityLabel(L10n("Search keys"))
-                    .accessibilityIdentifier("key.search")
-                    .onSubmit { store.recordSearch(store.searchText); store.refreshKeys(reset: true) }
-                if !store.searchText.isEmpty {
-                    Button { store.searchText = ""; store.refreshKeys(reset: true) } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(L10n("Clear search"))
+                ARDMSearchField(placeholder: L10n("Search keys"),
+                                text: $store.searchText,
+                                focus: $searchFocused,
+                                identifier: "key.search",
+                                onSubmit: {
+                                    store.recordSearch(store.searchText)
+                                    store.refreshKeys(reset: true)
+                                },
+                                onClear: {
+                                    store.searchText = ""
+                                    store.refreshKeys(reset: true)
+                                })
+                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                    store.refreshKeys(reset: true)
                 }
-                Button { store.refreshKeys(reset: true) } label: { Image(systemName: "arrow.clockwise") }
-                    .help(L10n("Refresh"))
-                    .accessibilityLabel(L10n("Refresh keys"))
-                    .accessibilityIdentifier("key.refresh")
+                .accessibilityIdentifier("key.refresh")
                 moreMenu
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .fixedSize(horizontal: false, vertical: true)
 
             // Contextual, not permanent: the filter row only exists while it is
@@ -96,59 +92,90 @@ struct KeyBrowserView: View {
     // MARK: Toolbar pieces
 
     private var moreMenu: some View {
-        Menu {
-            Button(L10n(store.showTree ? "Flat list" : "Tree view")) {
-                store.showTree.toggle()
-                store.buildTree()
+        ARDMIconMenu(help: L10n("More actions")) {
+            Section {
+                Button {
+                    store.showTree.toggle()
+                    store.buildTree()
+                } label: {
+                    Label(L10n(store.showTree ? "Flat list" : "Tree view"),
+                          systemImage: store.showTree ? "list.bullet" : "list.bullet.indent")
+                }
+                Button {
+                    showingFilter.toggle()
+                } label: {
+                    Label(showingFilter ? L10n("Hide filter") : L10n("Filter loaded keys…"),
+                          systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityIdentifier("key.filter.toggle")
             }
-            Button(showingFilter ? L10n("Hide filter") : L10n("Filter loaded keys…")) {
-                showingFilter.toggle()
+
+            Section {
+                // Match mode used to sit beside the search field as an asterisk
+                // glyph, where the menu's own chevron was drawn on top of it.
+                Picker(L10n("Match mode"), selection: $store.matchMode) {
+                    ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
+                }
+                .pickerStyle(.inline)
+                Picker(L10n("Sort order"), selection: $store.keySortOrder) {
+                    ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
+                }
+                .pickerStyle(.inline)
             }
-            .accessibilityIdentifier("key.filter.toggle")
-            Divider()
-            // Match mode used to sit beside the search field as an asterisk
-            // glyph, where the menu's own chevron was drawn on top of it. It
-            // belongs with the other search settings.
-            Picker(L10n("Match mode"), selection: $store.matchMode) {
-                ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
-            }
-            .pickerStyle(.inline)
-            Picker(L10n("Sort order"), selection: $store.keySortOrder) {
-                ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Button(L10n("Select all")) { store.checkedKeys.formUnion(store.filteredKeys()) }
-            if !store.checkedKeys.isEmpty {
-                Button(L10n("Clear selection")) { store.checkedKeys.removeAll() }
-            }
-            if !store.scanFinished {
-                Button(L10n("Load more keys")) { store.loadMoreKeys() }
-            }
-            Divider()
-            Button(L10n("Batch delete…")) { store.showingBatchDelete = true }
-            Button(L10n("Export keys as JSON…")) { store.showingImportExport = true }
-            Button(L10n("Copy selected key names")) { copySelectedKeys() }
-            Divider()
-            if !store.searchHistory.isEmpty {
-                Menu(L10n("Search history")) {
-                    ForEach(Array(store.searchHistory.prefix(20)), id: \.self) { term in
-                        Button(term) {
-                            store.searchText = term
-                            store.recordSearch(term)
-                            store.refreshKeys(reset: true)
-                        }
+
+            Section {
+                Button {
+                    store.checkedKeys.formUnion(store.filteredKeys())
+                } label: {
+                    Label(L10n("Select all"), systemImage: "checkmark.square")
+                }
+                if !store.checkedKeys.isEmpty {
+                    Button {
+                        store.checkedKeys.removeAll()
+                    } label: {
+                        Label(L10n("Clear selection"), systemImage: "square.dashed")
+                    }
+                }
+                if !store.scanFinished {
+                    Button {
+                        store.loadMoreKeys()
+                    } label: {
+                        Label(L10n("Load more keys"), systemImage: "arrow.down.circle")
                     }
                 }
             }
-            Button(L10n("Scroll to top")) { scrollToTop() }
-        } label: {
-            Image(systemName: "ellipsis.circle")
+
+            Section {
+                Button { store.showingBatchDelete = true } label: {
+                    Label(L10n("Batch delete…"), systemImage: "trash")
+                }
+                Button { store.showingImportExport = true } label: {
+                    Label(L10n("Export keys as JSON…"), systemImage: "square.and.arrow.up")
+                }
+                Button { copySelectedKeys() } label: {
+                    Label(L10n("Copy selected key names"), systemImage: "doc.on.doc")
+                }
+            }
+
+            Section {
+                if !store.searchHistory.isEmpty {
+                    Menu {
+                        ForEach(Array(store.searchHistory.prefix(20)), id: \.self) { term in
+                            Button(term) {
+                                store.searchText = term
+                                store.recordSearch(term)
+                                store.refreshKeys(reset: true)
+                            }
+                        }
+                    } label: {
+                        Label(L10n("Search history"), systemImage: "clock.arrow.circlepath")
+                    }
+                }
+                Button { scrollToTop() } label: {
+                    Label(L10n("Scroll to top"), systemImage: "arrow.up.to.line")
+                }
+            }
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: 24)
-        .help(L10n("More actions"))
-        .accessibilityLabel(L10n("More actions"))
         .accessibilityIdentifier("key.more")
     }
 

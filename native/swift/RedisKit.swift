@@ -368,7 +368,10 @@ extension AppStore {
                     self.buildTree()
                     if let id = self.activeConnectionID { self.keyCache[id] = self.keys }
                     self.dbSize = self.client?.dbSize(nil) ?? self.dbSize
-                    self.statusText = "\(self.keys.count) " + L10n("keys loaded") + " · DB \(self.selectedDB) · " + L10n("total") + " \(self.dbSize)"
+                    // "7 个键已加载 · DB 0 · 共 7" said the same number twice in
+                    // two different phrasings. A ratio covers both the paged and
+                    // the complete case in one glance.
+                    self.statusText = "\(self.keys.count) / \(self.dbSize) " + L10n("keys") + " · DB \(self.selectedDB)"
                 }
             } catch {
                 self.onMain { self.fail("SCAN failed: \(error.localizedDescription)") }

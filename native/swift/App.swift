@@ -46,6 +46,34 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         }
         AppStore.shared.startAutoRefresh()
         applyStartupArguments()
+        removeSidebarToggle()
+    }
+
+    /// NavigationSplitView always installs a "hide sidebar" button in the title
+    /// bar. This window has three fixed columns and no reason to collapse them,
+    /// so the button was pure decoration in the one place the eye lands first.
+    /// SwiftUI's `.toolbar(removing: .sidebarToggle)` does not reach the item
+    /// the split view creates here, so it is dropped from the NSToolbar once the
+    /// window exists.
+    private func removeSidebarToggle() {
+        // The split view rebuilds its toolbar when the first connection opens,
+        // which puts the button back; sweep every window a few times instead of
+        // trusting a single pass.
+        for delay in [1.0, 3.0, 6.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                for window in NSApp.windows {
+                    guard let toolbar = window.toolbar else { continue }
+                    let doomed = toolbar.items.filter {
+                        $0.itemIdentifier.rawValue.lowercased().contains("togglesidebar")
+                    }
+                    for item in doomed {
+                        if let index = toolbar.items.firstIndex(of: item) {
+                            toolbar.removeItem(at: index)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// A saved frame is only reusable when a decent slice of it is still inside
@@ -237,6 +265,8 @@ struct RootView: View {
         } detail: {
             DetailPane()
         }
+        // The three columns are fixed for this tool; the sidebar-collapse button
+        // in the title bar is removed in the app delegate instead.
         .toolbar { MainToolbar() }
         .safeAreaInset(edge: .bottom) { StatusBar() }
         .modifier(ARDMSheets())
@@ -259,30 +289,69 @@ struct MainToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
-                Button(L10n("Disconnect")) { store.disconnect() }
-                Divider()
-                Button(L10n("Refresh Keys")) { store.refreshKeys(reset: true) }
-                Button(L10n("New Key")) { store.showingNewKey = true }
-                Button(L10n("Batch Delete")) { store.showingBatchDelete = true }
-                Divider()
+                Section {
+                    Button {
+                        if let c = store.selectedConnection { store.connect(to: c) }
+                    } label: {
+                        Label(L10n("Connect"), systemImage: "play.fill")
+                    }
+                    Button { store.disconnect() } label: {
+                        Label(L10n("Disconnect"), systemImage: "stop.fill")
+                    }
+                }
+                Section {
+                    Button { store.refreshKeys(reset: true) } label: {
+                        Label(L10n("Refresh Keys"), systemImage: "arrow.clockwise")
+                    }
+                    Button { store.showingNewKey = true } label: {
+                        Label(L10n("New Key"), systemImage: "plus.square")
+                    }
+                    Button { store.showingBatchDelete = true } label: {
+                        Label(L10n("Batch Delete"), systemImage: "trash")
+                    }
+                }
                 if store.connected {
-                    Menu(L10n("Database")) {
-                        ForEach(0..<16, id: \.self) { db in
-                            Button("db\(db)" + (store.selectedDB == db ? " ✓" : "")) {
-                                store.changeDatabase(db)
+                    Section {
+                        Menu {
+                            ForEach(0..<16, id: \.self) { db in
+                                Button {
+                                    store.changeDatabase(db)
+                                } label: {
+                                    if store.selectedDB == db {
+                                        Label("db\(db)", systemImage: "checkmark")
+                                    } else {
+                                        Text("db\(db)")
+                                    }
+                                }
                             }
+                        } label: {
+                            Label(L10n("Database"), systemImage: "cylinder.split.1x2")
                         }
                     }
                 }
-                Button(L10n("Import / Export…")) { store.showingImportExport = true }
-                Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
-                Button(L10n("JSON Editor…")) { store.showingJsonEditor = true }
-                Divider()
-                Button(L10n("Settings…")) { store.showingSettings = true }
+                Section {
+                    Button { store.showingImportExport = true } label: {
+                        Label(L10n("Import / Export…"), systemImage: "arrow.up.arrow.down")
+                    }
+                    Button { store.showingFormatterManager = true } label: {
+                        Label(L10n("Custom Formatters…"), systemImage: "wand.and.stars")
+                    }
+                    Button { store.showingJsonEditor = true } label: {
+                        Label(L10n("JSON Editor…"), systemImage: "curlybraces")
+                    }
+                }
+                Section {
+                    Button { store.showingSettings = true } label: {
+                        Label(L10n("Settings…"), systemImage: "gearshape")
+                    }
+                }
             } label: {
-                Label(L10n("Tools"), systemImage: "ellipsis.circle")
+                // Generic sliders read cleanly at 13pt; the crossed wrench and
+                // screwdriver collapsed into a scribble at this size.
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13))
             }
+            .menuIndicator(.hidden)
             .help(L10n("Tools"))
             .accessibilityLabel(L10n("Tools"))
             .accessibilityIdentifier("toolbar.tools")
@@ -296,18 +365,28 @@ struct StatusBar: View {
     // The database index is in the sidebar tree now; statusText already names
     // the current DB alongside the counters, so the bar stays as it was.
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(store.connected ? Color.green : Color.gray).frame(width: 8, height: 8)
+        HStack(spacing: 7) {
+            Circle()
+                .fill(store.connected ? Color.green : Color.secondary.opacity(0.5))
+                .frame(width: 7, height: 7)
                 .accessibilityHidden(true)
             Text(store.statusText).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
-            if store.connected {
-                Text("\(store.keys.count) / \(store.dbSize) " + L10n("keys")).font(.caption)
-                if store.liveRunning {
-                    Label(L10n("LIVE"), systemImage: "dot.radiowaves.left.and.right")
-                        .font(.caption)
-                        .accessibilityLabel(L10n("LIVE"))
+            // The key counters used to be printed twice — once inside
+            // statusText and once here on the right. Only the live indicator is
+            // unique to this side of the bar.
+            if store.liveRunning {
+                HStack(spacing: 4) {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: ARDMIcon.inline))
+                    Text(L10n("LIVE")).font(store.uiFont(10, weight: .medium))
                 }
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(L10n("LIVE"))
             }
         }
         .accessibilityElement(children: .combine)

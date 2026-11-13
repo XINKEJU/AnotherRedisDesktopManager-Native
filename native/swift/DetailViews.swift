@@ -59,22 +59,27 @@ struct DetailPane: View {
             // A labelled, scrollable tab strip replaces the old icon-only
             // segmented control that packed nine tabs into the title bar.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     ForEach(MainTab.allCases) { tab in
                         Button { store.activeTab = tab } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: tab.icon).font(store.uiFont(11))
+                            HStack(spacing: 6) {
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: ARDMIcon.control, weight: .regular))
+                                    .frame(width: 15)
                                     .accessibilityHidden(true)
-                                Text(L10n(tab.title)).font(store.uiFont(11))
+                                Text(L10n(tab.title))
+                                    .font(store.uiFont(11))
+                                    .fontWeight(store.activeTab == tab ? .medium : .regular)
                             }
                             .padding(.horizontal, 9)
-                            .padding(.vertical, 6)
+                            .frame(height: 24)
                             .background(
-                                RoundedRectangle(cornerRadius: 6)
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .fill(store.activeTab == tab
-                                          ? Color.accentColor.opacity(0.18)
+                                          ? Color.accentColor.opacity(0.15)
                                           : Color.clear)
                             )
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(store.activeTab == tab ? Color.accentColor : Color.secondary)
@@ -84,7 +89,7 @@ struct DetailPane: View {
                         .accessibilityIdentifier("detail.tab." + tab.title)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 6)
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -135,11 +140,17 @@ struct KeyDetailView: View {
                     collectionEditor
                 }
             } else {
-                VStack(spacing: 12) {
-                    Image(systemName: "key").font(store.uiFont(42)).foregroundStyle(.tertiary)
-                    Text(L10n("Select a key to view and edit its value")).foregroundStyle(.secondary)
+                VStack(spacing: 10) {
+                    Image(systemName: "key")
+                        .font(.system(size: ARDMIcon.emptyState, weight: .light))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.quaternary)
+                    Text(L10n("Select a key to view and edit its value"))
+                        .font(store.uiFont(12, weight: .medium))
+                        .foregroundStyle(.secondary)
                     Text(L10n("10 data types · 15 format viewers · field-level editing"))
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(store.uiFont(10.5))
+                        .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -177,56 +188,74 @@ struct KeyDetailView: View {
         .onChange(of: store.selectedKey) { _, _ in showPreview = false }
     }
 
+    /// TTL and type-specific counters share one line: "TTL -1 · HLEN 3" reads as
+    /// one piece of metadata, while two adjacent Texts read as two unrelated
+    /// numbers.
+    private var keyMetadata: String {
+        var parts = [store.ttlInMilliseconds
+                     ? "PTTL \(store.selectedKeyTTLMillis) ms"
+                     : "TTL \(store.selectedKeyTTL)"]
+        if store.selectedKeyType == .hash { parts.append("HLEN \(store.hashLen)") }
+        return parts.joined(separator: " · ")
+    }
+
     /// Title, type and TTL on one line, plus two icon actions and one overflow
     /// menu. The previous version printed eight text buttons under the title,
     /// which filled the whole width and still wrapped out of view on a narrow
     /// detail pane.
     @ViewBuilder
     private func keyHeader(_ key: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "key.fill").foregroundStyle(.blue)
-                .font(store.uiFont(12))
+        HStack(spacing: 8) {
+            Image(systemName: "key.fill")
+                .font(.system(size: ARDMIcon.control))
+                .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text(key).font(store.uiFont(15, weight: .semibold))
+            Text(key).font(store.uiFont(14, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
-                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-            Text(store.ttlInMilliseconds ? "PTTL \(store.selectedKeyTTLMillis) ms" : "TTL \(store.selectedKeyTTL)")
-                .font(.caption).foregroundStyle(.secondary)
-            if store.selectedKeyType == .hash {
-                Text("HLEN \(store.hashLen)").font(.caption).foregroundStyle(.secondary)
-            }
+            Text(typeName(store.selectedKeyType))
+                .font(store.uiFont(10, weight: .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .foregroundStyle(Color.accentColor)
+                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+            Text(keyMetadata)
+                .font(store.uiFont(10.5))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            Button { store.reloadKeyDetail() } label: { Image(systemName: "arrow.clockwise") }
-                .help(L10n("Refresh"))
-                .accessibilityLabel(L10n("Refresh"))
-            Button {
+            ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                store.reloadKeyDetail()
+            }
+            ARDMIconButton(systemName: "doc.on.doc", help: L10n("Copy")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(store.editorText, forType: .string)
-            } label: { Image(systemName: "doc.on.doc") }
-                .help(L10n("Copy"))
-                .accessibilityLabel(L10n("Copy"))
-            Menu {
-                Button(L10n("Rename")) { store.showingRename = true }
-                Button(L10n("TTL")) { store.showingTTL = true }
-                Button(L10n("PERSIST")) { store.setTTL(-1) }
-                Button(L10n("DUMP")) { store.dumpKey(key) }
-                Button(L10n("JSON Editor")) { store.showingJsonEditor = true }
-                Divider()
-                Button(L10n("Delete"), role: .destructive) { store.deleteKeys([key]) }
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 24)
-            .help(L10n("More actions"))
-            .accessibilityLabel(L10n("More actions"))
+            ARDMIconMenu(help: L10n("More actions")) {
+                Button { store.showingRename = true } label: {
+                    Label(L10n("Rename"), systemImage: "character.cursor.ibeam")
+                }
+                Button { store.showingTTL = true } label: {
+                    Label(L10n("TTL"), systemImage: "clock")
+                }
+                Button { store.setTTL(-1) } label: {
+                    Label(L10n("PERSIST"), systemImage: "pin")
+                }
+                Button { store.dumpKey(key) } label: {
+                    Label(L10n("DUMP"), systemImage: "arrow.down.doc")
+                }
+                Button { store.showingJsonEditor = true } label: {
+                    Label(L10n("JSON Editor"), systemImage: "curlybraces")
+                }
+                Divider()
+                Button(role: .destructive) { store.deleteKeys([key]) } label: {
+                    Label(L10n("Delete"), systemImage: "trash")
+                }
+            }
             .accessibilityIdentifier("detail.key.more")
         }
-        .font(store.uiFont(11))
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
     }
 
     // MARK: String / ReJSON / Vector / unknown -> large editor + viewers
@@ -257,26 +286,28 @@ struct KeyDetailView: View {
                     store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
                     store.renderValue()
                 }
-                Button { showPreview.toggle() } label: {
-                    Image(systemName: showPreview ? "eye.fill" : "eye")
+                Spacer(minLength: 6)
+                ARDMIconButton(systemName: showPreview ? "eye.fill" : "eye",
+                               help: L10n("Preview"),
+                               tint: showPreview ? .accentColor : .secondary) {
+                    showPreview.toggle()
                 }
                 .disabled(!canEditValue)
-                .help(L10n("Preview"))
-                .accessibilityLabel(L10n("Preview"))
                 .accessibilityValue(showPreview ? L10n("On") : L10n("Off"))
-                Spacer(minLength: 6)
-                Menu {
-                    Button(L10n("Binary input…")) { chooseBinaryFile() }
-                    Button(L10n("Paste hex…")) { showingHexInput = true }
-                    Button(L10n("Hex grid…")) { store.openHexEditor() }
-                    Button(L10n("Protobuf schema")) { store.loadProtobufSchema() }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                ARDMIconMenu(help: L10n("More actions")) {
+                    Button { chooseBinaryFile() } label: {
+                        Label(L10n("Binary input…"), systemImage: "square.and.arrow.down")
+                    }
+                    Button { showingHexInput = true } label: {
+                        Label(L10n("Paste hex…"), systemImage: "doc.on.clipboard")
+                    }
+                    Button { store.openHexEditor() } label: {
+                        Label(L10n("Hex grid…"), systemImage: "square.grid.3x3")
+                    }
+                    Button { store.loadProtobufSchema() } label: {
+                        Label(L10n("Protobuf schema"), systemImage: "curlybraces.square")
+                    }
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .help(L10n("More actions"))
-                .accessibilityLabel(L10n("More actions"))
                 .accessibilityIdentifier("detail.viewer.more")
                 Button(L10n("Save")) { store.saveEditorText() }
                     .buttonStyle(.borderedProminent)
@@ -390,29 +421,30 @@ struct KeyDetailView: View {
                 TextField("", value: $store.rowLimit, format: .number)
                     .frame(width: 54).textFieldStyle(.roundedBorder)
                     .accessibilityLabel(L10n("Limit"))
-                Button { store.reloadKeyDetail() } label: { Image(systemName: "arrow.clockwise") }
-                    .help(L10n("Refresh"))
-                    .accessibilityLabel(L10n("Refresh"))
-                Button {
+                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                    store.reloadKeyDetail()
+                }
+                ARDMIconButton(systemName: "chevron.left", help: L10n("Previous")) {
                     store.rowOffset = max(0, store.rowOffset - store.rowLimit)
                     store.loadTypedValue()
-                } label: { Image(systemName: "chevron.left") }
-                    .disabled(store.rowOffset == 0)
-                    .help(L10n("Previous"))
-                    .accessibilityLabel(L10n("Previous"))
-                Button {
+                }
+                .disabled(store.rowOffset == 0)
+                ARDMIconButton(systemName: "chevron.right", help: L10n("Next")) {
                     store.rowOffset += store.rowLimit
                     store.loadTypedValue()
-                } label: { Image(systemName: "chevron.right") }
-                    .help(L10n("Next"))
-                    .accessibilityLabel(L10n("Next"))
+                }
                 TextField(L10n("Pattern"), text: $store.rowSearchPattern)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 70, maxWidth: 150)
                     .accessibilityLabel(L10n("Pattern"))
                     .onSubmit { store.loadTypedValue() }
                 Spacer(minLength: 4)
-                Button(L10n("Add row")) { addingRow = true }
+                Button {
+                    addingRow = true
+                } label: {
+                    Label(L10n("Add row"), systemImage: "plus")
+                }
+                .controlSize(.small)
                 collectionMenu
             }
             .padding(8)
@@ -454,7 +486,10 @@ struct KeyDetailView: View {
             // Row actions moved into the context menu and a double-click: the old
             // layout put a "编辑" and a red "删除" button on every single row, which
             // turned a five-field hash into ten competing buttons.
-            List(store.keyRows) { row in
+            // `alternatesRowBackgrounds` paints its zebra pattern over the whole
+            // scroll area, so a three-field hash showed ten grey bands of empty
+            // space under the data. Striping the real rows only fixes that.
+            List(Array(store.keyRows.enumerated()), id: \.element.id) { index, row in
                 HStack {
                     Text(row.field).font(store.monoFont(11))
                         .lineLimit(1).frame(width: 180, alignment: .leading)
@@ -488,8 +523,11 @@ struct KeyDetailView: View {
                     }
                     Button(L10n("Delete row"), role: .destructive) { store.deleteRow(row) }
                 }
+                .listRowBackground(index.isMultiple(of: 2)
+                                   ? Color.secondary.opacity(0.045)
+                                   : Color.clear)
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .listStyle(.inset)
 
             if store.selectedKeyType == .stream && (!store.streamGroups.isEmpty || !store.streamConsumers.isEmpty) {
                 Divider()
@@ -537,15 +575,19 @@ struct KeyDetailView: View {
     /// the row: load-more, zset batch, stream groups/reverse, TimeSeries reverse
     /// and the Redis-module commands.
     private var collectionMenu: some View {
-        Menu {
+        ARDMIconMenu(help: L10n("More actions")) {
             if !store.rowScanFinished {
-                Button(L10n("Load more rows")) { store.scanRows(reset: false) }
+                Button { store.scanRows(reset: false) } label: {
+                    Label(L10n("Load more rows"), systemImage: "arrow.down.circle")
+                }
             }
             if store.selectedKeyType == .zSet {
-                Button(L10n("Batch…")) { store.showingZSetBatch = true }
+                Button { store.showingZSetBatch = true } label: {
+                    Label(L10n("Batch…"), systemImage: "square.stack.3d.up")
+                }
             }
             if !store.moduleActions().isEmpty {
-                Menu(L10n("Advanced commands")) {
+                Menu {
                     ForEach(store.moduleActions()) { action in
                         Button(L10n(action.title)) {
                             if action.prompt == nil {
@@ -555,34 +597,38 @@ struct KeyDetailView: View {
                             }
                         }
                     }
+                } label: {
+                    Label(L10n("Advanced commands"), systemImage: "terminal")
                 }
             }
             if store.selectedKeyType == .stream {
-                Menu(L10n("Consumer groups")) {
+                Menu {
                     Button(L10n("XINFO GROUPS")) { store.streamGroup("INFO", group: "") }
                     Button(L10n("CREATE group")) { store.streamGroup("CREATE", group: "ardm-group") }
                     Button(L10n("READ group")) { store.streamGroup("READ", group: "ardm-group") }
                     Button(L10n("ACK 0-0")) { store.streamGroup("ACK", group: "ardm-group", id: "0-0") }
                     Button(L10n("DELCONSUMER")) { store.streamGroup("DESTROY", group: "ardm-group") }
+                } label: {
+                    Label(L10n("Consumer groups"), systemImage: "person.2")
                 }
-                Button(store.streamReverse ? "✓ " + L10n("Reverse (XREVRANGE)") : L10n("Reverse (XREVRANGE)")) {
+                Button {
                     store.streamReverse.toggle()
                     store.loadTypedValue()
+                } label: {
+                    Label(L10n("Reverse (XREVRANGE)"),
+                          systemImage: store.streamReverse ? "checkmark.circle.fill" : "circle")
                 }
             }
             if store.selectedKeyType == .timeSeries {
-                Button(store.timeSeriesReverse ? "✓ " + L10n("Reverse range") : L10n("Reverse range")) {
+                Button {
                     store.timeSeriesReverse.toggle()
                     store.loadTypedValue()
+                } label: {
+                    Label(L10n("Reverse range"),
+                          systemImage: store.timeSeriesReverse ? "checkmark.circle.fill" : "circle")
                 }
             }
-        } label: {
-            Image(systemName: "ellipsis.circle")
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: 24)
-        .help(L10n("More actions"))
-        .accessibilityLabel(L10n("More actions"))
         .accessibilityIdentifier("detail.rows.more")
     }
 
