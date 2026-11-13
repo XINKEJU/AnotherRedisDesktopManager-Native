@@ -99,9 +99,13 @@ static NSArray *ARDMNormalizeArray(id reply) {
 /** Build the command-line string recorded in the command log.
     Masks AUTH secrets, drops keepalive PINGs, and truncates over-long args so
     credentials never leak into the on-screen / persisted log (upstream CommandLog.vue). */
-static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
+static NSString *ARDMCommandLogString(NSArray *args) {
     if (args.count == 0) return @"";
-    NSString *verb = [[args.firstObject uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
+    id first = args.firstObject;
+    NSString *verb = ([first isKindOfClass:NSString.class]
+                      ? [(NSString *)first uppercaseString]
+                      : [NSString stringWithFormat:@"%@", first] ?: @"") ?: @"";
+    verb = [verb stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
     if ([verb isEqualToString:@"PING"]) return nil; // keepalive pings must not flood the command log
     NSMutableArray *redacted = [args mutableCopy];
     if ([verb isEqualToString:@"AUTH"] && redacted.count >= 2) {
@@ -111,8 +115,20 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         redacted[0] = @"AUTH ***";
     }
     for (NSUInteger i = 0; i < redacted.count; i++) {
-        NSString *s = redacted[i];
-        if (s.length > 200) redacted[i] = [[s substringToIndex:200] stringByAppendingString:@"…(truncated)"];
+        id s = redacted[i];
+        // Commands carry non-string args too: saveEditorText sends the encoded
+        // value as raw Data (bridged NSData, which answers -length with its
+        // byte count but is not a string). Never call NSString selectors on it.
+        if ([s isKindOfClass:NSString.class]) {
+            NSString *str = s;
+            if (str.length > 200) redacted[i] = [[str substringToIndex:200] stringByAppendingString:@"…(truncated)"];
+        } else if ([s isKindOfClass:NSData.class]) {
+            redacted[i] = [NSString stringWithFormat:@"<%lu bytes>", (unsigned long)[(NSData *)s length]];
+        } else if (s && ![s isKindOfClass:[NSNull class]]) {
+            NSString *d = [NSString stringWithFormat:@"%@", s];
+            if (d.length > 200) d = [[d substringToIndex:200] stringByAppendingString:@"…(truncated)"];
+            redacted[i] = d;
+        }
     }
     return [redacted componentsJoinedByString:@" "];
 }

@@ -37,6 +37,17 @@ int main(int argc, const char *argv[]) {
         err = nil;
         check("SET allowed (read-write)", [[client send:@[@"SET", @"str:foo", @"baz"] error:&err] isEqualToString:@"OK"] ? YES : NO, @"OK");
         err = nil;
+        // Regression: the editor save path sends the encoded value as raw Data.
+        // The command-log builder used to call -substringToIndex: on it (NSData
+        // answers -length with its byte count) and the process aborted with
+        // "unrecognized selector sent to instance". >200 bytes so the old
+        // truncation branch is exercised too.
+        NSMutableData *payload = [NSMutableData dataWithCapacity:300];
+        for (int i = 0; i < 300; i++) [payload appendBytes:"\x89PNGbinary" length:10];
+        id binReply = [client send:(NSArray *)@[@"SET", @"bin:payload", payload] error:&err];
+        check("SET raw Data payload (save path)", [binReply isEqual:@"OK"] || (binReply && !err) ? YES : NO,
+              err.localizedDescription ?: [NSString stringWithFormat:@"reply=%@", binReply]);
+        err = nil;
         NSInteger size = [client dbSize:&err];
         check("DBSIZE", size == 3 ? YES : NO, [NSString stringWithFormat:@"%ld", (long)size]);
         err = nil;

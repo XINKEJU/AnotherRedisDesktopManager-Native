@@ -156,6 +156,11 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         if let key = value("--select-key") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { store.selectKey(key) }
         }
+        // Same rationale as --select-key: opens the settings sheet for the
+        // screenshot harness. Inert unless the flag is on the command line.
+        if flag("--show-settings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { store.showingSettings = true }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

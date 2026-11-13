@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var checkingUpdate = false
     @State private var pendingArchive: URL?
     @State private var confirmInstall = false
+    @State private var tab = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,18 +18,37 @@ struct SettingsView: View {
                 Spacer()
                 Text(L10n("All preferences persist to NSUserDefaults")).font(.caption).foregroundStyle(.secondary)
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
-            TabView {
-                appearanceTab.tabItem { Label(L10n("Appearance"), systemImage: "paintbrush") }
-                keysTab.tabItem { Label(L10n("Keys"), systemImage: "key") }
-                viewersTab.tabItem { Label(L10n("Viewers"), systemImage: "doc.text.magnifyingglass") }
-                aboutTab.tabItem { Label(L10n("About & Updates"), systemImage: "arrow.triangle.2.circlepath") }
+            // A plain segmented Picker instead of TabView: the sheet sizes to
+            // its content and TabView's tab bar collapsed into ellipses at
+            // that width; the picker keeps the four labels readable.
+            Picker("", selection: $tab) {
+                Text(L10n("Appearance")).tag(0)
+                Text(L10n("Keys")).tag(1)
+                Text(L10n("Viewers")).tag(2)
+                Text(L10n("About & Updates")).tag(3)
             }
-            .padding(12)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
 
             Divider()
-            HStack {
+                .padding(.top, 12)
+
+            Group {
+                switch tab {
+                case 0: appearanceTab
+                case 1: keysTab
+                case 2: viewersTab
+                default: aboutTab
+                }
+            }
+
+            Divider()
+            HStack(spacing: 8) {
                 Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
                 Button(L10n("Import / Export…")) { store.showingImportExport = true }
                 Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
@@ -37,6 +57,7 @@ struct SettingsView: View {
             }
             .padding(12)
         }
+        .frame(width: 660, height: 520)
     }
 
     private var appearanceTab: some View {
@@ -57,32 +78,28 @@ struct SettingsView: View {
             Picker(L10n("Font family"), selection: $store.fontFamily) {
                 ForEach(store.fonts, id: \.self) { Text($0).tag($0) }
             }
+            Stepper(L10n("Font size") + ": \(Int(store.fontSize))", value: $store.fontSize, in: 9...24)
             HStack {
-                Stepper("Font size: \(Int(store.fontSize))", value: $store.fontSize, in: 9...24)
-                Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1) { Text(L10n("Zoom")) }
-                Text(String(format: "%.1f×", store.zoom)).font(store.monoFont(11))
+                Text(L10n("Zoom"))
+                Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1)
+                Text(String(format: "%.1f×", store.zoom)).font(store.monoFont(11)).frame(width: 44, alignment: .trailing)
             }
             HStack {
                 Text(L10n("Sidebar width"))
                 Slider(value: $store.sidebarWidth, in: 200...520, step: 10)
                 Text("\(Int(store.sidebarWidth)) px").font(store.monoFont(11)).frame(width: 60, alignment: .trailing)
             }
-            Text("\(store.fonts.count) system font families enumerated (font-list replacement).")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("Translated sample: \(L("message.new_connection", "New Connection"))")
-                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
     }
 
     private var keysTab: some View {
         Form {
-            Stepper("Keys per SCAN page: \(store.pageSize)", value: $store.pageSize, in: 50...5000, step: 50)
+            Stepper(L10n("Keys per SCAN page") + ": \(store.pageSize)", value: $store.pageSize, in: 50...5000, step: 50)
             TextField(L10n("Key tree separator"), text: $store.separator)
                 .onChange(of: store.separator) { _, _ in store.buildTree() }
             Toggle(L10n("Use tree view"), isOn: $store.showTree)
             Toggle(L10n("Read-only mode (blocks write commands)"), isOn: $store.readOnly)
-            Divider()
             HStack {
                 Text(L10n("Database"))
                 Spacer()
@@ -165,7 +182,7 @@ struct SettingsView: View {
                         : L10n("no SHA-256 published")))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text(store.updateStatus.isEmpty ? "Uses the GitHub Releases API (electron-updater replacement)." : store.updateStatus)
+            Text(store.updateStatus.isEmpty ? L10n("No update check has been run yet.") : store.updateStatus)
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Text(L10n("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity."))
