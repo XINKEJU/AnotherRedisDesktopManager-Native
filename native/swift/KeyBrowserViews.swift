@@ -78,6 +78,35 @@ struct KeyBrowserView: View {
             .padding(.horizontal, 10)
             .fixedSize(horizontal: false, vertical: true)
 
+            // Second-pass filter: narrows what SCAN already returned, in memory only.
+            if !store.keys.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField(L10n("Filter loaded keys"), text: $store.localFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    Button { store.localFilterRegex.toggle() } label: {
+                        Text(".*").font(.system(size: 10, design: .monospaced))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(store.localFilterRegex ? Color.accentColor : Color.secondary)
+                    .help(L10n("Treat the filter as a regular expression"))
+                    if !store.localFilter.isEmpty {
+                        Text("\(store.filteredKeys().count)/\(store.keys.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Button { store.localFilter = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 5)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             Divider()
 
             // PaginationTable.vue's sortable header: clicking "Key" cycles scan

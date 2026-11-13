@@ -185,6 +185,10 @@ final class AppStore: ObservableObject {
     @Published var keyNodes: [KeyNode] = []
     @Published var selectedKey: String?
     @Published var searchText = ""
+    /// Second-pass filter over the keys already loaded from SCAN. Never triggers a
+    /// server round-trip, so narrowing a 100k-key page stays instant.
+    @Published var localFilter = ""
+    @Published var localFilterRegex = false
     /// Incremented by the ⌘F menu command so the key search field can grab focus.
     @Published var searchFocusRequest = 0
     @Published var matchMode: MatchMode = .glob
@@ -204,6 +208,9 @@ final class AppStore: ObservableObject {
     @Published var keyRawValue = Data()
     @Published var viewerName = "Text"
     @Published var renderedValue = ""
+    /// OverSize viewer pagination: byte offset and window size.
+    @Published var oversizeOffset = 0
+    let oversizeChunkSize = 4096
     @Published var editorText = ""
     @Published var jsonPath = "$"
     @Published var rowOffset = 0
@@ -232,6 +239,11 @@ final class AppStore: ObservableObject {
     /// Per-key memory usage scan (MEMORY USAGE), filtered by min size.
     @Published var memoryPerKeyRows: [(String, Int)] = []
     @Published var memoryMinSize: Double = 1024
+    /// Progress / cancellation state for the per-key MEMORY USAGE scan.
+    @Published var memoryScanRunning = false
+    @Published var memoryScanned = 0
+    @Published var memoryScanTotal = 1
+    var memoryScanToken = 0
     /// Stream consumer-groups / consumers (XINFO GROUPS / XINFO CONSUMERS).
     @Published var streamGroups: [[String: Any]] = []
     @Published var streamConsumers: [[String: Any]] = []
@@ -329,6 +341,17 @@ final class AppStore: ObservableObject {
     @Published var showingHotKeys = false
     @Published var showingFormatterManager = false
     @Published var showingJsonEditor = false
+    /// ZSet batch editor: pattern + action applied to every loaded member.
+    @Published var showingZSetBatch = false
+    @Published var zsetBatchPattern = "*"
+    @Published var zsetBatchAction = "Delete"
+    @Published var zsetBatchScore = "0"
+    /// Byte-level hex editor state. The tail beyond `hexEditLimit` is kept as-is
+    /// and re-appended on save so large values are never truncated silently.
+    @Published var showingHexEditor = false
+    @Published var hexBytes: [UInt8] = []
+    var hexTail = Data()
+    let hexEditLimit = 8192
     @Published var updateStatus = ""
 
     let languages = ARDMLocalization.shared().languages

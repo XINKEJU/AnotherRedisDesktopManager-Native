@@ -226,6 +226,8 @@ struct KeyDetailView: View {
                 }
                 Button(L10n("Binary input…")) { chooseBinaryFile() }
                 Button(L10n("Paste hex…")) { showingHexInput = true }
+                Button(L10n("Hex grid…")) { store.openHexEditor() }
+                    .help(L10n("Edit the value byte by byte"))
                 Button(L10n("Protobuf schema")) { store.loadProtobufSchema() }
                 Spacer()
                 Button(L10n("Save")) { store.saveEditorText() }
@@ -234,6 +236,32 @@ struct KeyDetailView: View {
                     .help(L10n("Save re-encodes the value using the active viewer"))
             }
             .padding(8)
+
+            if store.viewerName == "OverSize" {
+                HStack(spacing: 8) {
+                    Text(L10n("Chunk")).font(.caption)
+                    Button("◀") {
+                        store.oversizeOffset = max(0, store.oversizeOffset - store.oversizeChunkSize)
+                        store.renderValue()
+                    }
+                    .disabled(store.oversizeOffset == 0)
+                    TextField("", value: $store.oversizeOffset, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                        .onSubmit { store.renderValue() }
+                    Button("▶") {
+                        store.oversizeOffset += store.oversizeChunkSize
+                        store.renderValue()
+                    }
+                    .disabled(store.oversizeOffset + store.oversizeChunkSize >= store.keyRawValue.count)
+                    Text("\(store.keyRawValue.count) " + L10n("bytes"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+            }
 
             if store.selectedKeyType == .vector {
                 HStack(spacing: 8) {
@@ -298,6 +326,10 @@ struct KeyDetailView: View {
                 Button(L10n("Next")) { store.rowOffset += store.rowLimit; store.loadTypedValue() }
                 Spacer()
                 Button(L10n("Add row")) { addingRow = true }
+                if store.selectedKeyType == .zSet {
+                    Button(L10n("Batch…")) { store.showingZSetBatch = true }
+                        .help(L10n("Batch edit matching members"))
+                }
                 if store.selectedKeyType == .stream { streamGroupMenu }
                 if store.selectedKeyType == .stream {
                     Toggle(L10n("Reverse (XREVRANGE)"), isOn: $store.streamReverse)
@@ -662,5 +694,186 @@ struct FormatterManagerSheet: View {
         var error: NSError?
         let result = ARDMFormatters.renderCustom(store.keyRawValue, script: script, error: &error)
         testResult = error?.localizedDescription ?? String(result.prefix(160))
+    }
+}
+
+// MARK: - ZSet batch edit (pattern → action over the loaded member page)
+
+struct ZSetBatchSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+
+    private var matches: [String] { store.zsetBatchMembers() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n("ZSet Batch Edit")).font(.headline)
+            Text(L10n("Applies to the rows currently loaded for this key (max 1000)."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Text(L10n("Member pattern")).frame(width: 120, alignment: .leading)
+                TextField("*", text: $store.zsetBatchPattern)
+                    .textFieldStyle(.roundedBorder)
+                Text("\(matches.count) " + L10n("match"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 70, alignment: .trailing)
+            }
+
+            HStack(spacing: 8) {
+                Text(L10n("Action")).frame(width: 120, alignment: .leading)
+                Picker("", selection: $store.zsetBatchAction) {
+                    Text(L10n("Delete")).tag("Delete")
+                    Text(L10n("Set score")).tag("Set score")
+                    Text(L10n("Add delta")).tag("Add delta")
+                }
+                .labelsHidden()
+                .frame(width: 180)
+            }
+
+            if store.zsetBatchAction != "Delete" {
+                HStack(spacing: 8) {
+                    Text(L10n("Score")).frame(width: 120, alignment: .leading)
+                    TextField("0", text: $store.zsetBatchScore)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                }
+            }
+
+            Spacer()
+            HStack {
+                Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(L10n("Apply")) { store.applyZSetBatch() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(matches.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 470, height: 280)
+    }
+}
+
+// MARK: - Byte-level hex grid (HexEditor.vue replacement)
+
+struct HexEditorSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) var dismiss
+    @State private var selected = 0
+
+    private let perRow = 16
+
+    private var rowCount: Int {
+        max(1, (store.hexBytes.count + perRow - 1) / perRow)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(0..<rowCount, id: \.self) { row in
+                        rowView(row)
+                    }
+                }
+                .padding(10)
+            }
+            Divider()
+            footer
+        }
+        .frame(width: 760, height: 540)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(L10n("Hex editor")).font(.headline)
+                Text(store.selectedKey ?? "").font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(store.hexBytes.count + store.hexTail.count) " + L10n("bytes"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if store.hexWasTruncated {
+                Text(L10n("Only the first 8192 bytes are editable; the remaining bytes are preserved on save."))
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func rowView(_ row: Int) -> some View {
+        HStack(spacing: 3) {
+            Text(String(format: "%08X", row * perRow))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+            ForEach(0..<perRow, id: \.self) { column in
+                let index = row * perRow + column
+                if index < store.hexBytes.count {
+                    TextField("", text: byteBinding(index))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                        .frame(width: 24, height: 18)
+                        .background(selected == index
+                                    ? Color.accentColor.opacity(0.30)
+                                    : Color.secondary.opacity(0.07))
+                        .onTapGesture { selected = index }
+                } else {
+                    Color.clear.frame(width: 24, height: 18)
+                }
+            }
+            Text(ascii(row))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 8)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Button(L10n("Insert byte")) { store.insertHexByte(at: selected) }
+            Button(L10n("Delete byte")) {
+                store.deleteHexByte(at: selected)
+                selected = max(0, min(selected, store.hexBytes.count - 1))
+            }
+            Spacer()
+            Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+            Button(L10n("Save")) { store.saveHexEditor() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(12)
+    }
+
+    private func byteBinding(_ index: Int) -> Binding<String> {
+        Binding(
+            get: {
+                guard store.hexBytes.indices.contains(index) else { return "" }
+                return String(format: "%02X", store.hexBytes[index])
+            },
+            set: { text in
+                let cleaned = text.uppercased().filter { $0.isHexDigit }
+                guard !cleaned.isEmpty, let value = UInt8(cleaned.suffix(2), radix: 16) else { return }
+                store.setHexByte(at: index, to: value)
+            }
+        )
+    }
+
+    private func ascii(_ row: Int) -> String {
+        let start = row * perRow
+        let end = min(start + perRow, store.hexBytes.count)
+        guard start < end else { return "" }
+        return store.hexBytes[start..<end].map { byte in
+            (byte >= 0x20 && byte < 0x7F) ? String(UnicodeScalar(byte)) : "."
+        }.joined()
     }
 }

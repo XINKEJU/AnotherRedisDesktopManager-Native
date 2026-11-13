@@ -330,39 +330,268 @@ static id ARDMPHPValue(const char *p, NSUInteger len, NSUInteger *off) {
 
 #pragma mark Protobuf wire
 
-static NSString *ARDMProtobufDump(NSData *data, NSDictionary<NSNumber *, NSString *> *schema) {
+static NSDictionary<NSString *, NSDictionary<NSNumber *, NSString *> *> *sARDMProtobufScopes;
+static NSString *sARDMProtobufRoot;
+
+/** Resolves a message name to its scope, falling back to a suffix match so a
+    relative reference (`Address`) still finds `User.Address`. */
+static NSDictionary<NSNumber *, NSString *> *ARDMProtoScopeFor(NSString *name) {
+    if (name.length == 0) return nil;
+    NSDictionary *exact = sARDMProtobufScopes[name];
+    if (exact) return exact;
+    NSString *suffix = [@"." stringByAppendingString:name];
+    for (NSString *key in sARDMProtobufScopes) {
+        if ([key hasSuffix:suffix]) return sARDMProtobufScopes[key];
+    }
+    return nil;
+}
+
+/** "kind|name|childType" — the first two components are always present. */
+static NSString *ARDMProtoKind(NSString *descriptor) {
+    NSArray<NSString *> *parts = [descriptor componentsSeparatedByString:@"|"];
+    return parts.count >= 2 ? parts[0] : @"";
+}
+static NSString *ARDMProtoFieldName(NSString *descriptor) {
+    NSArray<NSString *> *parts = [descriptor componentsSeparatedByString:@"|"];
+    return parts.count >= 2 ? parts[1] : descriptor;
+}
+static NSString *ARDMProtoChildType(NSString *descriptor) {
+    NSArray<NSString *> *parts = [descriptor componentsSeparatedByString:@"|"];
+    return parts.count >= 3 ? parts[2] : nil;
+}
+
+static uint64_t ARDMProtoReadVarint(const unsigned char *p, NSUInteger len, NSUInteger *offset) {
+    uint64_t value = 0; int shift = 0;
+    while (*offset < len && shift < 64) {
+        uint8_t b = p[(*offset)++];
+        value |= (uint64_t)(b & 0x7f) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    return value;
+}
+
+static BOOL ARDMProtoBytesAreText(NSData *chunk) {
+    NSString *s = [[NSString alloc] initWithData:chunk encoding:NSUTF8StringEncoding];
+    if (!s) return NO;
+    NSCharacterSet *control = [NSCharacterSet controlCharacterSet];
+    for (NSUInteger i = 0; i < s.length; i++) {
+        unichar c = [s characterAtIndex:i];
+        if (c == '\n' || c == '\r' || c == '\t') continue;
+        if ([control characterIsMember:c]) return NO;
+    }
+    return YES;
+}
+
+/** Decodes one message into a JSON-friendly dictionary. Nested messages recurse
+    through their own scope; repeated occurrences of a field collapse into arrays. */
+static NSDictionary *ARDMProtoDecodeMessage(NSData *data,
+                                            NSDictionary<NSNumber *, NSString *> *scope,
+                                            int depth) {
+    if (depth > 6) return @{@"__truncated": @"max nesting depth"};
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
     const unsigned char *p = data.bytes; NSUInteger i = 0, len = data.length;
-    NSMutableString *out = [NSMutableString string];
     while (i < len) {
-        uint64_t tag = 0; int shift = 0;
-        while (i < len && shift < 64) { uint8_t b = p[i++]; tag |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
-        NSUInteger field = tag >> 3, wire = tag & 7;
-        // A user-supplied .proto schema labels every wire type, not just fixed32/64.
-        NSString *label = schema[@(field)] ?: [NSString stringWithFormat:@"%lu", (unsigned long)field];
+        uint64_t tag = ARDMProtoReadVarint(p, len, &i);
+        NSUInteger field = (NSUInteger)(tag >> 3), wire = (NSUInteger)(tag & 7);
+        if (field == 0) break;
+        NSString *descriptor = scope[@(field)];
+        NSString *key = descriptor ? ARDMProtoFieldName(descriptor)
+                                   : [NSString stringWithFormat:@"field_%lu", (unsigned long)field];
+        NSString *kind = descriptor ? ARDMProtoKind(descriptor) : @"";
+        id value = nil;
         if (wire == 0) {
-            uint64_t v = 0; shift = 0;
-            while (i < len && shift < 64) { uint8_t b = p[i++]; v |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
-            [out appendFormat:@"field %@ (varint): %llu\n", label, v];
+            uint64_t v = ARDMProtoReadVarint(p, len, &i);
+            value = [kind isEqualToString:@"bool"] ? @(v != 0) : @(v);
         } else if (wire == 2) {
-            uint64_t n = 0; shift = 0;
-            while (i < len && shift < 64) { uint8_t b = p[i++]; n |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
+            uint64_t n = ARDMProtoReadVarint(p, len, &i);
             if (i + n > len) break;
-            NSData *chunk = [NSData dataWithBytes:p + i length:(NSUInteger)n]; i += (NSUInteger)n;
-            NSString *s = [[NSString alloc] initWithData:chunk encoding:NSUTF8StringEncoding];
-            [out appendFormat:@"field %@ (bytes, %llu): %@\n", label, n,
-                (s && [[NSCharacterSet controlCharacterSet] isSupersetOfSet:[NSCharacterSet characterSetWithCharactersInString:s]] == NO) ? s : ARDMHexDump(chunk)];
+            NSData *chunk = [NSData dataWithBytes:p + i length:(NSUInteger)n];
+            i += (NSUInteger)n;
+            if ([kind isEqualToString:@"message"]) {
+                NSString *child = ARDMProtoChildType(descriptor);
+                NSDictionary *childScope = ARDMProtoScopeFor(child);
+                value = ARDMProtoDecodeMessage(chunk, childScope ?: @{}, depth + 1);
+            } else if ([kind isEqualToString:@"bytes"]) {
+                value = ARDMHexDump(chunk);
+            } else if (ARDMProtoBytesAreText(chunk)) {
+                value = [[NSString alloc] initWithData:chunk encoding:NSUTF8StringEncoding];
+            } else {
+                value = ARDMHexDump(chunk);
+            }
         } else if (wire == 5) {
             if (i + 4 > len) break;
-            [out appendFormat:@"field %@ (fixed32): %@\n", label, ARDMHexDump([NSData dataWithBytes:p + i length:4])];
-            i += 4;
+            uint32_t bits = 0; memcpy(&bits, p + i, 4); i += 4;
+            if ([kind isEqualToString:@"float"]) {
+                float f; memcpy(&f, &bits, 4);
+                value = @(f);
+            } else {
+                value = @(bits);
+            }
         } else if (wire == 1) {
             if (i + 8 > len) break;
-            [out appendFormat:@"field %@ (fixed64): %@\n", label, ARDMHexDump([NSData dataWithBytes:p + i length:8])];
-            i += 8;
-        } else break;
+            uint64_t bits = 0; memcpy(&bits, p + i, 8); i += 8;
+            if ([kind isEqualToString:@"double"]) {
+                double d; memcpy(&d, &bits, 8);
+                value = @(d);
+            } else {
+                value = @(bits);
+            }
+        } else {
+            break;   // deprecated group wire types are not supported
+        }
+        if (!value) continue;
+        id existing = dict[key];
+        if (!existing) {
+            dict[key] = value;
+        } else if ([existing isKindOfClass:NSMutableArray.class]) {
+            [existing addObject:value];
+        } else {
+            dict[key] = [NSMutableArray arrayWithObjects:existing, value, nil];
+        }
     }
-    return out.length ? out : @"<no protobuf fields decoded>";
+    return dict;
 }
+
+static NSString *ARDMProtobufDump(NSData *data, NSDictionary<NSNumber *, NSString *> *schema) {
+    NSDictionary *scope = sARDMProtobufScopes[sARDMProtobufRoot ?: @""] ?: schema;
+    NSDictionary *decoded = ARDMProtoDecodeMessage(data, scope ?: @{}, 0);
+    if (decoded.count == 0) return @"<no protobuf fields decoded>";
+    NSData *json = [NSJSONSerialization dataWithJSONObject:decoded
+                                                   options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys
+                                                     error:nil];
+    return json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"<no protobuf fields decoded>";
+}
+
+#pragma mark Protobuf encode (JSON → wire)
+
+static void ARDMAppendVarint(NSMutableData *out, uint64_t value) {
+    while (value >= 0x80) {
+        uint8_t byte = (uint8_t)((value & 0x7f) | 0x80);
+        [out appendBytes:&byte length:1];
+        value >>= 7;
+    }
+    uint8_t byte = (uint8_t)(value & 0x7f);
+    [out appendBytes:&byte length:1];
+}
+
+static void ARDMAppendTag(NSMutableData *out, NSUInteger field, NSUInteger wire) {
+    ARDMAppendVarint(out, ((uint64_t)field << 3) | (uint64_t)wire);
+}
+
+static NSError *ARDMProtoError(NSString *message, NSInteger code) {
+    return [NSError errorWithDomain:@"ARDMProtobuf" code:code
+                            userInfo:@{NSLocalizedDescriptionKey: message}];
+}
+
+static BOOL ARDMProtoEncodeMessage(id object,
+                                   NSDictionary<NSNumber *, NSString *> *scope,
+                                   NSMutableData *out,
+                                   NSError **error,
+                                   int depth);
+
+static BOOL ARDMProtoEncodeValue(id value, NSString *kind, NSString *childType,
+                                 NSUInteger field, NSMutableData *out, NSError **error, int depth) {
+    if ([value isKindOfClass:NSArray.class] && ![kind isEqualToString:@"bytes"]) {
+        for (id item in (NSArray *)value) {
+            if (!ARDMProtoEncodeValue(item, kind, childType, field, out, error, depth)) return NO;
+        }
+        return YES;
+    }
+    if ([kind isEqualToString:@"message"] || [value isKindOfClass:NSDictionary.class]) {
+        NSMutableData *nested = [NSMutableData data];
+        NSDictionary *childScope = ARDMProtoScopeFor(childType);
+        if (!ARDMProtoEncodeMessage(value, childScope ?: @{}, nested, error, depth + 1)) return NO;
+        ARDMAppendTag(out, field, 2);
+        ARDMAppendVarint(out, nested.length);
+        [out appendData:nested];
+        return YES;
+    }
+    if ([value isKindOfClass:NSString.class]) {
+        NSData *bytes = [(NSString *)value dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+        ARDMAppendTag(out, field, 2);
+        ARDMAppendVarint(out, bytes.length);
+        [out appendData:bytes];
+        return YES;
+    }
+    if ([value isKindOfClass:NSNumber.class]) {
+        NSNumber *number = value;
+        if ([kind isEqualToString:@"float"] || [kind isEqualToString:@"double"]) {
+            if ([kind isEqualToString:@"float"]) {
+                float f = number.floatValue; uint32_t bits = 0; memcpy(&bits, &f, 4);
+                ARDMAppendTag(out, field, 5);
+                [out appendBytes:&bits length:4];
+            } else {
+                double d = number.doubleValue; uint64_t bits = 0; memcpy(&bits, &d, 8);
+                ARDMAppendTag(out, field, 1);
+                [out appendBytes:&bits length:8];
+            }
+            return YES;
+        }
+        ARDMAppendTag(out, field, 0);
+        ARDMAppendVarint(out, (uint64_t)number.longLongValue);
+        return YES;
+    }
+    if (error) *error = ARDMProtoError([NSString stringWithFormat:@"Unsupported protobuf value: %@", value], 40);
+    return NO;
+}
+
+static BOOL ARDMProtoEncodeMessage(id object,
+                                   NSDictionary<NSNumber *, NSString *> *scope,
+                                   NSMutableData *out,
+                                   NSError **error,
+                                   int depth) {
+    if (depth > 6) {
+        if (error) *error = ARDMProtoError(@"Protobuf nesting is too deep", 41);
+        return NO;
+    }
+    if (![object isKindOfClass:NSDictionary.class]) {
+        if (error) *error = ARDMProtoError(@"Protobuf input must be a JSON object", 42);
+        return NO;
+    }
+    // Reverse the scope so JSON keys can be matched by field name.
+    NSMutableDictionary<NSString *, NSNumber *> *byName = [NSMutableDictionary dictionary];
+    for (NSNumber *number in scope) {
+        byName[ARDMProtoFieldName(scope[number])] = number;
+    }
+    for (NSString *key in (NSDictionary *)object) {
+        id value = object[key];
+        NSNumber *field = byName[key];
+        if (!field && [key hasPrefix:@"field_"]) {
+            field = @([[key substringFromIndex:6] integerValue]);
+        }
+        if (!field && [[NSCharacterSet decimalDigitCharacterSet] isSupersetOfSet:
+                       [NSCharacterSet characterSetWithCharactersInString:key]] && key.length > 0) {
+            field = @([key integerValue]);
+        }
+        if (!field || field.integerValue <= 0) {
+            if (error) *error = ARDMProtoError([NSString stringWithFormat:@"Unknown protobuf field: %@", key], 43);
+            return NO;
+        }
+        NSString *descriptor = scope[field] ?: @"";
+        NSString *kind = ARDMProtoKind(descriptor);
+        NSString *childType = ARDMProtoChildType(descriptor);
+        if (!ARDMProtoEncodeValue(value, kind, childType, field.unsignedIntegerValue, out, error, depth)) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+/** JSON → protobuf wire, using the schema loaded for the active message. */
+static NSData *ARDMProtobufEncode(NSString *text, NSError **error) {
+    NSData *input = [text dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+    id object = [NSJSONSerialization JSONObjectWithData:input options:0 error:nil];
+    if (!object) {
+        if (error) *error = ARDMProtoError(@"Protobuf write-back expects a JSON object keyed by field name", 44);
+        return nil;
+    }
+    NSDictionary *scope = sARDMProtobufScopes[sARDMProtobufRoot ?: @""] ?: sARDMProtobufSchema;
+    NSMutableData *out = [NSMutableData data];
+    if (!ARDMProtoEncodeMessage(object, scope ?: @{}, out, error, 0)) return nil;
+    return out;
+}
+
 
 static NSString *ARDMJSONString(id obj) {
     if (![NSJSONSerialization isValidJSONObject:obj]) return [NSString stringWithFormat:@"%@", obj];
@@ -900,6 +1129,24 @@ static NSString *ARDMUnpickle(NSData *data) {
     return ARDMFormatJSON(data, NO) != nil;
 }
 
++ (NSString *)render:(NSData *)data as:(NSString *)viewer
+              offset:(NSUInteger)offset length:(NSUInteger)length error:(NSError **)error {
+    if (![viewer isEqualToString:@"OverSize"] || data.length == 0) {
+        return [self render:data as:viewer error:error];
+    }
+    NSUInteger start = MIN(offset, data.length);
+    NSUInteger span = MIN(length, data.length - start);
+    NSData *chunk = [data subdataWithRange:NSMakeRange(start, span)];
+    NSUInteger last = start + span;
+    return [NSString stringWithFormat:
+            @"Value too large to display inline (%lu bytes).\n"
+             "Bytes %lu–%lu of %lu (0x%lX–0x%lX):\n%@",
+            (unsigned long)data.length,
+            (unsigned long)start, (unsigned long)last, (unsigned long)data.length,
+            (unsigned long)start, (unsigned long)last,
+            ARDMHexDump(chunk)];
+}
+
 + (NSString *)render:(NSData *)data as:(NSString *)viewer error:(NSError **)error {
     if (!data) return @"";
     if ([viewer isEqualToString:@"Text"]) {
@@ -960,17 +1207,29 @@ static NSString *ARDMUnpickle(NSData *data) {
 
 + (NSArray<NSString *> *)encodableViewers {
     return @[@"Text", @"Hex", @"Binary", @"Json", @"Msgpack", @"PHPSerialize",
-             @"Gzip", @"Deflate", @"DeflateRaw", @"Brotli", @"Custom"];
+             @"Gzip", @"Deflate", @"DeflateRaw", @"Brotli", @"Protobuf", @"Custom"];
 }
 
 + (void)setProtobufSchema:(NSDictionary<NSNumber *, NSString *> * _Nullable)schema {
     sARDMProtobufSchema = [schema copy];
+    sARDMProtobufScopes = nil;
+    sARDMProtobufRoot = nil;
 }
 + (NSDictionary<NSNumber *, NSString *> * _Nullable)protobufSchema { return sARDMProtobufSchema; }
+
++ (void)setProtobufScopes:(NSDictionary<NSString *,NSDictionary<NSNumber *,NSString *> *> * _Nullable)scopes
+                     root:(NSString * _Nullable)root {
+    sARDMProtobufScopes = [scopes copy];
+    sARDMProtobufRoot = [root copy];
+    sARDMProtobufSchema = root ? scopes[root] : nil;
+}
 
 /** Reverse of render:as:. Returns the exact bytes to write back with SET. */
 + (NSData *)encode:(NSString *)text as:(NSString *)viewer error:(NSError **)error {
     NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+    if ([viewer isEqualToString:@"Protobuf"]) {
+        return ARDMProtobufEncode(text, error);
+    }
     if ([viewer isEqualToString:@"Text"] || [viewer isEqualToString:@"Json"] || [viewer isEqualToString:@"Custom"]) {
         // Json is passed through verbatim: NSJSONSerialization would round large integers
         // through Double and lose precision, so no re-serialisation happens here.

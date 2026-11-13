@@ -159,6 +159,10 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 + (NSArray<NSString *> *)viewerNames;
 + (NSString *)detectViewerForData:(NSData *)data;
 + (NSString *)render:(NSData *)data as:(NSString *)viewer error:(NSError **)error;
+/** Chunked variant used by the OverSize viewer: renders `length` bytes starting at
+    `offset` and reports the absolute range, so huge values can be paged. */
++ (NSString *)render:(NSData *)data as:(NSString *)viewer
+              offset:(NSUInteger)offset length:(NSUInteger)length error:(NSError **)error;
 + (NSString *)renderCustom:(NSData *)data script:(NSString *)script error:(NSError **)error;
 /** Viewers that support editing and writing the encoded bytes back to Redis. */
 + (NSArray<NSString *> *)encodableViewers;
@@ -166,6 +170,11 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 /** Optional {fieldNumber: fieldName} map for the Protobuf viewer. */
 + (void)setProtobufSchema:(NSDictionary<NSNumber *, NSString *> * _Nullable)schema;
 + (NSDictionary<NSNumber *, NSString *> * _Nullable)protobufSchema;
+/** Scoped schema produced from a .proto file: messageName → {fieldNumber: "kind|name|childType"}.
+    `root` is the message used for the top level. Nested messages are decoded
+    recursively through their own scope, and repeated fields render as arrays. */
++ (void)setProtobufScopes:(NSDictionary<NSString *, NSDictionary<NSNumber *, NSString *> *> * _Nullable)scopes
+                     root:(NSString * _Nullable)root;
 /** Re-indent (pretty) or compact a JSON document token by token. Numbers are
     copied verbatim, so integers beyond 2^53 keep every digit. Returns nil when
     the input is not structurally valid JSON. */

@@ -261,9 +261,65 @@ extension AppStore {
         }
     }
 
+    // MARK: - ZSet batch edit
+
+    /// Members of the loaded page matching the batch pattern (glob syntax).
+    func zsetBatchMembers() -> [String] {
+        let pattern = zsetBatchPattern.trimmingCharacters(in: .whitespaces)
+        guard !pattern.isEmpty, pattern != "*" else { return keyRows.map(\.field) }
+        let escaped = NSRegularExpression.escapedPattern(for: pattern)
+            .replacingOccurrences(of: "\\*", with: ".*")
+            .replacingOccurrences(of: "\\?", with: ".")
+        guard let regex = try? NSRegularExpression(pattern: "^" + escaped + "$") else {
+            return keyRows.map(\.field)
+        }
+        return keyRows.filter { row in
+            regex.firstMatch(in: row.field, range: NSRange(row.field.startIndex..., in: row.field)) != nil
+        }.map(\.field)
+    }
+
+    /// Applies one action to every matching member: delete, set score, or add delta.
+    func applyZSetBatch() {
+        guard let key = selectedKey, selectedKeyType == .zSet else { return }
+        let members = Array(zsetBatchMembers().prefix(1000))
+        guard !members.isEmpty else {
+            fail(L10n("No member matches the pattern."))
+            return
+        }
+        var commands: [[String]] = []
+        switch zsetBatchAction {
+        case "Set score":
+            guard Double(zsetBatchScore) != nil else {
+                fail(L10n("Score must be a number."))
+                return
+            }
+            // XX keeps the batch from silently creating members that never existed.
+            commands = members.map { ["ZADD", key, "XX", zsetBatchScore, $0] }
+        case "Add delta":
+            guard Double(zsetBatchScore) != nil else {
+                fail(L10n("Score must be a number."))
+                return
+            }
+            commands = members.map { ["ZINCRBY", key, zsetBatchScore, $0] }
+        default:
+            commands = members.map { ["ZREM", key, $0] }
+        }
+        onBackground {
+            do {
+                for command in commands { _ = try self.sendSync(command) }
+                self.onMain {
+                    self.showingZSetBatch = false
+                    self.notify("\(commands.count) " + L10n("member(s) updated"))
+                    self.loadTypedValue()
+                }
+            } catch {
+                self.onMain { self.fail(error.localizedDescription) }
+            }
+        }
+    }
+
     /// Stream consumer-group management (KeyContentStream.vue).
-    func streamGroup(_ action: String, group: String, id: String = "0-0") {
-        guard let key = selectedKey else { return }
+    func streamGroup(_ action: String, group: String, id: String = "0-0") {        guard let key = selectedKey else { return }
         let args: [String]
         switch action {
         case "CREATE": args = ["XGROUP", "CREATE", key, group, "0", "MKSTREAM"]
@@ -443,15 +499,14 @@ extension AppStore {
         var schema: [NSNumber: String] = [:]
         if url.pathExtension.lowercased() == "proto" {
             let text = String(data: data, encoding: .utf8) ?? ""
-            for (number, name) in parseProtoFields(text) {
-                schema[NSNumber(value: number)] = name
-            }
-            guard !schema.isEmpty else {
+            let parsed = parseProtoFile(text)
+            guard !parsed.scopes.isEmpty else {
                 fail("No `type name = number;` field declarations found in the .proto file.")
                 return
             }
-            ARDMFormatters.setProtobufSchema(schema)
-            notify("Protobuf schema loaded from .proto: \(schema.count) fields")
+            ARDMFormatters.setProtobufScopes(parsed.scopes, root: parsed.root)
+            let fieldCount = parsed.scopes[parsed.root]?.count ?? 0
+            notify("Protobuf schema loaded: \(fieldCount) field(s) in \(parsed.scopes.count) message(s)")
             renderValue()
             return
         }
@@ -468,24 +523,191 @@ extension AppStore {
         renderValue()
     }
 
-    /// Minimal `.proto` parser: extracts `[label] type name = number;` declarations
-    /// across all message blocks (nested messages included) into fieldNumber → name.
-    private func parseProtoFields(_ text: String) -> [Int: String] {
-        var schema: [Int: String] = [:]
-        for rawLine in text.components(separatedBy: .newlines) {
-            var line = rawLine
-            if let comment = line.range(of: "//") { line = String(line[..<comment.lowerBound]) }
-            line = line.trimmingCharacters(in: .whitespaces)
-            guard line.contains("="), line.hasSuffix(";") else { continue }
-            let lower = line.lowercased()
-            if lower.hasPrefix("syntax") || lower.hasPrefix("option") || lower.hasPrefix("reserved")
-                || lower.hasPrefix("import") || lower.hasPrefix("package") { continue }
-            let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-            guard let eq = tokens.firstIndex(of: "="), eq >= 1, eq + 1 < tokens.count else { continue }
-            let name = tokens[eq - 1]
-            let number = tokens[eq + 1].trimmingCharacters(in: CharacterSet(charactersIn: ";"))
-            if let value = Int(number) { schema[value] = name }
+    /// `.proto` parser: keeps every message in its own scope so nested messages can
+    /// be decoded recursively, marks enums so they are labelled rather than treated
+    /// as sub-messages, and records fixed-width wire kinds for correct rendering.
+    private func parseProtoFile(_ text: String) -> (scopes: [String: [NSNumber: String]], root: String) {
+        // Strip /* … */ comments so their braces cannot upset the block stack.
+        var cleaned = ""
+        var i = text.startIndex
+        var inBlock = false
+        while i < text.endIndex {
+            let next = text.index(after: i)
+            if !inBlock, text[i] == "/", next < text.endIndex, text[next] == "*" {
+                inBlock = true
+                i = text.index(i, offsetBy: 2)
+                continue
+            }
+            if inBlock, text[i] == "*", next < text.endIndex, text[next] == "/" {
+                inBlock = false
+                i = text.index(i, offsetBy: 2)
+                continue
+            }
+            if !inBlock { cleaned.append(text[i]) }
+            i = next
         }
-        return schema
+
+        let lines: [String] = cleaned.components(separatedBy: .newlines).map { raw in
+            var line = raw
+            if let comment = line.range(of: "//") { line = String(line[..<comment.lowerBound]) }
+            return line.trimmingCharacters(in: .whitespaces)
+        }
+
+        // Pass 1: enum names, so `Status status = 1;` is not mistaken for a message.
+        var enumNames = Set<String>()
+        for line in lines {
+            let tokens = line.split(whereSeparator: { " \t{}".contains($0) }).map(String.init)
+            if tokens.count >= 2, tokens[0] == "enum" { enumNames.insert(tokens[1]) }
+        }
+
+        var scopes: [String: [NSNumber: String]] = [:]
+        var stack: [(kind: String, name: String)] = []
+        var root = ""
+        var pending: (kind: String, name: String)?
+
+        func messageChain(_ stack: [(kind: String, name: String)]) -> [String] {
+            stack.filter { $0.kind == "message" }.map(\.name)
+        }
+        func qualified(_ name: String, _ stack: [(kind: String, name: String)]) -> String {
+            (messageChain(stack) + [name]).filter { !$0.isEmpty }.joined(separator: ".")
+        }
+        func open(_ declaration: (kind: String, name: String)) {
+            if declaration.kind == "message" {
+                let full = qualified(declaration.name, stack)
+                if root.isEmpty { root = full }
+                scopes[full] = scopes[full] ?? [:]
+                stack.append(("message", declaration.name))
+            } else {
+                stack.append(declaration)
+            }
+        }
+
+        for line in lines {
+            guard !line.isEmpty else { continue }
+            // Closing braces (possibly several on one line, e.g. "} }").
+            if line.hasPrefix("}") {
+                var closers = line.filter { $0 == "}" }.count
+                while closers > 0, !stack.isEmpty {
+                    stack.removeLast()
+                    closers -= 1
+                }
+                continue
+            }
+            let tokens = line.split(whereSeparator: { " \t{};".contains($0) }).map(String.init)
+            guard let first = tokens.first else { continue }
+
+            // Block declarations: message / enum / service / extend / oneof.
+            if ["message", "enum", "service", "extend", "oneof"].contains(first) {
+                guard tokens.count >= 2 else { continue }
+                let declaration = (kind: first, name: tokens[1])
+                if line.contains("{") {
+                    open(declaration)
+                } else {
+                    pending = declaration
+                }
+                continue
+            }
+            if line.hasPrefix("{") {
+                if let declaration = pending { open(declaration) }
+                pending = nil
+                continue
+            }
+            if first == "syntax" || first == "import" || first == "package"
+                || first == "option" || first == "reserved" || first == "extensions" { continue }
+
+            // Field declaration inside a message (enum bodies are skipped; fields
+            // inside a `oneof` still belong to the enclosing message).
+            guard stack.contains(where: { $0.kind == "message" }),
+                  stack.last?.kind != "enum",
+                  line.contains("="), line.hasSuffix(";"),
+                  let eq = tokens.firstIndex(of: "="), eq >= 2, eq + 1 < tokens.count else { continue }
+            let fieldName = tokens[eq - 1]
+            guard let number = Int(tokens[eq + 1]) else { continue }
+
+            var type = tokens[eq - 2]
+            if ["repeated", "optional", "required"].contains(type), eq >= 3 {
+                type = tokens[eq - 3]
+            }
+            if tokens[0].hasPrefix("map<") { type = "map" }
+            let bareType = type.split(separator: ".").last.map(String.init) ?? type
+
+            let kind: String
+            switch bareType {
+            case "double": kind = "double"
+            case "float": kind = "float"
+            case "fixed32", "sfixed32": kind = "fixed32"
+            case "fixed64", "sfixed64": kind = "fixed64"
+            case "string": kind = "string"
+            case "bytes", "map": kind = "bytes"
+            case "bool": kind = "bool"
+            case "int32", "int64", "uint32", "uint64", "sint32", "sint64": kind = "varint"
+            default:
+                if enumNames.contains(bareType) { kind = "enum" }
+                else { kind = "message" }
+            }
+
+            let descriptor: String
+            if kind == "message" {
+                descriptor = "message|\(fieldName)|\(qualified(bareType, stack))"
+            } else {
+                descriptor = "\(kind)|\(fieldName)"
+            }
+            let current = messageChain(stack).joined(separator: ".")
+            scopes[current, default: [:]][NSNumber(value: number)] = descriptor
+        }
+
+        if root.isEmpty { root = scopes.keys.sorted().first ?? "" }
+        return (scopes, root)
+    }
+}
+
+// MARK: - Byte-level hex editing (HexEditor.vue replacement)
+
+extension AppStore {
+    /// Seeds the grid from the currently loaded raw value.
+    func openHexEditor() {
+        guard selectedKey != nil else { return }
+        let raw = keyRawValue
+        let limit = hexEditLimit
+        hexBytes = Array(raw.prefix(limit))
+        hexTail = raw.count > limit ? raw.suffix(from: limit) : Data()
+        showingHexEditor = true
+    }
+
+    var hexWasTruncated: Bool { !hexTail.isEmpty }
+
+    func setHexByte(at index: Int, to value: UInt8) {
+        guard hexBytes.indices.contains(index) else { return }
+        hexBytes[index] = value
+    }
+
+    func insertHexByte(at index: Int) {
+        let position = min(max(0, index), hexBytes.count)
+        hexBytes.insert(0x00, at: position)
+    }
+
+    func deleteHexByte(at index: Int) {
+        guard hexBytes.indices.contains(index) else { return }
+        hexBytes.remove(at: index)
+    }
+
+    func saveHexEditor() {
+        guard let key = selectedKey else { return }
+        var payload = Data(hexBytes)
+        payload.append(hexTail)
+        let ttl = selectedKeyTTL
+        onBackground {
+            do {
+                try self.sendRawSync(["SET", key, payload])
+                if ttl > 0 { _ = try? self.sendRawSync(["EXPIRE", key, "\(ttl)"]) }
+                self.onMain {
+                    self.showingHexEditor = false
+                    self.reloadKeyDetail()
+                    self.notify("Value saved · \(payload.count) byte(s)")
+                }
+            } catch {
+                self.onMain { self.fail(error.localizedDescription) }
+            }
+        }
     }
 }

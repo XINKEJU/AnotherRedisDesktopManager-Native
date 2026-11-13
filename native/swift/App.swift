@@ -26,13 +26,19 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        // win-state.js replacement: restore the last window frame.
+        // win-state.js replacement: restore the last window frame, but only when
+        // it still lands on a connected display — a laptop undocked from an
+        // external monitor would otherwise reopen entirely off-screen.
         let defaults = UserDefaults.standard
         if let window = NSApp.windows.first {
             let saved = defaults.string(forKey: "ARDMWindowFrame").map(NSRectFromString)
             // A cramped restored frame makes the three columns unreadable.
-            if let frame = saved, frame.width >= 1120, frame.height >= 700 {
+            if let frame = saved, frame.width >= 1120, frame.height >= 700, frameIsOnScreen(frame) {
                 window.setFrame(frame, display: true)
+            } else if let frame = saved, frame.width >= 1120, frame.height >= 700 {
+                // Keep the size, re-centre on whichever display is attached now.
+                window.setContentSize(frame.size)
+                window.center()
             } else {
                 window.setContentSize(NSSize(width: 1240, height: 780))
                 window.center()
@@ -40,6 +46,15 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         }
         AppStore.shared.startAutoRefresh()
         applyStartupArguments()
+    }
+
+    /// A saved frame is only reusable when a decent slice of it is still inside
+    /// some display's visibleFrame (menubar/dock excluded).
+    private func frameIsOnScreen(_ frame: NSRect) -> Bool {
+        NSScreen.screens.contains { screen in
+            let overlap = screen.visibleFrame.intersection(frame)
+            return !overlap.isNull && overlap.width >= 160 && overlap.height >= 120
+        }
     }
 
     /// Parse command-line launch flags (mirrors electron-main.js argv handling):
@@ -155,6 +170,14 @@ struct ARDMCommands: Commands {
             Button(L10n("Settings…")) { store.showingSettings = true }
                 .keyboardShortcut(",", modifiers: .command)
             Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
+            Divider()
+            // keymaster equivalents that the stock Window menu does not cover.
+            Button(L10n("Toggle Maximize")) { NSApp.keyWindow?.zoom(nil) }
+                .keyboardShortcut(.return, modifiers: .command)
+            Button(L10n("Minimize")) { NSApp.keyWindow?.miniaturize(nil) }
+                .keyboardShortcut("m", modifiers: .command)
+            Button(L10n("Toggle Full Screen")) { NSApp.keyWindow?.toggleFullScreen(nil) }
+                .keyboardShortcut("f", modifiers: [.command, .control])
         }
         CommandMenu(L10n("Tools")) {
             Button(L10n("Command Log")) { store.activeTab = .logs }
@@ -339,6 +362,12 @@ struct ARDMSheets: ViewModifier {
             }
             .sheet(isPresented: $store.showingJsonEditor) {
                 JsonEditorSheet().environmentObject(store).frame(width: 640, height: 480)
+            }
+            .sheet(isPresented: $store.showingZSetBatch) {
+                ZSetBatchSheet().environmentObject(store)
+            }
+            .sheet(isPresented: $store.showingHexEditor) {
+                HexEditorSheet().environmentObject(store)
             }
     }
 }

@@ -56,29 +56,92 @@ extension AppStore {
 
     /// Scan every key with MEMORY USAGE and keep those at/above the minimum size.
     /// Mirrors upstream MemoryAnalysis per-key mode instead of only MEMORY STATS.
+    /// Per-key MEMORY USAGE. Keys are scanned in pages and measured 200 at a time
+    /// inside one MULTI/EXEC round trip, so a 100k-key database needs ~500 round
+    /// trips instead of 100k. The scan is cancellable and reports progress.
     func loadMemoryPerKey() {
-        guard connected else { return }
+        guard connected, !memoryScanRunning else { return }
         let minimum = memoryMinSize
+        memoryScanRunning = true
+        memoryScanned = 0
+        memoryScanTotal = max(dbSize, 1)
+        memoryPerKeyRows = []
+        memoryScanToken += 1
+        let token = memoryScanToken
+
         onBackground {
+            var cursor: UInt = 0
+            var rows: [(String, Int)] = []
+            var scanned = 0
             do {
-                var cursor: UInt = 0
-                var rows: [(String, Int)] = []
                 repeat {
+                    if self.memoryScanToken != token { break }
                     let batch = try self.scanBatch(pattern: "*", cursor: &cursor)
+                    scanned += batch.count
+                    var pending: [String] = []
                     for key in batch {
-                        guard let reply = try? self.sendSync(["MEMORY", "USAGE", key]),
-                              let bytes = Int(ardmString(reply)) else { continue }
-                        if Double(bytes) >= minimum { rows.append((key, bytes)) }
+                        pending.append(key)
+                        if pending.count >= 200 {
+                            rows.append(contentsOf: try self.memoryUsageRows(pending, minimum: minimum))
+                            pending.removeAll(keepingCapacity: true)
+                            if self.memoryScanToken != token { break }
+                        }
                     }
-                } while cursor != 0 && rows.count < 5000
+                    if !pending.isEmpty, self.memoryScanToken == token {
+                        rows.append(contentsOf: try self.memoryUsageRows(pending, minimum: minimum))
+                    }
+                    let progress = scanned
+                    self.onMain { self.memoryScanned = progress }
+                } while cursor != 0 && rows.count < 5000 && self.memoryScanToken == token
+
                 rows.sort { $0.1 > $1.1 }
                 let top = Array(rows.prefix(500))
+                let cancelled = self.memoryScanToken != token
                 self.onMain {
+                    self.memoryScanRunning = false
                     self.memoryPerKeyRows = top
-                    self.notify("\(rows.count) key(s) ≥ \(Int(minimum)) bytes")
+                    if cancelled { self.notify(L10n("Memory scan cancelled")) }
+                    else { self.notify("\(rows.count) key(s) ≥ \(Int(minimum)) bytes") }
                 }
-            } catch { self.onMain { self.fail(error.localizedDescription) } }
+            } catch {
+                self.onMain {
+                    self.memoryScanRunning = false
+                    self.fail(error.localizedDescription)
+                }
+            }
         }
+    }
+
+    func cancelMemoryScan() {
+        memoryScanToken += 1
+        memoryScanRunning = false
+    }
+
+    /// Measures a chunk of keys. Uses one transaction per chunk (pipelined reads),
+    /// falling back to single calls in read-only mode where MULTI is rejected.
+    private func memoryUsageRows(_ keys: [String], minimum: Double) throws -> [(String, Int)] {
+        guard let client else { return [] }
+        if !readOnly {
+            var error: NSError?
+            let replies = client.sendTransaction(keys.map { ["MEMORY", "USAGE", $0] }, error: &error)
+            if let error { throw error }
+            guard let results = replies.last as? [Any] else { return [] }
+            var out: [(String, Int)] = []
+            for (index, reply) in results.enumerated() where index < keys.count {
+                guard let bytes = Int(ardmString(reply)), Double(bytes) >= minimum else { continue }
+                out.append((keys[index], bytes))
+            }
+            return out
+        }
+        var out: [(String, Int)] = []
+        for key in keys {
+            var error: NSError?
+            let reply = client.send(["MEMORY", "USAGE", key], error: &error)
+            if error != nil { continue }
+            guard let bytes = Int(ardmString(reply)), Double(bytes) >= minimum else { continue }
+            out.append((key, bytes))
+        }
+        return out
     }
 
     func loadMemory() {

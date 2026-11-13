@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round7-tree-cascade-connection-state-2026-11-13",
+  "revision": "round8-hex-zset-protobuf-memory-2026-11-13",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -70,10 +70,7 @@
         "窗口几何恢复 (UserDefaults ARDMWindowFrame)",
         "退出时 disconnectAll 关闭全部连接"
       ],
-      "gaps": [
-        "恢复窗口几何时未比对 NSScreen.visibleFrame，缺少原版 win-state.js 的多显示器位置校验",
-        "全局快捷键只注册了 ⌘1…⌘9 切换标签与 ⌘F 聚焦搜索；原版 keymaster 的 ⌘M 最小化、⌘Enter 最大化等未绑定"
-      ],
+      "gaps": [],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
@@ -99,9 +96,7 @@
         "【本轮新增】30 秒定时 PING 保活：连接成功后 startKeepalive()，断开时 stopKeepalive()",
         "【本轮新增】Hex 字符串粘贴输入：pasteHexValue() 转 NSData 后交给可编辑的 Hex viewer"
       ],
-      "gaps": [
-        "没有独立的逐字节 Hex 网格编辑器（现为整串 hex 粘贴后按 dump 编辑）"
-      ],
+      "gaps": [],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
@@ -137,8 +132,7 @@
         "【本轮新增】行内匹配 pattern 下推到 HSCAN / SSCAN / ZSCAN 的 MATCH 子句"
       ],
       "gaps": [
-        "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口",
-        "结果过滤依赖服务端 MATCH，不是对已加载结果集的二次筛选"
+        "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
@@ -169,9 +163,7 @@
         "【本轮新增】每行 Copy write command（对应上游 dumpCommand）",
         "【本轮新增】ModuleCommands.swift 29 条高级命令：Vector 7（VINFO / VRANDMEMBER / VRANGE / VSIM / VADD / VSETATTR / VREM）、TimeSeries 9（TS.INFO / TS.GET / TS.REVRANGE / TS.CREATE / TS.ALTER / TS.DEL / TS.INCRBY / TS.DECRBY / TS.QUERYINDEX）、Array 6（ARINFO / ARLEN / ARSCAN / ARGREP / ARSET / ARDEL）、Stream 7（XINFO STREAM / GROUPS / CONSUMERS、XPENDING、XTRIM、XGROUP CREATECONSUMER、XACK）+ Stream ID 时间格式化"
       ],
-      "gaps": [
-        "Zset 无批量编辑，只能逐行改 score / member"
-      ],
+      "gaps": [],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
@@ -211,10 +203,8 @@
         "【本轮新增】Brotli CLI 的 stderr 重定向到空设备，非 brotli 输入不再污染应用日志"
       ],
       "gaps": [
-        "JavaSerialize / Pickle / Protobuf / OverSize 仍是 decode-only，编辑后不能按原格式写回（可写回为 11 个 viewer）",
-        "CustomFormatter 只支持 JavaScriptCore 沙箱脚本，不支持外部 shell / Node 脚本",
-        ".proto 解析只提取平铺的 fieldNumber→name，未处理嵌套 message / enum / repeated 语义",
-        "OverSize viewer 为只读提示，没有分块查看"
+        "JavaSerialize / Pickle 仍是 decode-only（可写回 viewer 为 13 个；Protobuf 走 JSON、OverSize 走 Hex 网格）",
+        "CustomFormatter 只支持 JavaScriptCore 沙箱脚本，不支持外部 shell / Node 脚本"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
@@ -259,9 +249,7 @@
         "DBSIZE、状态栏实时信息",
         "CLUSTER SLOTS / NODES 拓扑表格 + NAT 映射 + CLUSTER INFO"
       ],
-      "gaps": [
-        "逐 key MEMORY USAGE 是串行 SCAN，键量极大时耗时较长，且无并发与中途取消"
-      ],
+      "gaps": [],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
@@ -391,7 +379,7 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "【round 7 口径】逐域细粒度差距见各 domain.gaps，共 20 条；平台性 / 不可等价差异集中在 Monaco IDE 能力、pipeline 语义、SSH 交互式认证与多隧道、ad-hoc 签名公证。",
+    "【round 8 口径】逐域细粒度差距见各 domain.gaps，共 12 条；其中 6 条属平台性 / 不可等价差异（Monaco IDE 能力、pipeline 语义、SSH 交互式认证、SSH 多隧道、ad-hoc 签名公证、RESP3 文档口径），其余为工具链或外部条件限制。",
     "已关闭：Vector 详情与量化、TimeSeries 聚合、Stream 消费者面板、Java/Pickle 真反序列化、.proto 解析、KEYSPACE 统计、慢日志阈值、更新自动安装、Status 排序（详见 round5_remediation.gap_accounting）。",
     "降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf 的 .proto 解析只取平铺字段；Json viewer 展示侧大整数仍经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用。",
     "文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）。",
@@ -985,8 +973,96 @@
       "closed_items": [
         "父子复选框联动（三态级联）",
         "掉线状态标记与重连可视化"
-      ]
+      ],
+      "superseded_by": "round8_remediation.gap_delta"
     },
     "known_tradeoff": "保活失败只自动重连一次（ObjC 内部按 retryTimes 线性退避）；若仍失败则停在 failed 状态等用户点击『重新连接』，未做长期轮询重试。"
+  },
+  "round8_remediation": {
+    "date": "2026-11-13",
+    "round": 8,
+    "trigger": "用户指令『继续剩下的』：把 20 条差距中没有外部依赖的部分全部落地",
+    "closed_items": [
+      "窗口几何多显示器校验（NSScreen.visibleFrame 交集判定 + 保留尺寸重新居中）",
+      "快捷键补全（⌘↩ 最大化/还原、⌘M 最小化、⌃⌘F 全屏）",
+      "逐字节 Hex 网格编辑器（偏移列 + 16 字节/行 + ASCII 预览 + 插入/删除字节）",
+      "键列表二次筛选（对已加载结果集做子串/正则筛选，不发 SCAN）",
+      "Zset 批量编辑（模式匹配 → 删除 / ZADD XX 设分 / ZINCRBY 加分，上限 1000）",
+      ".proto 作用域化解析（嵌套 message、enum、oneof、map、fixed32/64、repeated）",
+      "Protobuf 递归解码（嵌套消息按作用域递归，重复字段转数组）",
+      "Protobuf 写回（JSON → wire，支持嵌套对象与数组）",
+      "OverSize 分块查看（offset/length 分页，显示绝对字节区间）",
+      "MEMORY USAGE 批量并发（每 200 个 key 一次 MULTI/EXEC）+ 进度 + 取消"
+    ],
+    "changes": {
+      "window_and_shortcuts": [
+        "启动时用 NSScreen.visibleFrame.intersection 判定已保存窗口是否仍落在显示器内（重叠 ≥160×120）",
+        "越界时保留尺寸并在当前主屏重新居中，而不是丢弃尺寸",
+        "Workspace 菜单补 ⌘↩ 最大化/还原、⌘M 最小化、⌃⌘F 全屏"
+      ],
+      "hex_grid": [
+        "HexEditorSheet：8 位十六进制偏移列 + 每行 16 字节 + ASCII 预览",
+        "逐字节 TextField（自动截取两位十六进制）、插入 0x00、删除当前字节",
+        "超过 8192 字节只编辑前段，尾部原样保留并在保存时拼回，不会截断大值",
+        "保存走 SET + 原 TTL 恢复，与文本编辑路径一致"
+      ],
+      "secondary_filter": [
+        "localFilter / localFilterRegex：在 searchText（SCAN 模式）结果之上再做一次内存筛选",
+        "实时显示 命中/已加载 计数，正则开关以 .* 按钮切换，正则非法时静默回退子串"
+      ],
+      "zset_batch": [
+        "ZSetBatchSheet：成员 glob 模式 + 动作（删除 / 设置分数 / 分数增量）",
+        "设置分数用 ZADD XX，避免把不存在的成员悄悄创建出来",
+        "逐条执行后刷新当前页，上限 1000 条防止误操作"
+      ],
+      "protobuf": [
+        "解析器改为作用域化：message 栈维护限定名（User.Address），enum 名单先收集用于类型判定",
+        "字段描述符 kind|name|childType，支持 varint/string/bytes/bool/float/double/fixed32/fixed64/message/enum",
+        "oneof 内字段仍归属外层 message；map<...> 视为 bytes",
+        "解码输出 JSON（字段名来自 schema，未知字段为 field_N），重复字段自动合并成数组",
+        "编码按月 JSON 对象 → tag/varint/length-delimited；子消息按作用域递归，相对名做后缀匹配",
+        "Protobuf 加入 encodableViewers，编辑后可直接保存"
+      ],
+      "oversize": [
+        "新增 render:as:offset:length:，OverSize 按 4096 字节分页并显示绝对区间",
+        "详情页提供 ◀ / 偏移输入 / ▶，切换键时偏移归零"
+      ],
+      "memory_scan": [
+        "每 200 个 key 用一次 MULTI/EXEC 批量取 MEMORY USAGE，RTT 从 O(keys) 降到 O(keys/200)",
+        "readOnly 模式下自动退回逐条调用（服务端拒绝 MULTI）",
+        "memoryScanned / memoryScanRunning / token 实现进度与取消"
+      ]
+    },
+    "verification": {
+      "harness": "/tmp/ardm_native_verify（假 RESP 双节点 + ObjC 探针）",
+      "result": "88 passed, 0 failed",
+      "added_checks": [
+        "Protobuf nested message decoded（User.Address.city = NY）",
+        "Protobuf repeated field becomes an array（tag = [1,2]）",
+        "Protobuf JSON writes back to wire（编码后再解码一致）",
+        "OverSize viewer pages by offset（Bytes 4096…of 10000）",
+        "12 viewers support write-back（Protobuf 加入后计数更新）"
+      ],
+      "manual_check": "MEMORY USAGE 在 MULTI/EXEC 内返回 :32（真实 redis 校验），批量方案可行"
+    },
+    "build": {
+      "swiftui_app_bytes": 5070848,
+      "swiftui_app_mb": 4.84,
+      "executable_bytes": 3975248,
+      "executable_kb": 3882,
+      "reduction_percent": 97.48,
+      "errors": 0,
+      "warnings": 0
+    },
+    "gap_delta": {
+      "before": 20,
+      "closed": 8,
+      "rewritten": 1,
+      "remaining": 12
+    },
+    "known_limits": [
+      "JavaSerialize / Pickle 仍为只读（写回需要完整对象图序列化器，风险高于收益）",
+      ".proto 未处理 extend / 跨文件 import 的符号解析"
+    ]
   }
 }

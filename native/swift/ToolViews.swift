@@ -236,7 +236,15 @@ struct MemoryView: View {
                     Text(L10n("Min bytes")).font(.caption)
                     TextField("", value: $store.memoryMinSize, format: .number).frame(width: 90)
                         .textFieldStyle(.roundedBorder)
-                    Button(L10n("Scan")) { store.loadMemoryPerKey() }
+                    if store.memoryScanRunning {
+                        ProgressView(value: Double(store.memoryScanned),
+                                     total: Double(max(1, store.memoryScanTotal)))
+                            .frame(width: 120)
+                        Text("\(store.memoryScanned)").font(.caption2).foregroundStyle(.secondary)
+                        Button(L10n("Cancel")) { store.cancelMemoryScan() }
+                    } else {
+                        Button(L10n("Scan")) { store.loadMemoryPerKey() }
+                    }
                 }
                 Button(L10n("Refresh")) { store.loadMemory() }
                 Button(L10n("MEMORY DOCTOR")) { store.execute(["MEMORY", "DOCTOR"]) }

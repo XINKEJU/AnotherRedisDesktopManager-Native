@@ -460,13 +460,27 @@ extension AppStore {
     }
 
     func filteredKeys() -> [String] {
+        var matched = keys
         let text = searchText.lowercased()
-        guard !text.isEmpty else { return sortedKeys(keys) }
-        let matched = keys.filter { key in
-            switch matchMode {
-            case .exact: return key.lowercased() == text
-            case .glob: return key.lowercased().contains(text.replacingOccurrences(of: "*", with: ""))
-            case .fuzzy: return text.split(separator: " ").allSatisfy { key.lowercased().contains($0) }
+        if !text.isEmpty {
+            matched = matched.filter { key in
+                switch matchMode {
+                case .exact: return key.lowercased() == text
+                case .glob: return key.lowercased().contains(text.replacingOccurrences(of: "*", with: ""))
+                case .fuzzy: return text.split(separator: " ").allSatisfy { key.lowercased().contains($0) }
+                }
+            }
+        }
+        // Second pass over the loaded page: no SCAN, so it is safe to run on every
+        // keystroke even with a very large result set.
+        if !localFilter.isEmpty {
+            if localFilterRegex,
+               let regex = try? NSRegularExpression(pattern: localFilter, options: [.caseInsensitive]) {
+                matched = matched.filter { key in
+                    regex.firstMatch(in: key, range: NSRange(key.startIndex..., in: key)) != nil
+                }
+            } else if !localFilterRegex {
+                matched = matched.filter { $0.localizedCaseInsensitiveContains(localFilter) }
             }
         }
         return sortedKeys(matched)
@@ -514,6 +528,7 @@ extension AppStore {
         selectedKey = key
         checkedKeys.removeAll()
         rowOffset = 0
+        oversizeOffset = 0
         reloadKeyDetail()
     }
 
@@ -598,6 +613,12 @@ extension AppStore {
         var error: NSError?
         if viewerName == "Custom" {
             renderedValue = ARDMFormatters.renderCustom(keyRawValue, script: customViewerScript, error: &error)
+        } else if viewerName == "OverSize" {
+            // Huge values are paged instead of being cut off at the first 4 KB.
+            renderedValue = ARDMFormatters.render(keyRawValue, as: viewerName,
+                                                  offset: UInt(max(0, oversizeOffset)),
+                                                  length: UInt(oversizeChunkSize),
+                                                  error: &error)
         } else {
             renderedValue = ARDMFormatters.render(keyRawValue, as: viewerName, error: &error)
         }
