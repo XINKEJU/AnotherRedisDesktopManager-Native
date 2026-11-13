@@ -28,9 +28,12 @@ concurrency:
 jobs:
   tests:
     name: Core + updater regression
-    # Apple silicon, macOS 14: the same architecture and minimum OS the app
-    # targets, so the probes exercise what users actually get.
-    runs-on: macos-14
+    # Apple silicon. macos-14 used to be the closest match to the 14.0 deployment
+    # target, but GitHub retired that label: jobs on it are cancelled within a
+    # second and never get a runner (which looks like a workflow bug, not a
+    # platform one). macos-15 is the oldest macOS label still served, and a newer
+    # SDK with -target macos14.0 is exactly the configuration we want to prove.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +48,7 @@ jobs:
 
   build:
     name: Build the .app
-    runs-on: macos-14
+    runs-on: macos-15
     needs: tests
     steps:
       - uses: actions/checkout@v4
