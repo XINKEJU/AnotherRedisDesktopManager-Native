@@ -109,9 +109,14 @@ extension AppStore {
         selectedConnectionID = config.identifier
         if openConnectionIDs.contains(config.identifier) {
             switchConnection(config.identifier)
+            // Re-clicking Connect on a dropped tab revives it instead of no-oping.
+            if let state = connectionStates[config.identifier], !state.isOnline {
+                reconnect(id: config.identifier, manual: true)
+            }
             return
         }
         statusText = L10n("Connecting to") + " \(config.name)…"
+        connectionStates[config.identifier] = .connecting
         onBackground {
             let client = ARDMRedisClient(config: config)
             client.onLog = { log in
@@ -133,6 +138,7 @@ extension AppStore {
                     self.activeConnectionID = config.identifier
                     self.client = client
                     self.connected = true
+                    self.connectionStates[config.identifier] = .connected
                     self.startKeepalive()
                     self.selectedDB = config.db
                     self.dbSize = size
@@ -144,7 +150,12 @@ extension AppStore {
                     self.fetchRedisVersion()
                 }
             } catch {
-                self.onMain { self.connected = false; self.client = nil; self.fail("Connect failed: \(error.localizedDescription)") }
+                self.onMain {
+                    self.connectionStates[config.identifier] = .failed(error.localizedDescription)
+                    self.connected = false
+                    self.client = nil
+                    self.fail("Connect failed: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -240,6 +251,9 @@ extension AppStore {
         selectedConnectionID = id
         client = target
         connected = target.isConnected
+        if connectionStates[id] == nil {
+            connectionStates[id] = target.isConnected ? .connected : .disconnected
+        }
         selectedDB = target.selectedDB
         if let config {
             separator = config.separator.isEmpty ? separator : config.separator
@@ -261,6 +275,7 @@ extension AppStore {
         clients.removeValue(forKey: id)
         keyCache.removeValue(forKey: id)
         openConnectionIDs.removeAll { $0 == id }
+        connectionStates.removeValue(forKey: id)
         if activeConnectionID == id {
             if let next = openConnectionIDs.first { switchConnection(next) }
             else { clearActiveState() }
@@ -278,6 +293,7 @@ extension AppStore {
     private func clearActiveState() {
         stopKeepalive()
         stopStatusTimer()
+        if let id = activeConnectionID { connectionStates[id] = .disconnected }
         client = nil
         connected = false
         activeConnectionID = nil
@@ -397,9 +413,20 @@ extension AppStore {
     func buildTree() {
         let sep = separator.isEmpty ? ":" : separator
         var root: [String: Any] = [:]
+        // One pass builds both the tree and the folder → member index used by the
+        // tri-state checkboxes, so rows never rescan the key list.
+        var membership: [String: [String]] = [:]
         for key in keys {
-            insert(&root, key.components(separatedBy: sep), full: key)
+            let parts = key.components(separatedBy: sep)
+            insert(&root, parts, full: key)
+            guard parts.count > 1 else { continue }
+            var prefix = ""
+            for part in parts.dropLast() {
+                prefix = prefix.isEmpty ? part : prefix + sep + part
+                membership[prefix, default: []].append(key)
+            }
         }
+        groupMembership = membership
         keyNodes = makeNodes(root, prefix: "", sep: sep)
     }
 

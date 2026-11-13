@@ -63,6 +63,11 @@ struct KeyBrowserView: View {
             HStack {
                 Text("\(store.filteredKeys().count) " + L10n("keys")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                if !store.filteredKeys().isEmpty {
+                    Button(L10n("Select all")) {
+                        store.checkedKeys.formUnion(store.filteredKeys())
+                    }.font(.caption)
+                }
                 if !store.checkedKeys.isEmpty {
                     Button(L10n("Delete selected") + " \(store.checkedKeys.count) " + L10n("keys")) {
                         store.deleteKeys(Array(store.checkedKeys))
@@ -152,12 +157,16 @@ struct KeyBrowserView: View {
     /// (List(children:) keeps its state inside SwiftUI with no way to save it).
     private func treeRow(_ node: KeyNode) -> AnyView {
         if node.isLeaf {
+            let checked = store.checkedKeys.contains(node.fullPath)
             return AnyView(
-                HStack {
+                HStack(spacing: 5) {
+                    Image(systemName: checked ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(checked ? Color.accentColor : Color.secondary)
+                        .onTapGesture { toggleCheck(node.fullPath) }
+                        .help(L10n("Add to batch selection"))
                     Image(systemName: "key").foregroundStyle(.blue)
                     Text(node.name).lineLimit(1)
                     Spacer()
-                    if store.checkedKeys.contains(node.fullPath) { Image(systemName: "checkmark.circle.fill") }
                 }
                 .font(store.uiFont(12))
                 .tag(node.fullPath)
@@ -171,21 +180,45 @@ struct KeyBrowserView: View {
                     treeRow(child)
                 }
             } label: {
-                HStack {
+                HStack(spacing: 5) {
+                    // Tri-state box: checking the folder selects every key below it.
+                    let state = store.groupCheckState(node.fullPath)
+                    Image(systemName: groupCheckIcon(state))
+                        .foregroundStyle(state == .none ? Color.secondary : Color.accentColor)
+                        .onTapGesture { store.toggleGroupCheck(node.fullPath) }
+                        .help(L10n("Select all in group"))
                     Image(systemName: "folder").foregroundStyle(.orange)
                     Text(node.name).lineLimit(1)
+                    Spacer()
+                    let members = store.keysInGroup(node.fullPath)
+                    if !members.isEmpty {
+                        let hits = members.reduce(0) { $0 + (store.checkedKeys.contains($1) ? 1 : 0) }
+                        Text("\(hits)/\(members.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .font(store.uiFont(12))
                 .contextMenu {
-                    Button(L10n("Select all in group")) {
-                        store.checkedKeys.formUnion(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
+                    Button(L10n("Select all in group")) { store.toggleGroupCheck(node.fullPath) }
+                    Button(L10n("Clear group selection")) {
+                        store.checkedKeys.subtract(store.keysInGroup(node.fullPath))
                     }
+                    Divider()
                     Button(L10n("Delete group")) {
                         store.deleteKeys(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
                     }
                 }
             }
         )
+    }
+
+    private func groupCheckIcon(_ state: GroupCheckState) -> String {
+        switch state {
+        case .all: return "checkmark.square.fill"
+        case .partial: return "minus.square.fill"
+        case .none: return "square"
+        }
     }
 
     private func scrollToTop() {

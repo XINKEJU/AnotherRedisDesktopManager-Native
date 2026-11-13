@@ -1,6 +1,54 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Docked notices (Keychain migration / dropped socket)
+
+/// Thin strip above the tab content. Shows the one-shot Keychain migration note
+/// and the live reconnect state; stays hidden while everything is healthy.
+struct ConnectionBanner: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        if let notice = store.keychainMigrationNotice {
+            row(icon: "key.fill", tint: .orange, text: notice) {
+                Button(L10n("Dismiss")) { store.keychainMigrationNotice = nil }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+            Divider()
+        } else if case .reconnecting(let attempt, let total) = store.activeConnectionState {
+            row(icon: "arrow.triangle.2.circlepath", tint: .orange,
+                text: L10n("Reconnecting") + " \(attempt)/\(total)…") {
+                ProgressView().controlSize(.mini)
+            }
+            Divider()
+        } else if case .failed(let reason) = store.activeConnectionState {
+            row(icon: "exclamationmark.triangle.fill", tint: .red,
+                text: L10n("Connection lost") + ": " + reason) {
+                Button(L10n("Reconnect")) {
+                    if let id = store.activeConnectionID { store.reconnect(id: id, manual: true) }
+                }
+                .font(.caption)
+            }
+            Divider()
+        }
+    }
+
+    private func row<Accessory: View>(icon: String, tint: Color, text: String,
+                                      @ViewBuilder accessory: () -> Accessory) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).foregroundStyle(tint)
+            Text(text).font(.caption).lineLimit(2)
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.10))
+    }
+}
+
 // MARK: - Detail pane router (Tabs.vue / KeyDetail.vue)
 
 struct DetailPane: View {
@@ -38,6 +86,8 @@ struct DetailPane: View {
             .fixedSize(horizontal: false, vertical: true)
 
             Divider()
+
+            ConnectionBanner()
 
             Group {
                 switch store.activeTab {

@@ -91,6 +91,34 @@ enum MatchMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Live socket state per connection. Surfaced as the sidebar tab dot and the
+/// reconnect banner, so a dropped socket is visible instead of silently failing
+/// on the next command.
+enum ConnectionState: Equatable {
+    case disconnected
+    case connecting
+    case connected
+    case reconnecting(attempt: Int, total: Int)
+    case failed(String)
+
+    var isOnline: Bool { if case .connected = self { return true }; return false }
+    var isBusy: Bool { if case .reconnecting = self { return true }; return false }
+
+    var label: String {
+        switch self {
+        case .disconnected: return L10n("Disconnected")
+        case .connecting: return L10n("Connecting") + "…"
+        case .connected: return L10n("Connected")
+        case .reconnecting(let attempt, let total): return L10n("Reconnecting") + " \(attempt)/\(total)…"
+        case .failed(let reason): return L10n("Connection lost") + ": " + reason
+        }
+    }
+}
+
+/// Tri-state used by the tree-view checkboxes when a folder holds a mixed
+/// selection (some children checked, some not).
+enum GroupCheckState { case none, partial, all }
+
 /// Column-header ordering for the key list (PaginationTable.vue's sortable header).
 enum KeySortOrder: String, CaseIterable, Identifiable {
     case none, nameAsc, nameDesc, lengthAsc, lengthDesc
@@ -137,6 +165,11 @@ final class AppStore: ObservableObject {
     @Published var selectedConnectionID: String?
     @Published var client: ARDMRedisClient?
     @Published var connected = false
+    /// Per-connection socket state keyed by config identifier. The active entry
+    /// also drives the reconnect banner.
+    @Published var connectionStates: [String: ConnectionState] = [:]
+    /// One-shot notice shown after plaintext passwords were moved into the Keychain.
+    @Published var keychainMigrationNotice: String?
     /// Tabs.vue: multiple connections stay open concurrently and can be switched.
     @Published var openConnectionIDs: [String] = []
     @Published var activeConnectionID: String?
@@ -220,6 +253,9 @@ final class AppStore: ObservableObject {
     @Published var favoriteKeys: [String] = []
     /// Persisted tree expansion state (KeyListVirtualTree.vue).
     @Published var expandedNodeIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ARDMExpandedNodes") ?? [])
+    /// folder path → every key beneath it. Rebuilt by buildTree() so the tree's
+    /// tri-state checkboxes are O(1) per row instead of scanning all keys.
+    var groupMembership: [String: [String]] = [:]
     var keepaliveTimer: Timer?
 
     // CLI & logs
@@ -301,6 +337,13 @@ final class AppStore: ObservableObject {
 
     private init() {
         connections = ARDMConnectionConfig.loadAll()
+        // loadAll migrates legacy plaintext into the Keychain and leaves a count
+        // behind; surface it once so nobody wonders where the passwords went.
+        let migratedSecrets = ARDMConnectionConfig.consumeKeychainMigrationCount()
+        if migratedSecrets > 0 {
+            keychainMigrationNotice = "\(migratedSecrets) "
+                + L10n("connection password(s) moved to the macOS Keychain; connections.json no longer stores them.")
+        }
         ARDMLocalization.shared().currentLanguage = language
         commandReference = ARDMAppServices.commandReference()
         favoriteKeys = UserDefaults.standard.stringArray(forKey: "ARDMFavoriteKeys") ?? []

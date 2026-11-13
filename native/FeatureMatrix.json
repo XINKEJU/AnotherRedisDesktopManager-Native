@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round6-keychain-sorting-json-2026-11-13",
+  "revision": "round7-tree-cascade-connection-state-2026-11-13",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -100,7 +100,6 @@
         "【本轮新增】Hex 字符串粘贴输入：pasteHexValue() 转 NSData 后交给可编辑的 Hex viewer"
       ],
       "gaps": [
-        "自动重连有指数退避，但侧栏没有掉线状态标记与重连进度可视化",
         "没有独立的逐字节 Hex 网格编辑器（现为整串 hex 粘贴后按 dump 编辑）"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
@@ -138,7 +137,6 @@
         "【本轮新增】行内匹配 pattern 下推到 HSCAN / SSCAN / ZSCAN 的 MATCH 子句"
       ],
       "gaps": [
-        "父子复选框无联动（勾选父节点不自动勾选全部子节点，仅提供分组全选菜单动作）",
         "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口",
         "结果过滤依赖服务端 MATCH，不是对已加载结果集的二次筛选"
       ],
@@ -393,7 +391,7 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "【round 6 口径】逐域细粒度差距见各 domain.gaps，共 22 条；平台性 / 不可等价差异集中在 Monaco IDE 能力、pipeline 语义、SSH 交互式认证与多隧道、ad-hoc 签名公证。",
+    "【round 7 口径】逐域细粒度差距见各 domain.gaps，共 20 条；平台性 / 不可等价差异集中在 Monaco IDE 能力、pipeline 语义、SSH 交互式认证与多隧道、ad-hoc 签名公证。",
     "已关闭：Vector 详情与量化、TimeSeries 聚合、Stream 消费者面板、Java/Pickle 真反序列化、.proto 解析、KEYSPACE 统计、慢日志阈值、更新自动安装、Status 排序（详见 round5_remediation.gap_accounting）。",
     "降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf 的 .proto 解析只取平铺字段；Json viewer 展示侧大整数仍经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用。",
     "文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）。",
@@ -919,7 +917,8 @@
         "连接口令明文存储（Keychain 加密）",
         "键列表列头排序",
         "Json 展示侧大整数精度"
-      ]
+      ],
+      "superseded_by": "round7_remediation.gap_delta"
     },
     "build": {
       "swiftui_app_bytes": 4592531,
@@ -930,5 +929,64 @@
       "errors": 0,
       "warnings": 0
     }
+  },
+  "round7_remediation": {
+    "date": "2026-11-13",
+    "round": 7,
+    "trigger": "用户指令『继续』：按 round 6 结论给出的三项性价比建议继续落地",
+    "scope": [
+      "树视图父子复选框联动（三态：全选 / 半选 / 未选）",
+      "连接掉线状态可视化 + 保活失败即自动重连 + 手动重连入口",
+      "钥匙串迁移完成后的首次提示条"
+    ],
+    "changes": {
+      "tree_selection": [
+        "ConnectionState 旁边的 GroupCheckState（none / partial / all）",
+        "文件夹行显示三态方框：点一次全选该分组下所有键，再点一次全清",
+        "buildTree() 一遍同时产出树与 folder→keys 索引（groupMembership），行渲染 O(1)",
+        "键工具条新增『全选』；分组右键菜单改为『全选/清除该分组选择』",
+        "叶子节点也补上复选框（此前只有树形父节点能批量选）"
+      ],
+      "connection_state": [
+        "ConnectionState：disconnected / connecting / connected / reconnecting(attempt,total) / failed(reason)",
+        "connectionStates 按连接 ID 记录，侧栏标签圆点与连接行图标实时反映（绿/黄/橙/红/灰）",
+        "保活 PING 失败立即判定掉线并调用 ObjC reconnectWithBackoff，不再等用户下一条命令报错",
+        "详情页顶部常驻提示条：重连中显示进度与转圈，失败显示原因 + 『重新连接』按钮",
+        "对已打开但掉线的标签再次点『连接』会走手动重连，而不是静默切标签"
+      ],
+      "keychain_notice": [
+        "loadAll 记录本次迁移的连接条数，consumeKeychainMigrationCount 一次性取用后清零",
+        "启动后详情页顶部橙色提示『N 条连接的口令已迁入 macOS 钥匙串』，可关闭"
+      ]
+    },
+    "verification": {
+      "harness": "/tmp/ardm_native_verify（假 RESP 双节点 + ObjC 探针）",
+      "result": "84 passed, 0 failed",
+      "added_checks": [
+        "legacy plaintext hydrates the in-memory config（auth + sshPassword 回填）",
+        "hydrated config still redacts its snapshot",
+        "migration counter is consumed once"
+      ],
+      "live_test": "真实 redis-server:6412 连接成功（client list 可见）；shutdown 后进程存活无崩溃。redis-server:6413 场景等待 30s 保活周期，PING 失败→重连失败→进程仍存活，仅出现系统 NSFontManager 良性提示。"
+    },
+    "build": {
+      "swiftui_app_bytes": 4751360,
+      "swiftui_app_mb": 4.53,
+      "executable_bytes": 3657312,
+      "executable_kb": 3572,
+      "reduction_percent": 97.64,
+      "errors": 0,
+      "warnings": 0
+    },
+    "gap_delta": {
+      "before": 22,
+      "closed": 2,
+      "remaining": 20,
+      "closed_items": [
+        "父子复选框联动（三态级联）",
+        "掉线状态标记与重连可视化"
+      ]
+    },
+    "known_tradeoff": "保活失败只自动重连一次（ObjC 内部按 retryTimes 线性退避）；若仍失败则停在 failed 状态等用户点击『重新连接』，未做长期轮询重试。"
   }
 }

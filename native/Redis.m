@@ -119,6 +119,9 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
 
 #pragma mark - Connection config
 
+/** Plaintext secrets moved into the Keychain by the latest loadAll. */
+static NSInteger ARDMKeychainMigrationCount = 0;
+
 @implementation ARDMConnectionConfig
 
 - (instancetype)init {
@@ -259,15 +262,25 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
     if (![raw isKindOfClass:NSArray.class]) return @[];
     NSMutableArray *out = [NSMutableArray array];
     BOOL needsMigration = NO;
+    NSInteger migratedConnections = 0;
     for (NSDictionary *item in raw) {
         if (![item isKindOfClass:NSDictionary.class]) continue;
         ARDMConnectionConfig *config = [self fromDictionary:item];
-        if ([config hydrateSecretsFromKeychain:item]) needsMigration = YES;
+        if ([config hydrateSecretsFromKeychain:item]) { needsMigration = YES; migratedConnections++; }
         [out addObject:config];
     }
     // Rewrite once so legacy plaintext leaves connections.json immediately.
-    if (needsMigration) [self saveAll:out];
+    if (needsMigration) {
+        [self saveAll:out];
+        ARDMKeychainMigrationCount = migratedConnections;
+    }
     return out;
+}
+
++ (NSInteger)consumeKeychainMigrationCount {
+    NSInteger count = ARDMKeychainMigrationCount;
+    ARDMKeychainMigrationCount = 0;
+    return count;
 }
 
 + (void)saveAll:(NSArray<ARDMConnectionConfig *> *)items {

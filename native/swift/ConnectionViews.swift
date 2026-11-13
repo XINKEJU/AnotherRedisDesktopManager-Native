@@ -2,6 +2,18 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// Sidebar status dot: green when live, amber while reconnecting, red when the
+/// socket is lost, grey when nobody has connected yet.
+func dotColor(_ state: ConnectionState?) -> Color {
+    switch state {
+    case .connected: return .green
+    case .connecting: return .yellow
+    case .reconnecting: return .orange
+    case .failed: return .red
+    default: return .secondary
+    }
+}
+
 // MARK: - Value-semantic draft so every field is editable with real bindings
 
 struct ConnectionDraft {
@@ -103,7 +115,7 @@ struct ConnectionSidebar: View {
                             let config = store.connections.first { $0.identifier == id }
                             HStack(spacing: 4) {
                                 Circle()
-                                    .fill(id == store.activeConnectionID ? Color.green : Color.gray)
+                                    .fill(dotColor(store.connectionStates[id]))
                                     .frame(width: 6, height: 6)
                                 Text(config?.name ?? id).font(store.uiFont(10)).lineLimit(1)
                                 Button { store.closeConnection(id) } label: {
@@ -228,8 +240,8 @@ struct ConnectionRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: store.connected && store.selectedConnectionID == config.identifier ? "bolt.fill" : "server.rack")
-                .foregroundStyle(store.connected && store.selectedConnectionID == config.identifier ? .green : .secondary)
+            Image(systemName: store.connectionStates[config.identifier]?.isOnline == true ? "bolt.fill" : "server.rack")
+                .foregroundStyle(dotColor(store.connectionStates[config.identifier]))
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.name).lineLimit(1)
                 Text("\(config.host):\(config.port) · DB\(config.db)")

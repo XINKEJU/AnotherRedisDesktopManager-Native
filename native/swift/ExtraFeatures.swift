@@ -108,8 +108,7 @@ extension AppStore {
         onMain { [self] in
             self.keepaliveTimer?.invalidate()
             self.keepaliveTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-                guard let self, self.connected, self.client != nil else { return }
-                self.onBackground { _ = try? self.sendSync(["PING"]) }
+                self?.pingActiveConnection()
             }
         }
     }
@@ -119,6 +118,108 @@ extension AppStore {
             self.keepaliveTimer?.invalidate()
             self.keepaliveTimer = nil
         }
+    }
+
+    // MARK: - Socket state, health check and auto-reconnect
+
+    func setConnectionState(_ state: ConnectionState, for id: String) {
+        connectionStates[id] = state
+        if id == activeConnectionID { connected = state.isOnline }
+    }
+
+    /// State of the connection currently shown in the detail pane.
+    var activeConnectionState: ConnectionState {
+        guard let id = activeConnectionID else { return .disconnected }
+        return connectionStates[id] ?? (connected ? .connected : .disconnected)
+    }
+
+    /// Keepalive tick. A failed PING flips the sidebar dot to “reconnecting” and
+    /// starts the backoff loop right away, instead of waiting for the user's next
+    /// command to fail with a confusing error.
+    func pingActiveConnection() {
+        guard connected, client != nil, let id = activeConnectionID else { return }
+        if connectionStates[id]?.isBusy == true { return }
+        onBackground {
+            let healthy: Bool
+            do {
+                healthy = ardmString(try self.sendSync(["PING"])).uppercased().contains("PONG")
+            } catch {
+                healthy = false
+            }
+            self.onMain {
+                if healthy { self.setConnectionState(.connected, for: id) }
+                else { self.reconnect(id: id, manual: false) }
+            }
+        }
+    }
+
+    /// Runs the ObjC backoff loop off the main thread while the UI shows progress.
+    func reconnect(id: String, manual: Bool = false) {
+        guard let target = clients[id] ?? client else { return }
+        if connectionStates[id]?.isBusy == true, !manual { return }
+        let config = connections.first { $0.identifier == id }
+        let total = max(1, Int(config?.retryTimes ?? 3))
+        setConnectionState(.reconnecting(attempt: 1, total: total), for: id)
+        statusText = L10n("Reconnecting") + " \(config?.name ?? id)…"
+        onBackground {
+            var failure: NSError?
+            var ok = false
+            do {
+                try target.reconnectWithBackoff()
+                ok = true
+            } catch {
+                failure = error as NSError
+                if manual {
+                    // Auto-reconnect may be disabled on this config: rebuild the socket by hand.
+                    target.disconnect()
+                    do {
+                        try target.connect()
+                        ok = true
+                        failure = nil
+                    } catch {
+                        ok = false
+                        failure = error as NSError
+                    }
+                }
+            }
+            self.onMain {
+                if ok {
+                    self.setConnectionState(.connected, for: id)
+                    self.statusText = L10n("Connected:") + " \(config?.name ?? id)"
+                    if id == self.activeConnectionID { self.refreshKeys(reset: true) }
+                } else {
+                    let reason = failure?.localizedDescription ?? L10n("Unknown error")
+                    self.setConnectionState(.failed(reason), for: id)
+                    self.statusText = L10n("Disconnected")
+                    self.errorMessage = L10n("Connection lost") + ": " + reason
+                }
+            }
+        }
+    }
+
+    // MARK: - Tree checkbox cascade (KeyListVirtualTree.vue parent/child selection)
+
+    /// Every key stored beneath a folder node (precomputed by buildTree()).
+    func keysInGroup(_ path: String) -> [String] {
+        if let cached = groupMembership[path] { return cached }
+        let sep = separator.isEmpty ? ":" : separator
+        return keys.filter { $0.hasPrefix(path + sep) }
+    }
+
+    func groupCheckState(_ path: String) -> GroupCheckState {
+        let members = keysInGroup(path)
+        guard !members.isEmpty else { return .none }
+        let hits = members.reduce(0) { $0 + (checkedKeys.contains($1) ? 1 : 0) }
+        if hits == 0 { return .none }
+        return hits == members.count ? .all : .partial
+    }
+
+    /// Checking a folder selects everything under it; unchecking clears them all.
+    func toggleGroupCheck(_ path: String) {
+        let members = keysInGroup(path)
+        guard !members.isEmpty else { return }
+        if groupCheckState(path) == .all { checkedKeys.subtract(members) }
+        else { checkedKeys.formUnion(members) }
     }
 }
 

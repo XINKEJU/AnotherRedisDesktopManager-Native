@@ -63,7 +63,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<ARDMConnectionConfig *> *)loadAll;
 + (void)saveAll:(NSArray<ARDMConnectionConfig *> *)items;
+/** Number of connections whose plaintext secrets were moved into the Keychain by
+    the most recent loadAll, then reset to zero. Drives a one-shot UI notice so
+    the user knows why passwords disappeared from connections.json. */
++ (NSInteger)consumeKeychainMigrationCount;
 + (instancetype)fromDictionary:(NSDictionary *)d;
+/** Moves any plaintext secret found in a stored (or imported) dictionary into the
+    macOS Keychain and blanked the in-memory copy. YES when something was moved. */
+- (BOOL)hydrateSecretsFromKeychain:(NSDictionary *)source;
 /** Redacted snapshot: password / passphrase fields are always empty. */
 - (NSDictionary *)toDictionary;
 /** Snapshot used for connections.json. Falls back to keeping a secret in the
