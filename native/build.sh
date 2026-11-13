@@ -21,14 +21,23 @@ xcrun swift --version | head -2
 rm -rf "$BUILD" "$APP"
 mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources/langs"
 
+# Pin the deployment target. Without -target both clang and swiftc inherit the
+# host SDK (macOS 27.x on a current machine), which stamps LC_BUILD_VERSION
+# minos = the build machine's OS and makes the .app refuse to launch anywhere
+# older — regardless of LSMinimumSystemVersion in Info.plist. Keep this value
+# in sync with LSMinimumSystemVersion.
+DEPLOY_TARGET="arm64-apple-macos14.0"
+
 echo "[1/6] Compiling the Objective-C core (RESP / TLS / SSH / viewers / services)..."
 for SOURCE in Redis.m Services.m Transport.m; do
     clang -fobjc-arc -O2 -Wall -Wno-deprecated-declarations \
+        -target "$DEPLOY_TARGET" \
         -c "$ROOT/$SOURCE" -o "$BUILD/${SOURCE%.m}.o"
 done
 
 echo "[2/6] Compiling and linking the SwiftUI application..."
 xcrun swiftc -O -parse-as-library \
+    -target "$DEPLOY_TARGET" \
     -import-objc-header "$ROOT/Bridge.h" \
     "$ROOT"/swift/*.swift \
     "$BUILD/Redis.o" "$BUILD/Services.o" "$BUILD/Transport.o" \
@@ -58,6 +67,18 @@ echo "[5/6] Signing (ad-hoc) and verifying..."
 codesign --force --sign - "$APP" 2>/dev/null || echo "  (ad-hoc signing skipped)"
 file "$APP/Contents/MacOS/ardm-native"
 plutil -lint "$APP/Contents/Info.plist"
+
+# Guard the deployment target. A binary stamped with the build machine's OS
+# version looks fine locally and is unlaunchable everywhere else, so fail loudly
+# instead of shipping it.
+WANT_MINOS="${DEPLOY_TARGET##*-apple-macos}"
+GOT_MINOS="$(vtool -show-build "$APP/Contents/MacOS/ardm-native" | awk '/minos/{print $2; exit}')"
+if [[ "$GOT_MINOS" != "$WANT_MINOS" ]]; then
+    echo "ERROR: LC_BUILD_VERSION minos is '$GOT_MINOS', expected '$WANT_MINOS'." >&2
+    echo "       The .app would refuse to launch on anything older than $GOT_MINOS." >&2
+    exit 1
+fi
+echo "  deployment target: macOS $GOT_MINOS (arch arm64)"
 
 echo "[6/6] Size report"
 BYTES=$(find "$APP" -type f -exec stat -f '%z' {} + | awk '{s+=$1} END {print s}')

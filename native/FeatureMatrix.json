@@ -30,12 +30,13 @@
     "swift": "6.4.2",
     "ui": "SwiftUI (NavigationSplitView, List(children:), Table-like editing, sheets, menus)",
     "core": "Objective-C RESP client + services, linked into the SwiftUI executable via bridging header",
-    "arch": "arm64 single-arch, ad-hoc signed"
+    "arch": "arm64 single-arch (no universal build by request), ad-hoc signed",
+    "deployment_target": "arm64-apple-macos14.0 — pinned in build.sh; build fails if LC_BUILD_VERSION minos drifts from LSMinimumSystemVersion"
   },
   "verification": {
     "swift_typecheck_errors": 0,
     "build_warnings": 0,
-    "runtime_probe": "49 passed, 0 failed (自建假 Redis 的协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 13 语言 / 命令参考断言)",
+    "runtime_probe": "88 passed, 0 failed (自建假 Redis 的协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考断言)",
     "probe_harness": "/tmp/ardm_native_verify/verify.py + probe.m；无 bundle 运行时通过 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 目录，以加载 13 语言与 commands.js",
     "gui": "2026-11-13 12:46 实测截图：应用启动、三栏 SwiftUI 窗口、中文菜单栏/工具栏/标签条/空态/状态栏均正常，无 ERR、无控件挤压",
     "localization_probe": "13 张语言表全部可解析；12 张非英语表各自返回 message.new_connection 的本地译文（cn=新建连接 … vi=Kết nối mới）",
@@ -1064,5 +1065,34 @@
       "JavaSerialize / Pickle 仍为只读（写回需要完整对象图序列化器，风险高于收益）",
       ".proto 未处理 extend / 跨文件 import 的符号解析"
     ]
+  },
+  "round9_distribution": {
+    "date": "2026-11-13",
+    "round": 9,
+    "trigger": "用户追问『整体看软件还有什么问题』；本轮不做功能补齐，改为按分发/安全/工程三个维度独立复审产物与源码",
+    "method": "重新构建 + vtool/otool/codesign 检查 Mach-O 与签名 + 复跑 harness + 逐文件读调用链；不以功能矩阵自证",
+    "fixed": [
+      "P0 部署目标缺陷：build.sh 未传 -target，clang/swiftc 继承本机 SDK，产出的 LC_BUILD_VERSION minos=27.2（等于构建机的系统版本），而 Info.plist 声明 14.0。后果是该 .app 在 macOS 14/15/26 上一律被 dyld 拒绝启动，只有构建机可运行。已固定 DEPLOY_TARGET=arm64-apple-macos14.0，并在 [5/6] 增加 minos 与 LSMinimumSystemVersion 的构建期断言，漂移即失败。实测 minos=14.0、thin arm64、启动存活、88/88 通过。"
+    ],
+    "open_findings": {
+      "p0": [
+        "自动更新无签名/哈希校验：Transport.m installUpdateAtURL: 把下载的 dmg/zip 里的 .app 直接拷进 /Applications，SettingsViews.swift 一键触发、无二次确认。等于远程代码执行入口。",
+        "更新安装会先删旧版再复制（Transport.m removeItemAtPath 在 copyItemAtPath 之前），复制失败即新旧版本同时丢失，无回滚。",
+        "仅 ad-hoc 签名，无 hardened runtime、无 entitlements、无公证：Gatekeeper 拦截，且每次重新构建都会改变 CDHash，导致 macOS 重新弹出钥匙串授权（本轮实测复现）。"
+      ],
+      "p1": [
+        "事务非原子：sendTransaction 逐条调用 send:，每次只在自己的 @synchronized 内完成一次写-读往返；后台的保活 PING、键列表刷新、详情加载可插入 MULTI 与 EXEC 之间，命令会被并入事务或在 DISCARD 后使连接状态错位。",
+        "回归断言不在仓库内：probe.m / verify.py 仅存在于 /tmp/ardm_native_verify，git 无测试文件、无 CI（.github/workflows 仍只构建 Electron 产物），任何改动都无法复现验证。",
+        "无障碍标注为 0：全项目无 accessibilityLabel/Identifier/Value，VoiceOver 完全不可用。"
+      ],
+      "p2": [
+        "根 README 完全未提 SwiftUI 原生移植，无构建/运行/最低系统要求说明。",
+        "巨石文件：Services.m 1412 行、Redis.m 1123 行、DetailViews.swift 879 行，无模块边界。",
+        "filteredKeys() 每次 body 求值都做两轮全量 filter + ICU 全量排序，键数上万后输入卡顿。",
+        "package.json 版本 1.1.1 与 plist 1.7.4 不一致；bundle id 借用上游作者域名反写。"
+      ]
+    },
+    "verification": "bash build.sh：0 错误 0 警告，19 s；.app 4,966,451 B（4.74 MB，较 Electron 191.87 MB 减 97.53%）；vtool minos=14.0；lipo: thin arm64；GUI 启动存活；harness 88/88",
+    "next": "P0-2 重写更新器（校验签名 → 临时目录 → 原子替换 → 失败保留旧版）；P1 事务临界区、harness 入库并接 CI、无障碍标注"
   }
 }
