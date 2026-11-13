@@ -12,32 +12,12 @@ struct KeyBrowserView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // One compact row. The old layout stacked four permanent bars
-            // (search / count / filter / sort header) on top of a 260–330pt wide
-            // column, which left almost no room for keys. Everything that is not
-            // search, refresh or the overflow menu now lives inside that menu.
-            HStack(spacing: 4) {
-                ARDMSearchField(placeholder: L10n("Search keys"),
-                                text: $store.searchText,
-                                focus: $searchFocused,
-                                identifier: "key.search",
-                                onSubmit: {
-                                    store.recordSearch(store.searchText)
-                                    store.refreshKeys(reset: true)
-                                },
-                                onClear: {
-                                    store.searchText = ""
-                                    store.refreshKeys(reset: true)
-                                })
-                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
-                    store.refreshKeys(reset: true)
-                }
-                .accessibilityIdentifier("key.refresh")
-                moreMenu
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .fixedSize(horizontal: false, vertical: true)
+            // Search gets the full column width; the three actions that used to
+            // share this row moved down to the metadata strip, where the key
+            // counts already live. That strip is what the reference clients put
+            // above the list ("已加载 1831 / 共 3038").
+            searchRow
+            metaRow
 
             // Contextual, not permanent: the filter row only exists while it is
             // switched on, and the selection bar only while keys are checked.
@@ -54,7 +34,11 @@ struct KeyBrowserView: View {
                         treeRow(node)
                     }
                 }
-                .listStyle(.sidebar)
+                // Plain, not sidebar: the middle column is a data list, and the
+                // sidebar material behind thousands of rows turned the whole
+                // window into one grey slab.
+                .listStyle(.plain)
+                .environment(\.defaultMinListRowHeight, ARDMMetrics.rowHeight)
                 .accessibilityIdentifier("key.tree")
                 .onChange(of: treeSelection) { _, newValue in
                     guard let id = newValue, !id.hasPrefix("group:") else { return }
@@ -62,21 +46,10 @@ struct KeyBrowserView: View {
                 }
             } else {
                 List(store.filteredKeys(), id: \.self, selection: $store.selectedKey) { key in
-                    HStack {
-                        Text(key).lineLimit(1)
-                        Spacer()
-                        Button { toggleCheck(key) } label: {
-                            Image(systemName: store.checkedKeys.contains(key) ? "checkmark.square" : "square")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L10n("Add to batch selection") + ": " + key)
-                        .accessibilityValue(store.checkedKeys.contains(key) ? L10n("On") : L10n("Off"))
-                    }
-                    .font(store.uiFont(12))
-                    .draggable(key)
-                    .contextMenu { keyMenu(key) }
-                    .onTapGesture(count: 2) { store.selectKey(key) }
+                    flatRow(key)
                 }
+                .listStyle(.plain)
+                .environment(\.defaultMinListRowHeight, ARDMMetrics.rowHeight)
                 .accessibilityIdentifier("key.list")
                 .onChange(of: store.selectedKey) { _, newValue in
                     if let key = newValue { store.selectKey(key) }
@@ -85,8 +58,94 @@ struct KeyBrowserView: View {
             }
             .onAppear { scrollProxy = proxy }
             }
+
+            if !store.scanFinished { loadMoreBar }
         }
         .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
+    }
+
+    // MARK: Header strips
+
+    /// Row 1: the search field owns the full width.
+    private var searchRow: some View {
+        HStack(spacing: 4) {
+            ARDMSearchField(placeholder: L10n("Search keys"),
+                            text: $store.searchText,
+                            focus: $searchFocused,
+                            identifier: "key.search",
+                            onSubmit: {
+                                store.recordSearch(store.searchText)
+                                store.refreshKeys(reset: true)
+                            },
+                            onClear: {
+                                store.searchText = ""
+                                store.refreshKeys(reset: true)
+                            })
+            moreMenu
+        }
+        .padding(.horizontal, ARDMMetrics.listInset)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    /// Row 2: which database this column is bound to, how much of it is loaded,
+    /// and the three verbs that act on the whole list.
+    private var metaRow: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+            Text("DB \(store.selectedDB)")
+                .font(.system(size: ARDMFont.small, weight: .medium))
+            Text("\(ARDMFormat.count(store.keys.count)) / \(ARDMFormat.count(max(store.dbSize, store.keys.count)))")
+                .font(.system(size: ARDMFont.micro))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+                .lineLimit(1)
+            Spacer(minLength: 2)
+            ARDMIconButton(systemName: "checkmark.square",
+                           help: L10n("Select all")) {
+                store.checkedKeys.formUnion(store.filteredKeys())
+            }
+            ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                store.refreshKeys(reset: true)
+            }
+            .accessibilityIdentifier("key.refresh")
+            ARDMIconButton(systemName: "plus", help: L10n("New Key")) {
+                store.showingNewKey = true
+            }
+        }
+        .padding(.horizontal, ARDMMetrics.listInset - 2)
+        .frame(height: 24)
+    }
+
+    /// The reference clients put "load more / load all" at the bottom of the
+    /// column; a 3000-key page is otherwise reachable only through the overflow
+    /// menu, which nobody finds.
+    private var loadMoreBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                Button(L10n("Load more keys")) { store.loadMoreKeys() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(Color.accentColor)
+                Divider().frame(height: 12)
+                Button(L10n("Load all")) { store.loadAllKeys() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(Color.accentColor)
+                Spacer(minLength: 4)
+                Text("\(ARDMFormat.count(store.dbSize - store.keys.count)) " + L10n("remaining"))
+                    .font(.system(size: ARDMFont.micro))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, ARDMMetrics.listInset)
+            .frame(height: 26)
+        }
     }
 
     // MARK: Toolbar pieces
@@ -240,27 +299,7 @@ struct KeyBrowserView: View {
     /// (List(children:) keeps its state inside SwiftUI with no way to save it).
     private func treeRow(_ node: KeyNode) -> AnyView {
         if node.isLeaf {
-            let checked = store.checkedKeys.contains(node.fullPath)
-            return AnyView(
-                HStack(spacing: 5) {
-                    Image(systemName: checked ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(checked ? Color.accentColor : Color.secondary)
-                        .onTapGesture { toggleCheck(node.fullPath) }
-                        .help(L10n("Add to batch selection"))
-                        // The checkbox is an Image with a tap gesture, so VoiceOver
-                        // sees nothing unless it is given button semantics.
-                        .accessibilityLabel(L10n("Add to batch selection") + ": " + node.fullPath)
-                        .accessibilityValue(checked ? L10n("On") : L10n("Off"))
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityAction { toggleCheck(node.fullPath) }
-                    Text(node.name).lineLimit(1)
-                    Spacer()
-                }
-                .font(store.uiFont(12))
-                .tag(node.fullPath)
-                .draggable(node.fullPath)
-                .contextMenu { keyMenu(node.fullPath) }
-            )
+            return AnyView(leafRow(node.fullPath, name: node.name))
         }
         return AnyView(
             DisclosureGroup(isExpanded: store.expansionBinding(node.fullPath)) {
@@ -268,43 +307,108 @@ struct KeyBrowserView: View {
                     treeRow(child)
                 }
             } label: {
-                HStack(spacing: 5) {
-                    // Tri-state box: checking the folder selects every key below it.
-                    let state = store.groupCheckState(node.fullPath)
-                    Image(systemName: groupCheckIcon(state))
-                        .foregroundStyle(state == .none ? Color.secondary : Color.accentColor)
-                        .onTapGesture { store.toggleGroupCheck(node.fullPath) }
-                        .help(L10n("Select all in group"))
-                        .accessibilityLabel(L10n("Select all in group") + ": " + node.fullPath)
-                        .accessibilityValue(store.keysInGroup(node.fullPath).count.description)
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityAction { store.toggleGroupCheck(node.fullPath) }
-                    Image(systemName: "folder").foregroundStyle(.orange)
-                        .accessibilityHidden(true)
-                    Text(node.name).lineLimit(1)
-                    Spacer()
-                    let members = store.keysInGroup(node.fullPath)
-                    if !members.isEmpty {
-                        let hits = members.reduce(0) { $0 + (store.checkedKeys.contains($1) ? 1 : 0) }
-                        Text("\(hits)/\(members.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .font(store.uiFont(12))
-                .contextMenu {
-                    Button(L10n("Select all in group")) { store.toggleGroupCheck(node.fullPath) }
-                    Button(L10n("Clear group selection")) {
-                        store.checkedKeys.subtract(store.keysInGroup(node.fullPath))
-                    }
-                    Divider()
-                    Button(L10n("Delete group")) {
-                        store.deleteKeys(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
-                    }
-                }
+                groupLabel(node)
             }
         )
     }
+
+    /// Folder row: name, member count in parentheses, and a tri-state marker that
+    /// only appears once a batch selection exists. Hiding the checkbox until then
+    /// is what lets every name start on the same vertical line as the key rows.
+    private func groupLabel(_ node: KeyNode) -> some View {
+        let state = store.groupCheckState(node.fullPath)
+        let members = store.keysInGroup(node.fullPath)
+        return HStack(spacing: 5) {
+            if !store.checkedKeys.isEmpty {
+                Image(systemName: groupCheckIcon(state))
+                    .font(.system(size: 10))
+                    .foregroundStyle(state == .none ? Color.secondary.opacity(0.5) : Color.accentColor)
+                    .onTapGesture { store.toggleGroupCheck(node.fullPath) }
+                    .accessibilityLabel(L10n("Select all in group") + ": " + node.fullPath)
+                    .accessibilityAddTraits(.isButton)
+            }
+            Image(systemName: "folder")
+                .font(.system(size: 10.5))
+                .foregroundStyle(Color.accentColor.opacity(0.75))
+                .accessibilityHidden(true)
+            Text(node.name)
+                .font(.system(size: ARDMFont.body))
+                .lineLimit(1)
+            Text(store.scanFinished ? "(\(members.count))" : "(\(members.count)+)")
+                .font(.system(size: ARDMFont.micro))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 2)
+        }
+        .frame(minHeight: 20)
+        .contextMenu {
+            Button(L10n("Select all in group")) { store.toggleGroupCheck(node.fullPath) }
+            Button(L10n("Clear group selection")) {
+                store.checkedKeys.subtract(store.keysInGroup(node.fullPath))
+            }
+            Divider()
+            Button(L10n("Delete group")) {
+                store.deleteKeys(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
+            }
+        }
+    }
+
+    /// One key row: type marker, monospaced name, type chip, expiry. The chip
+    /// column is fixed width so it forms a clean edge all the way down.
+    private func leafRow(_ key: String, name: String) -> some View {
+        let checked = store.checkedKeys.contains(key)
+        let meta = store.keyMeta[key]
+        return HStack(spacing: 6) {
+            if !store.checkedKeys.isEmpty {
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(checked ? Color.accentColor : Color.secondary.opacity(0.45))
+                    .onTapGesture { toggleCheck(key) }
+                    .accessibilityLabel(L10n("Add to batch selection") + ": " + key)
+                    .accessibilityValue(checked ? L10n("On") : L10n("Off"))
+                    .accessibilityAddTraits(.isButton)
+            }
+            Text(name)
+                .font(.system(size: ARDMFont.monoRow, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            if let meta {
+                ARDMTypeBadge(type: meta.type)
+                Text(meta.ttl >= 0 ? ARDMFormat.ttl(meta.ttl) : "∞")
+                    .font(.system(size: 9))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(ttlTint(meta.ttl))
+                    .frame(minWidth: 24, alignment: .trailing)
+            }
+        }
+        .frame(minHeight: ARDMMetrics.rowHeight)
+        .contentShape(Rectangle())
+        .listRowInsets(EdgeInsets(top: 0, leading: ARDMMetrics.listInset - 4,
+                                  bottom: 0, trailing: ARDMMetrics.listInset - 2))
+        .listRowSeparator(.hidden)
+        .tag(key)
+        .draggable(key)
+        .contextMenu { keyMenu(key) }
+    }
+
+    private func flatRow(_ key: String) -> some View {
+        leafRow(key, name: key)
+    }
+
+    /// Warm expiries recede, imminent ones pull the eye. -1 means the key never
+    /// expires, which reads as a dash rather than a countdown.
+    private func ttlTint(_ ttl: Int) -> Color {
+        switch ttl {
+        case -1: return Color.secondary.opacity(0.55)
+        case 0..<300: return Color(red: 0.85, green: 0.30, blue: 0.26)
+        case 300..<3600: return Color(red: 0.86, green: 0.55, blue: 0.16)
+        default: return .secondary
+        }
+    }
+
 
     private func groupCheckIcon(_ state: GroupCheckState) -> String {
         switch state {

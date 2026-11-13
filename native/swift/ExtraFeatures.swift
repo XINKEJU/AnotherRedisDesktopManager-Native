@@ -92,6 +92,32 @@ extension AppStore {
 
     // MARK: KeyListVirtualTree.vue expansion state
 
+    /// A freshly built tree arrives fully collapsed, which leaves the key column
+    /// an empty grey field until the user starts clicking triangles. Open the
+    /// structure shallowly instead: any folder with more than 20 children stays
+    /// closed, so `session (143)` does not dump 143 UUIDs on first paint while
+    /// `page (5)` still shows its five keys. Only runs while nothing is expanded,
+    /// so a manual collapse is never undone.
+    func autoExpandTreeIfNeeded() {
+        guard expandedNodeIDs.isEmpty else { return }
+        var expanded = Set<String>()
+        var frontier = keyNodes.filter { !$0.isLeaf }
+        var depth = 0
+        while depth < 4 && !frontier.isEmpty && expanded.count < 24 {
+            var next: [KeyNode] = []
+            for node in frontier.prefix(12) {
+                let children = node.children ?? []
+                if children.count > 20 { continue }
+                expanded.insert(node.fullPath)
+                next.append(contentsOf: children.filter { !$0.isLeaf })
+            }
+            frontier = next
+            depth += 1
+        }
+        guard !expanded.isEmpty else { return }
+        expandedNodeIDs = expanded
+    }
+
     func expansionBinding(_ id: String) -> Binding<Bool> {
         Binding<Bool>(
             get: { self.expandedNodeIDs.contains(id) },

@@ -1087,6 +1087,22 @@ static NSString *ARDMUnpickle(NSData *data) {
              @"Pickle", @"Brotli", @"Gzip", @"Deflate", @"DeflateRaw", @"Protobuf", @"OverSize", @"Custom"];
 }
 
+// True when every byte is printable UTF-8. The pickle and protobuf sniffers
+// below key off the first byte alone, so any sentence starting with 't', 'S' or
+// 'c' used to be reported as a Pickle stream and rendered as "unsupported
+// opcode". Text has to be recognised before those heuristics get a vote.
+static BOOL ARDMDataIsPlainText(NSData *data) {
+    const unsigned char *p = data.bytes;
+    NSUInteger n = data.length;
+    if (n == 0) return YES;
+    for (NSUInteger i = 0; i < n; i++) {
+        unsigned char c = p[i];
+        if (c == 0 || c == 0x7f) return NO;
+        if (c < 0x20 && c != '\t' && c != '\n' && c != '\r') return NO;
+    }
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] != nil;
+}
+
 + (NSString *)detectViewerForData:(NSData *)data {
     const unsigned char *p = data.bytes; NSUInteger n = data.length;
     if (n == 0) return @"Text";
@@ -1098,8 +1114,6 @@ static NSString *ARDMUnpickle(NSData *data) {
     if (n >= 2 && p[0] == 0xac && p[1] == 0xed) return @"JavaSerialize";
     // Pickle protocol header: 0x80 <version 1..5>, or a known pickle opcode in first byte
     if (n >= 2 && p[0] == 0x80 && p[1] >= 0x01 && p[1] <= 0x05) return @"Pickle";
-    if (n >= 1 && (p[0] == '(' || p[0] == 'I' || p[0] == 'S' || p[0] == 'V' ||
-                    p[0] == 'l' || p[0] == 'd' || p[0] == 'c' || p[0] == 't')) return @"Pickle";
     // PHP serialize: an alphanumeric tag followed by ':' (a:/i:/s:/b:/N; ...)
     if (n >= 2 && isalpha(p[0]) && p[1] == ':') return @"PHPSerialize";
     // Deflate (zlib) header: 0x78 then a valid zlib second byte
@@ -1112,6 +1126,7 @@ static NSString *ARDMUnpickle(NSData *data) {
     // Any NUL byte in the first 512 bytes means binary -> Hex, not Text/Msgpack
     NSUInteger scan = MIN(n, 512);
     for (NSUInteger i = 0; i < scan; i++) if (p[i] == 0) return @"Hex";
+    if (ARDMDataIsPlainText(data)) return @"Text";
     // Protobuf: first byte is a low field tag (field 1..15, wire 0..5)
     if ((p[0] & 0x07) <= 5 && (p[0] >> 3) >= 1 && (p[0] >> 3) <= 15) return @"Protobuf";
     // Msgpack: only when the whole buffer is one valid value

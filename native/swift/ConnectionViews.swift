@@ -209,31 +209,30 @@ struct ConnectionSidebar: View {
 
     private func databaseRow(_ db: Int, config: ARDMConnectionConfig, counts: [Int: Int]) -> some View {
         let current = store.databaseIndex(for: config.identifier) == db
-        return HStack(spacing: 5) {
-            Image(systemName: "cylinder.split.1x2")
-                .font(.system(size: ARDMIcon.inline))
-                .foregroundStyle(current ? Color.accentColor : Color.secondary)
-                .frame(width: 14, alignment: .center)
-                .accessibilityHidden(true)
+        return HStack(spacing: 4) {
+            // No cylinder glyph per row: sixteen identical icons stacked under
+            // one connection read as decoration, not information. Indentation
+            // already says "child of the connection"; the count is the payload.
             Text("db\(db)")
-                .font(store.uiFont(11))
+                .font(.system(size: ARDMFont.small))
                 .fontWeight(current ? .semibold : .regular)
                 .foregroundStyle(current ? Color.accentColor : Color.primary)
-            Spacer(minLength: 2)
             if let count = counts[db], count > 0 {
-                Text("\(count)")
-                    .font(store.uiFont(10))
+                Text("(\(ARDMFormat.count(count)))")
+                    .font(.system(size: 9.5))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(current ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.75))
             }
+            Spacer(minLength: 2)
         }
-        .frame(minHeight: 21)
-        .padding(.horizontal, 4)
+        .frame(minHeight: 18)
+        .padding(.leading, 14)
+        .padding(.trailing, 4)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(current ? Color.accentColor.opacity(0.10) : Color.clear)
         )
-        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 4))
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 4))
         // Two ways in on purpose: the tap handles the common case, and the tag
         // keeps the click working on list styles that route clicks through
         // selection. Both land on the same idempotent call.
@@ -307,12 +306,6 @@ struct ConnectionSidebar: View {
                     store.showingConnectionEditor = true
                 }
                 .accessibilityIdentifier("sidebar.newConnection")
-                ARDMIconButton(systemName: "play.fill",
-                               help: L10n("Connect"),
-                               tint: store.selectedConnection == nil ? .secondary : .accentColor) {
-                    if let c = store.selectedConnection { store.connect(to: c) }
-                }
-                .disabled(store.selectedConnection == nil)
                 ARDMIconMenu(help: L10n("More actions")) {
                     Section {
                         Button {
@@ -372,7 +365,7 @@ struct ConnectionSidebar: View {
             // Sidebar rows default to 28pt, which turns the sixteen database
             // rows into a column twice the height of the key list beside it.
             // Connections keep their two-line height; db rows collapse to 21pt.
-            .environment(\.defaultMinListRowHeight, 20)
+            .environment(\.defaultMinListRowHeight, 18)
         }
         .onAppear { sidebarSelection = store.selectedConnectionID }
         .onChange(of: sidebarSelection) { _, newValue in
@@ -419,44 +412,40 @@ struct ConnectionRow: View {
     @State private var editing = false
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             // The glyph says what the row is; the colour says how it is doing.
             // It used to swap to `bolt.fill` once connected, which read like the
             // "connect" toolbar button rather than a state.
             Image(systemName: "server.rack")
-                .font(.system(size: ARDMIcon.row))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(dotColor(store.connectionStates[config.identifier]))
-                .frame(width: 16, height: 16)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(config.name).lineLimit(1)
-                // The database is a row in the tree below once connected, so
-                // naming the configured default here would just contradict it.
-                Text("\(config.host):\(config.port)")
-                    .font(store.uiFont(10))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
+                .frame(width: 15, alignment: .center)
+            // One line per connection, like the reference clients. The address
+            // moved to the tooltip and the context menu: sixteen database rows
+            // sit underneath, so a two-line header pushed the list off-screen.
+            Text(config.name)
+                .font(.system(size: ARDMFont.body))
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 2)
             if config.readOnly {
                 Image(systemName: "lock")
-                    .font(.system(size: ARDMIcon.inline - 1))
-                    .frame(width: 12)
+                    .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
             if config.tlsEnabled {
                 Image(systemName: "lock.shield")
-                    .font(.system(size: ARDMIcon.inline - 1))
-                    .frame(width: 12)
+                    .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
             if config.sshEnabled {
                 Image(systemName: "network")
-                    .font(.system(size: ARDMIcon.inline - 1))
-                    .frame(width: 12)
+                    .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
         }
-        .font(store.uiFont(12))
+        .frame(minHeight: 20)
+        .help("\(config.name) — \(config.host):\(config.port)")
         // One element instead of five: the status and capability glyphs are
         // meaningless when read out as "bolt.fill, lock, network".
         .accessibilityElement(children: .ignore)

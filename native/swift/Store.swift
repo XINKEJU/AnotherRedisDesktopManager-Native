@@ -45,6 +45,15 @@ struct KeyRow: Identifiable, Equatable {
     var raw: Data = Data()
 }
 
+/// Per-key metadata shown beside the key name in the list. Fetched in the
+/// background after a SCAN page lands, because the list has to show the type and
+/// the expiry the way the reference clients do — one TYPE and one TTL per key is
+/// cheap on a local socket and cached for every redraw afterwards.
+struct KeyMeta: Equatable {
+    var type: ARDMKeyType
+    var ttl: Int
+}
+
 struct LogEntry: Identifiable {
     let id = UUID()
     let time: Date
@@ -196,6 +205,15 @@ final class AppStore: ObservableObject {
         didSet { invalidateKeyCaches() }
     }
     @Published var keyNodes: [KeyNode] = []
+    /// key → type/TTL, filled progressively by `loadKeyMeta`. Rows read this
+    /// dictionary; a missing entry renders as a dash rather than a guess.
+    @Published var keyMeta: [String: KeyMeta] = [:]
+    /// Bumped on every metadata pass so a stale background sweep stops instead
+    /// of overwriting the rows of the database the user just switched to.
+    var metaGeneration = 0
+    /// Keys already queried in the current pass, so "load more" only pays for
+    /// the new page.
+    var metaLoadedKeys = Set<String>()
     @Published var selectedKey: String?
     @Published var searchText = "" {
         didSet { invalidateKeyCaches(scope: .filter) }
@@ -356,7 +374,7 @@ final class AppStore: ObservableObject {
     @Published var readOnly: Bool = UserDefaults.standard.bool(forKey: "ARDMReadOnly") {
         didSet { UserDefaults.standard.set(readOnly, forKey: "ARDMReadOnly") }
     }
-    @Published var showTree: Bool = UserDefaults.standard.bool(forKey: "ARDMShowTree") {
+    @Published var showTree: Bool = (UserDefaults.standard.object(forKey: "ARDMShowTree") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(showTree, forKey: "ARDMShowTree") }
     }
     @Published var customFormatters: [[String: String]] = ARDMAppServices.customFormatters() {

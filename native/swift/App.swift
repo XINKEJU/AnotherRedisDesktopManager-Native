@@ -40,7 +40,7 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
                 window.setContentSize(frame.size)
                 window.center()
             } else {
-                window.setContentSize(NSSize(width: 1240, height: 780))
+                window.setContentSize(NSSize(width: 1360, height: 860))
                 window.center()
             }
         }
@@ -134,9 +134,28 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         }
         if config.sentinelEnabled && config.cluster { config.cluster = false }
 
-        store.connections.append(config)
-        store.saveConnections()
-        store.connect(to: config)
+        // Reuse the profile for this endpoint instead of appending a new one on
+        // every launch. Unconditional appends had grown the sidebar by one row
+        // per `--host` run, which left thirteen copies of the same server.
+        if let existing = store.connections.first(where: {
+            $0.host == config.host && $0.port == config.port && $0.db == config.db &&
+            $0.auth == config.auth && !$0.cluster && !$0.sentinelEnabled &&
+            !$0.sshEnabled && !$0.tlsEnabled
+        }) {
+            store.connect(to: existing)
+        } else {
+            store.connections.append(config)
+            store.saveConnections()
+            store.connect(to: config)
+        }
+
+        // Verification hook used by the screenshot harness: preselecting a key
+        // is the only way to render the detail pane without a synthetic click,
+        // and this machine has no accessibility grant for one. Inert unless the
+        // flag is on the command line.
+        if let key = value("--select-key") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { store.selectKey(key) }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -261,7 +280,7 @@ struct RootView: View {
                                                 max: 1500)
         } content: {
             KeyBrowserView()
-                .navigationSplitViewColumnWidth(min: 260, ideal: 330, max: 480)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 520)
         } detail: {
             DetailPane()
         }
@@ -362,38 +381,53 @@ struct MainToolbar: ToolbarContent {
 struct StatusBar: View {
     @EnvironmentObject var store: AppStore
 
-    // The database index is in the sidebar tree now; statusText already names
-    // the current DB alongside the counters, so the bar stays as it was.
+    /// The bar used to be whatever the last operation wrote into `statusText`,
+    /// so it alternated between "500 / 3038 keys · DB 0" and "13 rows" and lost
+    /// the one thing a status bar is for: which server you are looking at.
+    private var endpoint: String {
+        guard let id = store.activeConnectionID,
+              let config = store.connections.first(where: { $0.identifier == id }) else {
+            return L10n("Not connected")
+        }
+        return "\(config.host):\(config.port)"
+    }
+
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             Circle()
                 .fill(store.connected ? Color.green : Color.secondary.opacity(0.5))
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
-            Text(store.statusText).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 8)
-            // The key counters used to be printed twice — once inside
-            // statusText and once here on the right. Only the live indicator is
-            // unique to this side of the bar.
+            Text(endpoint)
+                .foregroundStyle(store.connected ? Color.primary : Color.secondary)
+            if store.connected {
+                Text("·").foregroundStyle(.tertiary)
+                Text("DB \(store.selectedDB)").foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Text(store.statusText)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
             if store.liveRunning {
                 HStack(spacing: 4) {
                     Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: ARDMIcon.inline))
-                    Text(L10n("LIVE")).font(store.uiFont(10, weight: .medium))
+                        .font(.system(size: 9))
+                    Text(L10n("LIVE")).font(.system(size: ARDMFont.micro, weight: .medium))
                 }
                 .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(L10n("LIVE"))
             }
         }
+        .font(.system(size: ARDMFont.small))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status.bar")
-        .font(store.uiFont(11))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
         .background(.bar)
     }
 }

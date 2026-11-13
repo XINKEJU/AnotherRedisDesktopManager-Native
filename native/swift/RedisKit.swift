@@ -372,6 +372,7 @@ extension AppStore {
                     // two different phrasings. A ratio covers both the paged and
                     // the complete case in one glance.
                     self.statusText = "\(self.keys.count) / \(self.dbSize) " + L10n("keys") + " · DB \(self.selectedDB)"
+                    self.loadKeyMeta(for: self.keys, reset: true)
                 }
             } catch {
                 self.onMain { self.fail("SCAN failed: \(error.localizedDescription)") }
@@ -407,9 +408,87 @@ extension AppStore {
                     self.buildTree()
                     if let id = self.activeConnectionID { self.keyCache[id] = self.keys }
                     self.statusText = "\(self.keys.count) " + L10n("keys loaded")
+                    self.loadKeyMeta(for: collected, reset: false)
                 }
             } catch {
                 self.onMain { self.fail(error.localizedDescription) }
+            }
+        }
+    }
+
+    /// Scan the entire keyspace in one pass. The reference clients ship both
+    /// "load more" and "load all"; with only the first one a 3000-key database
+    /// takes thirty clicks to see in full.
+    func loadAllKeys() {
+        guard connected, !scanFinished else { return }
+        statusText = L10n("Scanning keys…")
+        onBackground {
+            do {
+                var cursor = self.scanCursor
+                var collected = self.keys
+                var rounds = 0
+                repeat {
+                    let batch = try self.scanBatch(pattern: self.effectivePattern(), cursor: &cursor)
+                    collected.append(contentsOf: batch)
+                    rounds += 1
+                } while cursor != 0 && collected.count < 200_000 && rounds < 4_000
+                let merged = (NSOrderedSet(array: collected).array as? [String] ?? collected).sorted()
+                self.onMain {
+                    self.keys = merged
+                    self.scanCursor = cursor
+                    self.scanFinished = cursor == 0
+                    self.buildTree()
+                    if let id = self.activeConnectionID { self.keyCache[id] = merged }
+                    self.dbSize = self.client?.dbSize(nil) ?? self.dbSize
+                    self.statusText = "\(self.keys.count) / \(self.dbSize) " + L10n("keys") + " · DB \(self.selectedDB)"
+                    self.loadKeyMeta(for: merged, reset: true)
+                }
+            } catch {
+                self.onMain { self.fail(error.localizedDescription) }
+            }
+        }
+    }
+
+    /// Fetch TYPE + TTL for the loaded page so every row can show its type
+    /// marker and expiry, the way the reference clients label their key lists.
+    /// Runs in the background, publishes in chunks, and a newer pass cancels an
+    /// older one through `metaGeneration` so switching database mid-sweep cannot
+    /// paint one database's metadata onto another's rows.
+    func loadKeyMeta(for keys: [String], reset: Bool) {
+        guard connected, !keys.isEmpty else { return }
+        metaGeneration += 1
+        let generation = metaGeneration
+        if reset {
+            metaLoadedKeys.removeAll()
+            keyMeta.removeAll()
+        }
+        let pending = keys.filter { !metaLoadedKeys.contains($0) }
+        guard !pending.isEmpty else { return }
+        // Labelling 200k rows nobody has scrolled to would stall the socket for
+        // a minute; one page's worth is enough to keep the viewport honest.
+        let batch = Array(pending.prefix(1500))
+        metaLoadedKeys.formUnion(batch)
+
+        onBackground {
+            var collected: [String: KeyMeta] = [:]
+            for (index, key) in batch.enumerated() {
+                if generation != self.metaGeneration { return }
+                guard let client = self.client else { return }
+                let type = client.type(ofKey: key, error: nil)
+                let ttl = client.ttl(ofKey: key, error: nil)
+                collected[key] = KeyMeta(type: type, ttl: ttl)
+                if index % 150 == 149 {
+                    let partial = collected
+                    self.onMain {
+                        guard generation == self.metaGeneration else { return }
+                        self.keyMeta.merge(partial) { _, new in new }
+                    }
+                }
+            }
+            let final = collected
+            self.onMain {
+                guard generation == self.metaGeneration else { return }
+                self.keyMeta.merge(final) { _, new in new }
             }
         }
     }
@@ -433,6 +512,7 @@ extension AppStore {
         }
         groupMembership = membership
         keyNodes = makeNodes(root, prefix: "", sep: sep)
+        autoExpandTreeIfNeeded()
     }
 
     private func insert(_ node: inout [String: Any], _ parts: [String], full: String) {

@@ -58,39 +58,34 @@ struct DetailPane: View {
         VStack(spacing: 0) {
             // A labelled, scrollable tab strip replaces the old icon-only
             // segmented control that packed nine tabs into the title bar.
+            // Text-only tabs with an underline, like the reference clients. The
+            // nine coloured glyphs that used to sit here turned the one strip
+            // that never changes into the loudest row in the window.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
+                HStack(spacing: 0) {
                     ForEach(MainTab.allCases) { tab in
+                        let active = store.activeTab == tab
                         Button { store.activeTab = tab } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: tab.icon)
-                                    .font(.system(size: ARDMIcon.control, weight: .regular))
-                                    .frame(width: 15)
-                                    .accessibilityHidden(true)
-                                Text(L10n(tab.title))
-                                    .font(store.uiFont(11))
-                                    .fontWeight(store.activeTab == tab ? .medium : .regular)
-                            }
-                            .padding(.horizontal, 9)
-                            .frame(height: 24)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(store.activeTab == tab
-                                          ? Color.accentColor.opacity(0.15)
-                                          : Color.clear)
-                            )
-                            .contentShape(Rectangle())
+                            Text(L10n(tab.title))
+                                .font(.system(size: ARDMFont.small, weight: active ? .medium : .regular))
+                                .foregroundStyle(active ? Color.primary : Color.secondary)
+                                .padding(.horizontal, 9)
+                                .frame(height: 28)
+                                .overlay(alignment: .bottom) {
+                                    Rectangle()
+                                        .fill(active ? Color.accentColor : Color.clear)
+                                        .frame(height: 1.5)
+                                }
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(store.activeTab == tab ? Color.accentColor : Color.secondary)
                         .help(L10n(tab.title))
                         .accessibilityLabel(L10n(tab.title))
-                        .accessibilityAddTraits(store.activeTab == tab ? [.isButton, .isSelected] : .isButton)
+                        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
                         .accessibilityIdentifier("detail.tab." + tab.title)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 6)
             }
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("detail.tabs")
@@ -203,59 +198,76 @@ struct KeyDetailView: View {
     /// menu. The previous version printed eight text buttons under the title,
     /// which filled the whole width and still wrapped out of view on a narrow
     /// detail pane.
+    /// What the size column should say: bytes for a scalar, item count for a
+    /// collection. Reading "0 B" next to a 400-field hash looked like a bug.
+    private var valueSizeText: String {
+        switch store.selectedKeyType {
+        case .string, .reJSON, .vector, .unknown, .timeSeries:
+            return ARDMFormat.bytes(store.keyRawValue.count)
+        default:
+            return "\(store.keyRows.count) " + L10n("items")
+        }
+    }
+
     @ViewBuilder
     private func keyHeader(_ key: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "key.fill")
-                .font(.system(size: ARDMIcon.control))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(key).font(store.uiFont(14, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(typeName(store.selectedKeyType))
-                .font(store.uiFont(10, weight: .medium))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .foregroundStyle(Color.accentColor)
-                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
-            Text(keyMetadata)
-                .font(store.uiFont(10.5))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
-                store.reloadKeyDetail()
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 7) {
+                // Type moves from a text capsule into the same glyph + chip
+                // vocabulary the key list uses, so the two panes agree on what a
+                // hash looks like.
+                Image(systemName: store.selectedKeyType.symbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(store.selectedKeyType.tint)
+                    .accessibilityHidden(true)
+                Text(key)
+                    .font(.system(size: ARDMFont.title, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                Spacer(minLength: 8)
+                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                    store.reloadKeyDetail()
+                }
+                ARDMIconButton(systemName: "doc.on.doc", help: L10n("Copy")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(store.editorText, forType: .string)
+                }
+                ARDMIconMenu(help: L10n("More actions")) {
+                    Button { store.showingRename = true } label: {
+                        Label(L10n("Rename"), systemImage: "character.cursor.ibeam")
+                    }
+                    Button { store.showingTTL = true } label: {
+                        Label(L10n("TTL"), systemImage: "clock")
+                    }
+                    Button { store.setTTL(-1) } label: {
+                        Label(L10n("PERSIST"), systemImage: "pin")
+                    }
+                    Button { store.dumpKey(key) } label: {
+                        Label(L10n("DUMP"), systemImage: "arrow.down.doc")
+                    }
+                    Button { store.showingJsonEditor = true } label: {
+                        Label(L10n("JSON Editor"), systemImage: "curlybraces")
+                    }
+                    Divider()
+                    Button(role: .destructive) { store.deleteKeys([key]) } label: {
+                        Label(L10n("Delete"), systemImage: "trash")
+                    }
+                }
+                .accessibilityIdentifier("detail.key.more")
             }
-            ARDMIconButton(systemName: "doc.on.doc", help: L10n("Copy")) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(store.editorText, forType: .string)
+
+            // Second line: the metadata strip. Type, size and expiry are the
+            // three facts every reference client shows under the key name.
+            HStack(spacing: 8) {
+                ARDMTypeBadge(type: store.selectedKeyType)
+                ARDMMetaChip(label: L10n("Size"), value: valueSizeText, icon: "internaldrive")
+                ARDMMetaChip(label: "TTL", value: ARDMFormat.ttl(store.selectedKeyTTL), icon: "clock")
+                Spacer(minLength: 4)
             }
-            ARDMIconMenu(help: L10n("More actions")) {
-                Button { store.showingRename = true } label: {
-                    Label(L10n("Rename"), systemImage: "character.cursor.ibeam")
-                }
-                Button { store.showingTTL = true } label: {
-                    Label(L10n("TTL"), systemImage: "clock")
-                }
-                Button { store.setTTL(-1) } label: {
-                    Label(L10n("PERSIST"), systemImage: "pin")
-                }
-                Button { store.dumpKey(key) } label: {
-                    Label(L10n("DUMP"), systemImage: "arrow.down.doc")
-                }
-                Button { store.showingJsonEditor = true } label: {
-                    Label(L10n("JSON Editor"), systemImage: "curlybraces")
-                }
-                Divider()
-                Button(role: .destructive) { store.deleteKeys([key]) } label: {
-                    Label(L10n("Delete"), systemImage: "trash")
-                }
-            }
-            .accessibilityIdentifier("detail.key.more")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 7)
     }
 
     // MARK: String / ReJSON / Vector / unknown -> large editor + viewers
@@ -381,15 +393,22 @@ struct KeyDetailView: View {
                         Text(highlighted(store.renderedValue, size: store.scaled(store.fontSize)))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
                     }
-                    .border(Color.secondary.opacity(0.25))
+                    .background(Color(nsColor: .textBackgroundColor))
                 }
                 .padding(8)
             } else {
+                // No more 1px rectangle around the value: the editor already sits
+                // on the text background, and the border made it read like a 2008
+                // form field.
                 TextEditor(text: $store.editorText)
                     .font(store.monoFont(store.fontSize))
-                    .border(Color.secondary.opacity(0.25))
-                    .padding(8)
+                    .scrollContentBackground(.hidden)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .padding(.horizontal, 10)
+                    .padding(.top, 4)
                     .accessibilityLabel(L10n("Value editor"))
                     .accessibilityIdentifier("detail.editor")
             }
@@ -473,14 +492,36 @@ struct KeyDetailView: View {
                 .padding(.horizontal, 8).padding(.bottom, 6)
             }
 
-            HStack {
-                Text(columnTitle(0)).font(.caption.bold()).frame(width: 180, alignment: .leading)
-                Text(columnTitle(1)).font(.caption.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                if store.selectedKeyType == .zSet { Text(L10n("Score")).font(.caption.bold()).frame(width: 100) }
-                if store.selectedKeyType == .hash { Text(L10n("Field TTL")).font(.caption.bold()).frame(width: 80) }
+            HStack(spacing: 8) {
+                Text(columnTitle(0))
+                    .font(.system(size: ARDMFont.micro, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: store.selectedKeyType == .zSet ? .infinity : 180,
+                           alignment: .leading)
+                // A zset row stores its score twice (value and extra), so the
+                // old layout drew two identical numeric columns.
+                if store.selectedKeyType != .zSet {
+                    Text(columnTitle(1))
+                        .font(.system(size: ARDMFont.micro, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if store.selectedKeyType == .zSet {
+                    Text(L10n("Score"))
+                        .font(.system(size: ARDMFont.micro, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 100, alignment: .trailing)
+                }
+                if store.selectedKeyType == .hash {
+                    Text(L10n("Field TTL"))
+                        .font(.system(size: ARDMFont.micro, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 92, alignment: .trailing)
+                }
             }
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.08))
+            .padding(.horizontal, 10)
+            .frame(height: 22)
+            .background(Color.secondary.opacity(0.06))
             Divider()
 
             // Row actions moved into the context menu and a double-click: the old
@@ -490,17 +531,28 @@ struct KeyDetailView: View {
             // scroll area, so a three-field hash showed ten grey bands of empty
             // space under the data. Striping the real rows only fixes that.
             List(Array(store.keyRows.enumerated()), id: \.element.id) { index, row in
-                HStack {
+                HStack(spacing: 8) {
                     Text(row.field).font(store.monoFont(11))
-                        .lineLimit(1).frame(width: 180, alignment: .leading)
-                    Text(row.value).font(store.monoFont(11))
-                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(1)
+                        .frame(maxWidth: store.selectedKeyType == .zSet ? .infinity : 180,
+                               alignment: .leading)
+                    if store.selectedKeyType != .zSet {
+                        Text(row.value).font(store.monoFont(11))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     if store.selectedKeyType == .zSet {
-                        Text(row.extra).font(store.monoFont(11)).frame(width: 100)
+                        Text(row.extra)
+                            .font(store.monoFont(11))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 100, alignment: .trailing)
                     }
                     if store.selectedKeyType == .hash {
                         Text(store.fieldTTLs[row.field].map(String.init) ?? "–")
-                            .font(store.monoFont(11)).frame(width: 80)
+                            .font(store.monoFont(11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 92, alignment: .trailing)
                     }
                 }
                 .contentShape(Rectangle())
