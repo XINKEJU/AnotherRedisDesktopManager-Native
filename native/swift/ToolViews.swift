@@ -23,10 +23,17 @@ struct CLIView: View {
                 TextField(L10n("Enter a Redis command, e.g. HGETALL myhash"), text: $store.cliInput)
                     .textFieldStyle(.roundedBorder)
                     .font(store.monoFont(store.fontSize))
+                    .accessibilityLabel(L10n("Command input"))
+                    .accessibilityIdentifier("cli.input")
                     .onSubmit { store.runCLI() }
                 Button(L10n("Run")) { store.runCLI() }.buttonStyle(.borderedProminent)
-                Button(L10n("↑")) { store.previousCLICommand() }.help(L10n("Previous command"))
-                Button(L10n("↓")) { store.nextCLICommand() }.help(L10n("Next command"))
+                // "↑" / "↓" are read as punctuation, so give the history steppers words.
+                Button(L10n("↑")) { store.previousCLICommand() }
+                    .help(L10n("Previous command"))
+                    .accessibilityLabel(L10n("Previous command"))
+                Button(L10n("↓")) { store.nextCLICommand() }
+                    .help(L10n("Next command"))
+                    .accessibilityLabel(L10n("Next command"))
                 Button(L10n("Clear")) { store.cliOutput = "" }
             }
             .padding(.horizontal, 10)
@@ -103,6 +110,7 @@ struct StatusView: View {
                 }
                 Text("every \(store.statusRefreshSeconds)s").font(.caption)
                 Stepper("", value: $store.statusRefreshSeconds, in: 1...60).labelsHidden()
+                    .accessibilityLabel(L10n("Refresh interval"))
                     .onChange(of: store.statusRefreshSeconds) {
                         if store.statusAutoRefresh { store.startStatusTimer() }
                     }
@@ -231,11 +239,13 @@ struct MemoryView: View {
                     Text(L10n("Per key")).tag(1)
                 }
                 .pickerStyle(.segmented).frame(width: 200).labelsHidden()
+                .accessibilityLabel(L10n("Memory analysis mode"))
                 Spacer()
                 if selection == 1 {
                     Text(L10n("Min bytes")).font(.caption)
                     TextField("", value: $store.memoryMinSize, format: .number).frame(width: 90)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel(L10n("Min bytes"))
                     if store.memoryScanRunning {
                         ProgressView(value: Double(store.memoryScanned),
                                      total: Double(max(1, store.memoryScanTotal)))

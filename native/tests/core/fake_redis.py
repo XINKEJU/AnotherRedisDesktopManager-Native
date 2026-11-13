@@ -131,12 +131,19 @@ def handle(conn, reply):
     f = conn.makefile("rb")
     in_multi = False
     queued = 0
+    # Per-connection command log. PROBE.SEQ returns it so the probe can assert
+    # ordering (e.g. that no PING landed between MULTI and EXEC).
+    seq = []
     try:
         while not stop.is_set():
             args = read_command(f)
             if args is None:
                 break
             head = args[0].upper() if args else b""
+            if head == b"PROBE.SEQ":
+                conn.sendall(array([bulk(x.encode()) for x in seq]))
+                continue
+            seq.append(head.decode("ascii", "replace"))
             if head == b"MULTI":
                 in_multi = True
                 queued = 0
@@ -153,6 +160,10 @@ def handle(conn, reply):
                 conn.sendall(simple(b"OK"))
                 continue
             if in_multi:
+                # SLOW widens the window between MULTI and EXEC so a racy client
+                # has a real chance to slip another command in.
+                if head == b"SLOW":
+                    time.sleep(0.3)
                 queued += 1
                 conn.sendall(simple(b"QUEUED"))
                 continue

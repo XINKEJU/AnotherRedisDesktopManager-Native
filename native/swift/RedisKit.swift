@@ -459,31 +459,93 @@ extension AppStore {
         }
     }
 
+    /// Keys after the search box and the local filter, in the current sort order.
+    ///
+    /// Called several times per body evaluation, so the result is cached and
+    /// invalidated by the didSet hooks on `keys` / `searchText` / `matchMode` /
+    /// `localFilter` / `localFilterRegex` / `keySortOrder` (see AppStore). Without
+    /// the cache a single keystroke over a large page filtered *and* ICU-sorted the
+    /// whole list once per call site.
     func filteredKeys() -> [String] {
-        var matched = keys
-        let text = searchText.lowercased()
-        if !text.isEmpty {
-            matched = matched.filter { key in
+        if let cached = filteredKeysCache { return cached }
+        let result = computeFilteredKeys()
+        filteredKeysCache = result
+        return result
+    }
+
+    private func computeFilteredKeys() -> [String] {
+        let base = sortedBaseKeys()
+        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let local = localFilter
+        guard !text.isEmpty || !local.isEmpty else { return base }
+
+        // Hoist everything that used to be recomputed per key: the "*"-stripped
+        // needle, the fuzzy word list, the compiled regex, and — the expensive one
+        // — the lowercased form of every key. `lowercased()` allocates a String per
+        // key, which on a 200k page is ~100 ms of pure allocation per keystroke.
+        let globNeedle = text.replacingOccurrences(of: "*", with: "")
+        let fuzzyWords = text.split(separator: " ")
+        let regex: NSRegularExpression? = (!local.isEmpty && localFilterRegex)
+            ? try? NSRegularExpression(pattern: local, options: [.caseInsensitive])
+            : nil
+        // The local filter used to call localizedCaseInsensitiveContains, which runs
+        // the ICU collator once per key (~134 ms for 200k). Matching against the
+        // precomputed lowercase copy is the same answer for key names and much
+        // cheaper; locale-specific case folding only differs for a handful of
+        // scripts that do not appear in Redis key names.
+        let localNeedle = local.lowercased()
+        let needsLowered = !text.isEmpty || (!local.isEmpty && regex == nil)
+        let lowered = needsLowered ? lowercasedBaseKeys() : []
+
+        // One pass over an already sorted array: a subsequence of a sorted list is
+        // still sorted, so filtering never needs to re-sort.
+        var matched: [String] = []
+        matched.reserveCapacity(base.count)
+        for index in base.indices {
+            let key = base[index]
+            if !text.isEmpty {
+                let lower = lowered[index]
                 switch matchMode {
-                case .exact: return key.lowercased() == text
-                case .glob: return key.lowercased().contains(text.replacingOccurrences(of: "*", with: ""))
-                case .fuzzy: return text.split(separator: " ").allSatisfy { key.lowercased().contains($0) }
+                case .exact where lower != text: continue
+                case .glob where !lower.contains(globNeedle): continue
+                case .fuzzy where !fuzzyWords.allSatisfy({ lower.contains($0) }): continue
+                default: break
                 }
             }
-        }
-        // Second pass over the loaded page: no SCAN, so it is safe to run on every
-        // keystroke even with a very large result set.
-        if !localFilter.isEmpty {
-            if localFilterRegex,
-               let regex = try? NSRegularExpression(pattern: localFilter, options: [.caseInsensitive]) {
-                matched = matched.filter { key in
-                    regex.firstMatch(in: key, range: NSRange(key.startIndex..., in: key)) != nil
+            if !local.isEmpty {
+                if let regex {
+                    if regex.firstMatch(in: key, range: NSRange(key.startIndex..., in: key)) == nil {
+                        continue
+                    }
+                } else if localFilterRegex {
+                    // Regex mode with a pattern that does not compile: no filter,
+                    // which is what the previous implementation did too.
+                } else if !lowered[index].contains(localNeedle) {
+                    continue
                 }
-            } else if !localFilterRegex {
-                matched = matched.filter { $0.localizedCaseInsensitiveContains(localFilter) }
             }
+            matched.append(key)
         }
-        return sortedKeys(matched)
+        return matched
+    }
+
+    /// The full key list in the current column order, computed once per change to
+    /// `keys` or `keySortOrder`.
+    private func sortedBaseKeys() -> [String] {
+        if let cached = sortedKeysCache { return cached }
+        let sorted = sortedKeys(keys)
+        sortedKeysCache = sorted
+        return sorted
+    }
+
+    /// Lowercased copy of `sortedBaseKeys()`, in the same order. Built on the first
+    /// search and reused until the key list or its ordering changes, so typing does
+    /// not re-allocate a lowercased String for every key on every keystroke.
+    private func lowercasedBaseKeys() -> [String] {
+        if let cached = lowercasedKeysCache { return cached }
+        let lowered = sortedBaseKeys().map { $0.lowercased() }
+        lowercasedKeysCache = lowered
+        return lowered
     }
 
     /// Applies the column-header ordering. `localizedStandardCompare` gives users

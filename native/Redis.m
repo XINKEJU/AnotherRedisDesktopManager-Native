@@ -845,27 +845,36 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
 }
 
 - (NSArray *)sendTransaction:(NSArray<NSArray<NSString *> *> *)commands error:(NSError **)error {
-    if (!_stream) { if (error) *error = ARDMError(@"Not connected", 10); return nil; }
     if (_config.readOnly) {
         if (error) *error = ARDMError(@"You are in readonly mode! Unable to execute MULTI/EXEC!", 11);
         return nil;
     }
-    NSMutableArray<NSArray *> *pipeline = [NSMutableArray arrayWithObject:@[@"MULTI"]];
-    [pipeline addObjectsFromArray:commands];
-    [pipeline addObject:@[@"EXEC"]];
-    NSMutableArray *results = [NSMutableArray arrayWithCapacity:pipeline.count];
-    for (NSArray *args in pipeline) {
-        NSError *inner = nil;
-        id reply = [self send:args error:&inner];
-        if (inner || !reply) {
-            if (error) *error = inner ?: ARDMError(@"Transaction failed", 12);
-            // Best effort rollback so the connection is not left inside MULTI.
-            if (![args.firstObject isEqual:@"EXEC"]) [self send:@[@"DISCARD"] error:nil];
-            return nil;
+    // The whole MULTI ... EXEC has to be one critical section. Every send: below
+    // only serialises a single round-trip, so without this lock a keepalive PING,
+    // a key-list refresh or a detail load from another thread can be written
+    // between MULTI and EXEC — Redis then queues that command as part of the
+    // transaction, the reply stream shifts by one, and a DISCARD leaves the
+    // connection out of sync. @synchronized is recursive, so the nested send:
+    // calls re-enter this same lock instead of deadlocking.
+    @synchronized (self) {
+        if (!_stream) { if (error) *error = ARDMError(@"Not connected", 10); return nil; }
+        NSMutableArray<NSArray *> *pipeline = [NSMutableArray arrayWithObject:@[@"MULTI"]];
+        [pipeline addObjectsFromArray:commands];
+        [pipeline addObject:@[@"EXEC"]];
+        NSMutableArray *results = [NSMutableArray arrayWithCapacity:pipeline.count];
+        for (NSArray *args in pipeline) {
+            NSError *inner = nil;
+            id reply = [self send:args error:&inner];
+            if (inner || !reply) {
+                if (error) *error = inner ?: ARDMError(@"Transaction failed", 12);
+                // Best effort rollback so the connection is not left inside MULTI.
+                if (![args.firstObject isEqual:@"EXEC"]) [self send:@[@"DISCARD"] error:nil];
+                return nil;
+            }
+            [results addObject:reply];
         }
-        [results addObject:reply];
+        return results;
     }
-    return results;
 }
 
 - (id)send:(NSArray<NSString *> *)args error:(NSError **)error {

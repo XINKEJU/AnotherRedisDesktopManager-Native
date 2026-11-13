@@ -258,13 +258,18 @@ struct MainToolbar: ToolbarContent {
         ToolbarItem(placement: .navigation) {
             Button { store.editingConnection = nil; store.showingConnectionEditor = true } label: {
                 Label(L10n("New Connection"), systemImage: "plus")
-            }.help(L10n("New Connection"))
+            }
+            .help(L10n("New Connection"))
+            .accessibilityLabel(L10n("New Connection"))
+            .accessibilityIdentifier("toolbar.newConnection")
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Picker(L10n("Database"), selection: $store.selectedDB) {
                 ForEach(0..<16, id: \.self) { Text("DB \($0)").tag($0) }
             }
             .frame(width: 96)
+            .accessibilityLabel(L10n("Database"))
+            .accessibilityIdentifier("toolbar.database")
             .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
             Menu {
                 Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
@@ -283,6 +288,8 @@ struct MainToolbar: ToolbarContent {
                 Label(L10n("Tools"), systemImage: "ellipsis.circle")
             }
             .help(L10n("Tools"))
+            .accessibilityLabel(L10n("Tools"))
+            .accessibilityIdentifier("toolbar.tools")
         }
     }
 }
@@ -293,15 +300,23 @@ struct StatusBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle().fill(store.connected ? Color.green : Color.gray).frame(width: 8, height: 8)
+                .accessibilityHidden(true)
             Text(store.statusText).lineLimit(1)
             Spacer()
             if store.connected {
                 Text("DB \(store.selectedDB)").font(.caption)
                 Text("\(store.keys.count) / \(store.dbSize) " + L10n("keys")).font(.caption)
-                if store.liveRunning { Label(L10n("LIVE"), systemImage: "dot.radiowaves.left.and.right").font(.caption) }
+                if store.liveRunning {
+                    Label(L10n("LIVE"), systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption)
+                        .accessibilityLabel(L10n("LIVE"))
+                }
             }
             Text(uiIsChinese() ? "中文" : store.language.uppercased()).font(.caption)
+                .accessibilityLabel(L10n("Language") + ": " + (uiIsChinese() ? "中文" : store.language.uppercased()))
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("status.bar")
         .font(store.uiFont(11))
         .padding(.horizontal, 12)
         .padding(.vertical, 5)

@@ -1171,5 +1171,53 @@
       "core 探针会向登录钥匙串写入并删除 ardm-verify/auth 条目，并向 UserDefaults 写入自定义格式化器（仅为测试键，退出即失效）",
       "CI 中 updater 的签名/篡改用例跑的是 fixture bundle；真实 .app 的签名断言仍由本机 run.sh 覆盖（构建产物存在时优先用它）"
     ]
+  },
+  "round12_p1_fixes": {
+    "date": "2026-11-13",
+    "round": 12,
+    "trigger": "用户『全部做了 P1：事务临界区 / 无障碍标注 / filteredKeys 性能』",
+    "closes": [
+      "round9_distribution.open_findings.p1[0]（事务非原子）",
+      "round9_distribution.open_findings.p1[2]（无障碍标注为 0）",
+      "round9_distribution.open_findings.p1[3]（filteredKeys 每次 body 求值全量过滤+全量排序）"
+    ],
+    "transaction": {
+      "fix": "sendTransaction 的 MULTI…EXEC 整段放进 @synchronized(self)。send: 内部本来就用同一把锁（并且已有 ASK/MOVED 递归重入的先例），@synchronized 可重入，所以嵌套 send: 不会死锁，而其它线程的保活 PING / 刷新 / 详情加载会在事务期间阻塞而不是被服务端排进事务。",
+      "regression_test": "tests/core/probe.m 新增：一条 62 条命令的事务在后台执行，同时另一线程持续 PING；假服务器额外记录每条连接的命令序列（PROBE.SEQ）并支持 MULTI 内的 SLOW 停顿。断言服务器序列中 MULTI 与 EXEC 之间不存在 PING、且没有任何 PING 被回以 QUEUED。",
+      "negative_control": "临时移除锁后连跑 3 次全部失败：PING 出现在 MULTI 与 EXEC 之间，3016／3972／3980 个 PING 被当作事务命令排队（回 QUEUED）。恢复后 107/107 通过，PING 全部 PONG。"
+    },
+    "key_filter": {
+      "problem": "filteredKeys() 在一次 body 求值里被读取 5 次（计数、批量条、列表、工具栏），每次都对全量键列表做过滤 + ICU 排序；且在 glob 模式下每个键都要重算一次 replacingOccurrences，每个键都要小写化一次。",
+      "fix": "三层缓存 + 单趟过滤：sortedKeysCache（随 keys/keySortOrder 失效）、lowercasedKeysCache（首次搜索时构建，键名或排序变化时失效）、filteredKeysCache（随任何过滤输入失效）。过滤在已排序数组上做子序列，天然有序，不再排序；needle / 模糊词 / 正则 / 小写副本全部提到循环外；本地筛选从 localizedCaseInsensitiveContains（ICU，每键一次）改为对小写副本做 contains。",
+      "equivalence": "把旧实现与新实现并排跑 300 组输入（3 种匹配模式 × 10 组关键字 × 5 组本地筛选 × 2 种排序），输出数组逐项相同。",
+      "benchmark_200k": {
+        "browse_A-Z_steady": "2971 ms → 0 ms（缓存命中）",
+        "browse_A-Z_cold": "2978 ms → 593 ms",
+        "typing_most_keys_match": "2679 ms → 315 ms",
+        "typing_few_matches": "812 ms → 441 ms",
+        "local_filter_40k_matches": "711 ms → 451 ms"
+      },
+      "benchmark_10k": {
+        "browse_A-Z_steady": "110 ms → 0 ms",
+        "typing_most_keys_match": "130 ms → 15 ms"
+      }
+    },
+    "accessibility": {
+      "before": "全项目 0 处 accessibility 修饰符",
+      "after": "88 处（label 43 / identifier 18 / value 6 / hidden 9 / element 3 / traits 5 / action 4），覆盖工具栏、侧栏连接行与标签页、键搜索与本地筛选、键列表与树行复选框、详情标签条、值编辑区、OverSize 分页、CLI 输入与历史、状态栏、状态/内存/TS 等处 labelsHidden 的 Picker 与 Stepper",
+      "approach": "纯图标按钮补 label；装饰性 SF Symbol 标 hidden；Image + onTapGesture 的复选框补 isButton 特征与 accessibilityAction（否则 VoiceOver 完全看不到）；连接行合并为单个元素（原先会念出 bolt.fill / lock / network）；隐藏标签的 Picker/Stepper 补 label；选中态用 isSelected 特征播报；新增 24 条中英对照避免无障碍文本回落到英文",
+      "verification_limit": "无法在本机完成端到端 VoiceOver 验证：外部 AX 客户端需要辅助功能授权（AXIsProcessTrusted=false），进程内导出自身 AX 树时 SwiftUI 只暴露窗口/工具栏层级，内容子树惰性构建。已做静态核对（无未标注的纯图标按钮）+ 构建/运行截图确认无视觉回归；实际朗读效果需人工开 VoiceOver 抽查。"
+    },
+    "verification": {
+      "tests": "107 passed, 0 failed（core 92 + updater 15）",
+      "build": "0 错误 0 警告；.app 5,172,531 B（4.93 MB）；minos 14.0 / arm64",
+      "gui": "截图确认三栏、中文标签、工具栏与状态栏正常，无裁切错位"
+    },
+    "known_limits": [
+      "filteredKeys 仍是全量线性扫描：200k 键、绝大多数命中时每次按键约 60 ms（旧实现 530 ms）。要再降需要倒排/前缀索引，收益不足以抵消复杂度",
+      "lowercasedKeysCache 在首次搜索时额外占用一份键列表内存（约 200k 键 ≈ 12 MB），只在用到搜索时才构建",
+      "本地筛选改用小写副本做 contains，与 localizedCaseInsensitiveContains 在土耳其语 i、德语 ß 等少数脚本上可能有差异；Redis 键名场景不受影响",
+      "无障碍仅覆盖交互控件与结构区域，未做 VoiceOver 逐项朗读回归；动态类型（dynamicTypeSize）与高对比度未额外适配"
+    ]
   }
 }

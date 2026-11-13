@@ -181,24 +181,59 @@ final class AppStore: ObservableObject {
     @Published var infoMessage: String?
 
     // Key browser
-    @Published var keys: [String] = []
+    /// `filteredKeys()` is read from several places inside a single body
+    /// evaluation (count badge, selection banner, list, toolbar). Each call used
+    /// to re-filter and re-sort the entire key list, so one keystroke over a
+    /// 100k-key page ran the ICU collator hundreds of thousands of times. The
+    /// caches below make a body evaluation cost one pass; the didSet hooks
+    /// invalidate them only when an input actually changes.
+    var filteredKeysCache: [String]?
+    var sortedKeysCache: [String]?
+    var lowercasedKeysCache: [String]?
+    @Published var keys: [String] = [] {
+        didSet { invalidateKeyCaches() }
+    }
     @Published var keyNodes: [KeyNode] = []
     @Published var selectedKey: String?
-    @Published var searchText = ""
+    @Published var searchText = "" {
+        didSet { invalidateKeyCaches(scope: .filter) }
+    }
     /// Second-pass filter over the keys already loaded from SCAN. Never triggers a
     /// server round-trip, so narrowing a 100k-key page stays instant.
-    @Published var localFilter = ""
-    @Published var localFilterRegex = false
+    @Published var localFilter = "" {
+        didSet { invalidateKeyCaches(scope: .filter) }
+    }
+    @Published var localFilterRegex = false {
+        didSet { invalidateKeyCaches(scope: .filter) }
+    }
     /// Incremented by the ⌘F menu command so the key search field can grab focus.
     @Published var searchFocusRequest = 0
-    @Published var matchMode: MatchMode = .glob
+    @Published var matchMode: MatchMode = .glob {
+        didSet { invalidateKeyCaches(scope: .filter) }
+    }
     /// Key-list column ordering (persisted). `.none` keeps the server's SCAN order.
     @Published var keySortOrder: KeySortOrder = KeySortOrder(
         rawValue: UserDefaults.standard.string(forKey: "ARDMKeySortOrder") ?? "none") ?? .none {
-        didSet { UserDefaults.standard.set(keySortOrder.rawValue, forKey: "ARDMKeySortOrder") }
+        didSet {
+            UserDefaults.standard.set(keySortOrder.rawValue, forKey: "ARDMKeySortOrder")
+            invalidateKeyCaches()
+        }
     }
     @Published var scanCursor: UInt = 0
     @Published var scanFinished = false
+    /// Which caches a change can affect. Filtering depends on the loaded keys and
+    /// the sort order, so a new `keys` array drops both; a new needle only drops
+    /// the filtered result and reuses the sorted list.
+    enum KeyCacheScope { case all, filter }
+
+    func invalidateKeyCaches(scope: KeyCacheScope = .all) {
+        filteredKeysCache = nil
+        if scope == .all {
+            sortedKeysCache = nil
+            lowercasedKeysCache = nil
+        }
+    }
+
     @Published var selectedDB = 0
     @Published var dbSize = 0
     @Published var selectedKeyType: ARDMKeyType = .unknown

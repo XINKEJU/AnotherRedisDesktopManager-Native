@@ -239,6 +239,89 @@ int main(int argc, const char *argv[]) {
         check("MULTI / QUEUED / EXEC", tx.count == 4 && [tx.lastObject isKindOfClass:NSArray.class],
               [NSString stringWithFormat:@"%lu replies", (unsigned long)tx.count]);
 
+        // ---- MULTI ... EXEC must be one critical section ----
+        // A second thread hammers PING while a 60-command transaction runs. The
+        // gap that matters is the one between two send: round-trips — the lock in
+        // send: is released there, so without a transaction-wide lock a PING gets
+        // written inside the transaction, the server queues it, and it comes back
+        // as "QUEUED" instead of "PONG".
+        {
+            ARDMConnectionConfig *txCfg = [[ARDMConnectionConfig alloc] init];
+            txCfg.host = @"127.0.0.1"; txCfg.port = port; txCfg.name = @"tx-probe";
+            ARDMRedisClient *txClient = [[ARDMRedisClient alloc] initWithConfig:txCfg];
+            NSError *txErr = nil;
+            [txClient connect:&txErr];
+
+            NSMutableArray<NSArray *> *txCommands = [NSMutableArray array];
+            for (int i = 0; i < 60; i++) {
+                [txCommands addObject:@[@"SET", [NSString stringWithFormat:@"tx:probe:%d", i], @"1"]];
+            }
+
+            __block BOOL txRunning = YES;
+            __block NSArray *txReplies = nil;
+            NSMutableArray *pingReplies = [NSMutableArray array];
+            dispatch_group_t group = dispatch_group_create();
+
+            dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                // Hammer until the transaction has finished.
+                while (txRunning && pingReplies.count < 4000) {
+                    id reply = [txClient send:@[@"PING"] error:nil];
+                    [pingReplies addObject:reply ?: @"nil"];
+                }
+            });
+            dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                NSError *inner = nil;
+                txReplies = [txClient sendTransaction:txCommands error:&inner];
+                txRunning = NO;
+            });
+            long timedOut = dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC));
+            check("transaction finishes while another thread hammers PING", timedOut == 0,
+                  [NSString stringWithFormat:@"%lu pings", (unsigned long)pingReplies.count]);
+
+            NSError *seqErr = nil;
+            NSArray *seq = [txClient send:@[@"PROBE.SEQ"] error:&seqErr];
+            NSMutableArray<NSString *> *verbs = [NSMutableArray array];
+            for (id item in seq) {
+                [verbs addObject:[item isKindOfClass:NSString.class] ? item
+                    : ([[NSString alloc] initWithData:item encoding:NSUTF8StringEncoding] ?: @"?")];
+            }
+            NSUInteger multiAt = NSNotFound;
+            for (NSUInteger i = verbs.count; i > 0; i--) {
+                if ([verbs[i - 1] isEqualToString:@"MULTI"]) { multiAt = i - 1; break; }
+            }
+            NSUInteger execAt = NSNotFound;
+            for (NSUInteger i = (multiAt == NSNotFound ? 0 : multiAt); i < verbs.count; i++) {
+                if ([verbs[i] isEqualToString:@"EXEC"]) { execAt = i; break; }
+            }
+            BOOL interleaved = NO;
+            if (multiAt == NSNotFound || execAt == NSNotFound) {
+                interleaved = YES;   // a transaction that never opened is just as wrong
+            } else {
+                for (NSUInteger i = multiAt + 1; i < execAt; i++) {
+                    if ([verbs[i] isEqualToString:@"PING"]) interleaved = YES;
+                }
+            }
+            NSString *detail = [NSString stringWithFormat:@"%lu pings, %lu tx replies",
+                                (unsigned long)pingReplies.count, (unsigned long)txReplies.count];
+            if (interleaved && multiAt != NSNotFound) {
+                NSRange window = NSMakeRange(multiAt, MIN((NSUInteger)10, verbs.count - multiAt));
+                detail = [[verbs subarrayWithRange:window] componentsJoinedByString:@" "];
+            }
+            check("PING cannot interleave into MULTI...EXEC", !interleaved, detail);
+
+            NSUInteger queued = 0;
+            for (id reply in pingReplies) {
+                if (![reply isKindOfClass:NSString.class] || ![reply isEqualToString:@"PONG"]) queued++;
+            }
+            check("no PING is answered with QUEUED", queued == 0,
+                  [NSString stringWithFormat:@"%lu non-PONG replies", (unsigned long)queued]);
+            check("transaction still returns its own replies",
+                  txReplies.count == txCommands.count + 2
+                      && [txReplies.lastObject isKindOfClass:NSArray.class],
+                  [NSString stringWithFormat:@"%lu replies", (unsigned long)txReplies.count]);
+            [txClient disconnect];
+        }
+
         e2 = nil;
         id hscan = [c2Client send:@[@"HSCAN", @"hash:h", @"0", @"COUNT", @"10"] error:&e2];
         check("HSCAN cursor streaming", [hscan isKindOfClass:NSArray.class] && [hscan count] == 2, @"cursor + flat array");

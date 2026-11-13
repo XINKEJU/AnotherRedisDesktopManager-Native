@@ -14,15 +14,20 @@ struct KeyBrowserView: View {
             // OperateItem.vue: search, match mode, refresh, and all secondary actions.
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 TextField(L10n("Search keys"), text: $store.searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 90)
                     .focused($searchFocused)
+                    .accessibilityLabel(L10n("Search keys"))
+                    .accessibilityIdentifier("key.search")
                     .onSubmit { store.recordSearch(store.searchText); store.refreshKeys(reset: true) }
                 if !store.searchText.isEmpty {
                     Button { store.searchText = ""; store.refreshKeys(reset: true) } label: {
                         Image(systemName: "xmark.circle.fill")
-                    }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n("Clear search"))
                 }
                 if !store.searchHistory.isEmpty {
                     Menu {
@@ -37,14 +42,19 @@ struct KeyBrowserView: View {
                     .menuStyle(.borderlessButton)
                     .frame(width: 22)
                     .help(L10n("Search history"))
+                    .accessibilityLabel(L10n("Search history"))
                 }
                 Picker("", selection: $store.matchMode) {
                     ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
                 }
                 .frame(width: 74)
                 .labelsHidden()
+                .accessibilityLabel(L10n("Match mode"))
+                .accessibilityIdentifier("key.matchMode")
                 Button { store.refreshKeys(reset: true) } label: { Image(systemName: "arrow.clockwise") }
                     .help(L10n("Refresh"))
+                    .accessibilityLabel(L10n("Refresh keys"))
+                    .accessibilityIdentifier("key.refresh")
                 Menu {
                     Button(L10n(store.showTree ? "Flat list" : "Tree view")) { store.showTree.toggle(); store.buildTree() }
                     if !store.scanFinished { Button(L10n("Load more keys")) { store.loadMoreKeys() } }
@@ -56,12 +66,16 @@ struct KeyBrowserView: View {
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .frame(width: 26)
+                .accessibilityLabel(L10n("More actions"))
             }
             .padding(8)
             .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                Text("\(store.filteredKeys().count) " + L10n("keys")).font(.caption).foregroundStyle(.secondary)
+                Text("\(store.filteredKeys().count) " + L10n("keys"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("key.count")
+                    .accessibilityLabel("\(store.filteredKeys().count) " + L10n("keys"))
                 Spacer()
                 if !store.filteredKeys().isEmpty {
                     Button(L10n("Select all")) {
@@ -84,22 +98,29 @@ struct KeyBrowserView: View {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     TextField(L10n("Filter loaded keys"), text: $store.localFilter)
                         .textFieldStyle(.roundedBorder)
                         .font(.caption)
+                        .accessibilityLabel(L10n("Filter loaded keys"))
+                        .accessibilityIdentifier("key.filter")
                     Button { store.localFilterRegex.toggle() } label: {
                         Text(".*").font(.system(size: 10, design: .monospaced))
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(store.localFilterRegex ? Color.accentColor : Color.secondary)
                     .help(L10n("Treat the filter as a regular expression"))
+                    .accessibilityLabel(L10n("Treat the filter as a regular expression"))
+                    .accessibilityValue(store.localFilterRegex ? L10n("On") : L10n("Off"))
                     if !store.localFilter.isEmpty {
                         Text("\(store.filteredKeys().count)/\(store.keys.count)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Button { store.localFilter = "" } label: {
                             Image(systemName: "xmark.circle.fill")
-                        }.buttonStyle(.plain)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L10n("Clear filter"))
                     }
                 }
                 .padding(.horizontal, 10)
@@ -124,6 +145,8 @@ struct KeyBrowserView: View {
                     }
                     .buttonStyle(.plain)
                     .help(L10n("Sort by key name"))
+                    .accessibilityLabel(L10n("Sort by key name"))
+                    .accessibilityValue(L10n(store.keySortOrder.label))
                     Spacer()
                     Menu {
                         Picker("", selection: $store.keySortOrder) {
@@ -136,6 +159,7 @@ struct KeyBrowserView: View {
                     .menuStyle(.borderlessButton)
                     .frame(width: 22)
                     .help(L10n("Sort order"))
+                    .accessibilityLabel(L10n("Sort order"))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 3)
@@ -152,6 +176,7 @@ struct KeyBrowserView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .accessibilityIdentifier("key.tree")
                 .onChange(of: treeSelection) { _, newValue in
                     guard let id = newValue, !id.hasPrefix("group:") else { return }
                     store.selectKey(id)
@@ -160,17 +185,22 @@ struct KeyBrowserView: View {
                 List(store.filteredKeys(), id: \.self, selection: $store.selectedKey) { key in
                     HStack {
                         Image(systemName: "key").foregroundStyle(.blue)
+                            .accessibilityHidden(true)
                         Text(key).lineLimit(1)
                         Spacer()
                         Button { toggleCheck(key) } label: {
                             Image(systemName: store.checkedKeys.contains(key) ? "checkmark.square" : "square")
-                        }.buttonStyle(.plain)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L10n("Add to batch selection") + ": " + key)
+                        .accessibilityValue(store.checkedKeys.contains(key) ? L10n("On") : L10n("Off"))
                     }
                     .font(store.uiFont(12))
                     .draggable(key)
                     .contextMenu { keyMenu(key) }
                     .onTapGesture(count: 2) { store.selectKey(key) }
                 }
+                .accessibilityIdentifier("key.list")
                 .onChange(of: store.selectedKey) { _, newValue in
                     if let key = newValue { store.selectKey(key) }
                 }
@@ -193,7 +223,14 @@ struct KeyBrowserView: View {
                         .foregroundStyle(checked ? Color.accentColor : Color.secondary)
                         .onTapGesture { toggleCheck(node.fullPath) }
                         .help(L10n("Add to batch selection"))
+                        // The checkbox is an Image with a tap gesture, so VoiceOver
+                        // sees nothing unless it is given button semantics.
+                        .accessibilityLabel(L10n("Add to batch selection") + ": " + node.fullPath)
+                        .accessibilityValue(checked ? L10n("On") : L10n("Off"))
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { toggleCheck(node.fullPath) }
                     Image(systemName: "key").foregroundStyle(.blue)
+                        .accessibilityHidden(true)
                     Text(node.name).lineLimit(1)
                     Spacer()
                 }
@@ -216,7 +253,12 @@ struct KeyBrowserView: View {
                         .foregroundStyle(state == .none ? Color.secondary : Color.accentColor)
                         .onTapGesture { store.toggleGroupCheck(node.fullPath) }
                         .help(L10n("Select all in group"))
+                        .accessibilityLabel(L10n("Select all in group") + ": " + node.fullPath)
+                        .accessibilityValue(store.keysInGroup(node.fullPath).count.description)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { store.toggleGroupCheck(node.fullPath) }
                     Image(systemName: "folder").foregroundStyle(.orange)
+                        .accessibilityHidden(true)
                     Text(node.name).lineLimit(1)
                     Spacer()
                     let members = store.keysInGroup(node.fullPath)

@@ -64,6 +64,7 @@ struct DetailPane: View {
                         Button { store.activeTab = tab } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: tab.icon).font(store.uiFont(11))
+                                    .accessibilityHidden(true)
                                 Text(L10n(tab.title)).font(store.uiFont(11))
                             }
                             .padding(.horizontal, 9)
@@ -78,12 +79,16 @@ struct DetailPane: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(store.activeTab == tab ? Color.accentColor : Color.secondary)
                         .help(L10n(tab.title))
+                        .accessibilityLabel(L10n(tab.title))
+                        .accessibilityAddTraits(store.activeTab == tab ? [.isButton, .isSelected] : .isButton)
+                        .accessibilityIdentifier("detail.tab." + tab.title)
                     }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
             }
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("detail.tabs")
 
             Divider()
 
@@ -209,6 +214,7 @@ struct KeyDetailView: View {
                 HStack {
                     Text(L10n("JSON path")).font(.caption)
                     TextField(L10n("$"), text: $store.jsonPath).textFieldStyle(.roundedBorder).frame(width: 200)
+                        .accessibilityLabel(L10n("JSON path field"))
                     Button(L10n("Load path")) { store.loadTypedValue() }
                     Spacer()
                 }.padding(8)
@@ -219,6 +225,7 @@ struct KeyDetailView: View {
                 }
                 .frame(width: 190)
                 .labelsHidden()
+                .accessibilityLabel(L10n("Viewer"))
                 .onChange(of: store.viewerName) { _, _ in store.renderValue() }
                 Button(L10n("Auto detect")) {
                     store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
@@ -245,15 +252,18 @@ struct KeyDetailView: View {
                         store.renderValue()
                     }
                     .disabled(store.oversizeOffset == 0)
+                    .accessibilityLabel(L10n("Previous chunk"))
                     TextField("", value: $store.oversizeOffset, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 90)
+                        .accessibilityLabel(L10n("Chunk offset"))
                         .onSubmit { store.renderValue() }
                     Button("▶") {
                         store.oversizeOffset += store.oversizeChunkSize
                         store.renderValue()
                     }
                     .disabled(store.oversizeOffset + store.oversizeChunkSize >= store.keyRawValue.count)
+                    .accessibilityLabel(L10n("Next chunk"))
                     Text("\(store.keyRawValue.count) " + L10n("bytes"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -270,6 +280,7 @@ struct KeyDetailView: View {
                         ForEach(["NOQUANT", "Q8", "BIN"], id: \.self) { Text($0).tag($0) }
                     }
                     .frame(width: 120).labelsHidden()
+                    .accessibilityLabel(L10n("Quantization"))
                     Text(store.redisMajor < 8
                          ? L10n("Vector type requires Redis 8.0+")
                          : L10n("Applied when adding vectors with VADD"))
@@ -284,6 +295,8 @@ struct KeyDetailView: View {
                     .font(store.monoFont(store.fontSize))
                     .border(Color.secondary.opacity(0.25))
                     .frame(minWidth: 260)
+                    .accessibilityLabel(L10n("Value editor"))
+                    .accessibilityIdentifier("detail.editor")
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("Rendered (\(store.viewerName))").font(.caption).foregroundStyle(.secondary)
@@ -356,6 +369,7 @@ struct KeyDetailView: View {
                         }
                     }
                     .frame(width: 100).labelsHidden()
+                    .accessibilityLabel(L10n("Aggregation"))
                     Text(L10n("Bucket")).font(.caption)
                     TextField("", text: $store.tsBucket).frame(width: 80).textFieldStyle(.roundedBorder)
                     Text(L10n("Filter min")).font(.caption)
@@ -730,6 +744,7 @@ struct ZSetBatchSheet: View {
                     Text(L10n("Add delta")).tag("Add delta")
                 }
                 .labelsHidden()
+                .accessibilityLabel(L10n("Action"))
                 .frame(width: 180)
             }
 

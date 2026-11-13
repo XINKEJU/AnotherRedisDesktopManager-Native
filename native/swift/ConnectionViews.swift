@@ -117,14 +117,22 @@ struct ConnectionSidebar: View {
                                 Circle()
                                     .fill(dotColor(store.connectionStates[id]))
                                     .frame(width: 6, height: 6)
+                                    .accessibilityHidden(true)
                                 Text(config?.name ?? id).font(store.uiFont(10)).lineLimit(1)
                                 Button { store.closeConnection(id) } label: {
                                     Image(systemName: "xmark").font(store.uiFont(8))
-                                }.buttonStyle(.plain)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(L10n("Close tab") + ": " + (config?.name ?? id))
                             }
                             .padding(.horizontal, 6).padding(.vertical, 4)
                             .background(RoundedRectangle(cornerRadius: 5).fill(
                                 id == store.activeConnectionID ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12)))
+                            .accessibilityElement(children: .contain)
+                            .accessibilityLabel(L10n("Connection tab") + ": " + (config?.name ?? id))
+                            .accessibilityValue(id == store.activeConnectionID ? L10n("Selected") : "")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { store.switchConnection(id) }
                             .onTapGesture { store.switchConnection(id) }
                             .contextMenu {
                                 Button(L10n("Close Connection")) { store.closeConnection(id) }
@@ -152,15 +160,24 @@ struct ConnectionSidebar: View {
 
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 TextField(L10n("Search"), text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 70)
+                    .accessibilityLabel(L10n("Search connections"))
+                    .accessibilityIdentifier("sidebar.search")
                 Button { store.editingConnection = nil; store.showingConnectionEditor = true } label: {
                     Image(systemName: "plus")
-                }.help(L("message.new_connection", "New Connection"))
+                }
+                .help(L("message.new_connection", "New Connection"))
+                .accessibilityLabel(L("message.new_connection", "New Connection"))
+                .accessibilityIdentifier("sidebar.newConnection")
                 Button { if let c = store.selectedConnection { store.connect(to: c) } } label: {
                     Image(systemName: "bolt.fill")
-                }.help(L10n("Connect")).disabled(store.selectedConnection == nil)
+                }
+                .help(L10n("Connect"))
+                .accessibilityLabel(L10n("Connect"))
+                .disabled(store.selectedConnection == nil)
                 Menu {
                     Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
                     Button(L10n("Disconnect")) { store.disconnect() }
@@ -170,6 +187,7 @@ struct ConnectionSidebar: View {
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .frame(width: 26)
+                .accessibilityLabel(L10n("More actions"))
             }
             .padding(8)
             .fixedSize(horizontal: false, vertical: true)
@@ -253,6 +271,13 @@ struct ConnectionRow: View {
             if config.sshEnabled { Image(systemName: "network").font(store.uiFont(9)) }
         }
         .font(store.uiFont(12))
+        // One element instead of five: the status and capability glyphs are
+        // meaningless when read out as "bolt.fill, lock, network".
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(rowDescription)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.connect(to: config) }
+        .accessibilityIdentifier("sidebar.connection." + config.identifier)
         .onTapGesture(count: 2) { store.connect(to: config) }
         .contextMenu {
             Button(L10n("Connect")) { store.connect(to: config) }
@@ -264,6 +289,16 @@ struct ConnectionRow: View {
             Divider()
             Button(L10n("Delete Connection"), role: .destructive) { delete() }
         }
+    }
+
+    private var rowDescription: String {
+        var parts = [config.name, "\(config.host):\(config.port) · DB\(config.db)"]
+        parts.append(store.connectionStates[config.identifier]?.isOnline == true
+                     ? L10n("Connected") : L10n("Not connected"))
+        if config.readOnly { parts.append(L10n("Read-only")) }
+        if config.tlsEnabled { parts.append("TLS") }
+        if config.sshEnabled { parts.append("SSH") }
+        return parts.joined(separator: ", ")
     }
 
     private func duplicate() {
