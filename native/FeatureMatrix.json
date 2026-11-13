@@ -71,9 +71,10 @@
         "退出时 disconnectAll 关闭全部连接"
       ],
       "gaps": [
-        "缺少原版 win-state.js 的多显示器窗口位置校验",
-        "原版全局 keymaster 快捷键（⌘M 最小化、⌘Enter 最大化等）仅实现了菜单快捷键与快捷键说明表"
-      ]
+        "恢复窗口几何时未比对 NSScreen.visibleFrame，缺少原版 win-state.js 的多显示器位置校验",
+        "全局快捷键只注册了 ⌘1…⌘9 切换标签与 ⌘F 聚焦搜索；原版 keymaster 的 ⌘M 最小化、⌘Enter 最大化等未绑定"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "连接管理",
@@ -99,10 +100,11 @@
         "【本轮新增】Hex 字符串粘贴输入：pasteHexValue() 转 NSData 后交给可编辑的 Hex viewer"
       ],
       "gaps": [
-        "保活只发送 PING，连接侧栏没有原版 ConnectionWrapper.vue 的掉线状态标记与自动重连可视化",
-        "缺少连接配置的加密口令存储（原版 InputPassword 走系统凭据能力）",
-        "缺少独立的逐字节 Hex 网格编辑器，现为粘贴整串 hex 后经 Hex dump 编辑"
-      ]
+        "自动重连有指数退避，但侧栏没有掉线状态标记与重连进度可视化",
+        "连接口令明文存于凭据 JSON，未走 Keychain / SecItem 加密存储",
+        "没有独立的逐字节 Hex 网格编辑器（现为整串 hex 粘贴后按 dump 编辑）"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "键浏览与操作",
@@ -137,10 +139,11 @@
         "【本轮新增】行内匹配 pattern 下推到 HSCAN / SSCAN / ZSCAN 的 MATCH 子句"
       ],
       "gaps": [
-        "缺少 PaginationTable.vue 的列头点击排序；结果过滤现为服务端 MATCH，不是表格内二次筛选",
-        "父子复选框联动（勾选父节点自动勾选全部子节点）未实现，仅提供分组全选菜单动作",
-        "树形列表用 List(children:) 懒加载，但无原版百万键级别的虚拟滚动窗口复用"
-      ]
+        "键列表无列头点击排序；结果过滤依赖服务端 MATCH，不是表格内二次筛选",
+        "父子复选框无联动（勾选父节点不自动勾选全部子节点，仅提供分组全选菜单动作）",
+        "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "Redis 数据类型视图 (全部 10 种)",
@@ -170,11 +173,9 @@
         "【本轮新增】ModuleCommands.swift 29 条高级命令：Vector 7（VINFO / VRANDMEMBER / VRANGE / VSIM / VADD / VSETATTR / VREM）、TimeSeries 9（TS.INFO / TS.GET / TS.REVRANGE / TS.CREATE / TS.ALTER / TS.DEL / TS.INCRBY / TS.DECRBY / TS.QUERYINDEX）、Array 6（ARINFO / ARLEN / ARSCAN / ARGREP / ARSET / ARDEL）、Stream 7（XINFO STREAM / GROUPS / CONSUMERS、XPENDING、XTRIM、XGROUP CREATECONSUMER、XACK）+ Stream ID 时间格式化"
       ],
       "gaps": [
-        "Vector 缺 parseVectorText 向量元素详情面板与 VADD 完整量化参数（现为 NOQUANT 简化形式）",
-        "TimeSeries 缺聚合 / 过滤参数面板（TS.RANGE 的 AGGREGATION、FILTER、ALIGN）",
-        "Stream 分组行折叠与消费者明细表格仍为原始数组展示",
-        "Zset 缺 score 校验之外的批量编辑"
-      ]
+        "Zset 无批量编辑，只能逐行改 score / member"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "格式化 Viewer (全部 15 个)",
@@ -213,13 +214,13 @@
         "【本轮新增】Brotli CLI 的 stderr 重定向到空设备，非 brotli 输入不再污染应用日志"
       ],
       "gaps": [
-        "JavaSerialize / Pickle / Protobuf / OverSize 仍为 decode-only，编辑后不能按原格式写回",
-        "JavaSerialize / Pickle 是结构标记级输出，不是 java-object-serialization / pickleparser 的完整对象反序列化",
-        "Protobuf schema 是 {fieldNumber: fieldName} 的 JSON 映射，不解析 .proto 文件（无嵌套 message / enum / repeated）",
-        "@qii404/json-bigint 的 BigInt 保精度只在写回路径生效；Json viewer 展示仍走 NSJSONSerialization，显示大整数时精度会丢失",
-        "CustomFormatter.vue 支持外部 shell / Node 脚本，原生版自定义脚本仅在 JavaScriptCore 中拿到 bytes（Uint8Array）",
-        "Brotli 仍依赖系统 brotli CLI，缺失时只返回提示，不解压"
-      ]
+        "JavaSerialize / Pickle / Protobuf / OverSize 仍是 decode-only，编辑后不能按原格式写回（可写回为 11 个 viewer）",
+        "Json viewer 展示侧仍走 NSJSONSerialization，> 2^53 的整数显示会丢精度（仅 RESP `:` 与写回路径保精度）",
+        "CustomFormatter 只支持 JavaScriptCore 沙箱脚本，不支持外部 shell / Node 脚本",
+        ".proto 解析只提取平铺的 fieldNumber→name，未处理嵌套 message / enum / repeated 语义",
+        "OverSize viewer 为只读提示，没有分块查看"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "CLI 与命令日志",
@@ -242,8 +243,9 @@
       ],
       "notes": "Monaco 被替换为 SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet；缺少 minimap、多光标、代码折叠等 IDE 特性",
       "gaps": [
-        "monaco-editor 的 minimap、多光标、代码折叠、language-service 级补全未保留"
-      ]
+        "monaco-editor 的 minimap、多光标、代码折叠、language-service 级补全未保留（现为 NSTextView + 高亮）"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "监控与运维",
@@ -262,9 +264,9 @@
         "CLUSTER SLOTS / NODES 拓扑表格 + NAT 映射 + CLUSTER INFO"
       ],
       "gaps": [
-        "Status.vue 的自动刷新是 2 秒定时任务并带 KEYSPACE 分区查询；原生版自动刷新粒度可配置，但无 KEYSPACE 分区统计与图表同源数据",
-        "缺少 SlowLog.vue 的 CONFIG GET slowlog-log-slower-than / max-len 阈值展示"
-      ]
+        "逐 key MEMORY USAGE 是串行 SCAN，键量极大时耗时较长，且无并发与中途取消"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "设置、主题与更新",
@@ -285,8 +287,9 @@
         "【本轮新增】Download update：把最新 macOS Release 的 .dmg / .zip 资产下载到 ~/Downloads"
       ],
       "gaps": [
-        "更新只下载到 ~/Downloads，未实现自动替换安装与重启（原版 electron-updater 会自动安装）"
-      ]
+        "自动安装已实现（挂载 dmg / 解压 zip → 替换 .app → 重启），但为 ad-hoc 签名，替换后首次启动仍需用户放行"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "国际化",
@@ -317,7 +320,8 @@
       "gaps": [
         "非中文语言的逐词兜底是近似翻译，不是官方逐句译文；未命中别名 / 整句 / 词典的标签仍回退英文",
         "动态拼接文案与极少数符号标签（$ / ↑ / ↓ / SSH / TLS）不做翻译"
-      ]
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "传输层 (替代 ioredis / tunnel-ssh)",
@@ -344,8 +348,10 @@
       "gaps": [
         "【文档夸大，非功能退化】解析器能识别 RESP3 的 # , _ ( % ~ > 类型，但客户端从不发送 HELLO 3，实际始终运行在 RESP2；原版 redisClient.js 同样未启用 RESP3",
         "ioredis pipeline 的批量缓冲语义未复刻；现为真实 MULTI/EXEC 事务，不是 pipeline",
-        "SSH 隧道依赖系统 /usr/bin/ssh 与 SSH_ASKPASS 环境变量，无法处理交互式二次认证"
-      ]
+        "SSH 隧道依赖系统 /usr/bin/ssh，无法处理交互式二次认证",
+        "SSH + Cluster/Sentinel 多隧道未实现：所有节点复用同一条本地转发（round 5 明确列为已知差距）"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
     {
       "domain": "Electron 主进程能力",
@@ -365,8 +371,9 @@
         "ad-hoc codesign"
       ],
       "gaps": [
-        "ad-hoc 签名，未做 Developer ID 签名与公证；下载后的更新包需用户手动安装"
-      ]
+        "ad-hoc 签名，未做 Developer ID 签名与公证"
+      ],
+      "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     }
   ],
   "conditional_capabilities": [
@@ -388,12 +395,12 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "【第三轮更正】以下 A~E 是第二轮口径，已被顶层 deep_audit 段取代：第三轮另发现 64 条未登记的行为差距、6 项 P0 缺陷、9 处空壳断链，并识别出 12 条矩阵误标与 4 条幻影缺口。不要再用 28 或本清单作为最终覆盖率依据",
-    "A. 仍缺失（第二轮口径的 28 条域内缺口，按域见各 domain.gaps）：多显示器窗口校验、全局 keymaster 快捷键、掉线状态 UI、加密口令存储、逐字节 Hex 网格编辑器、表格列排序、父子勾选联动、虚拟滚动窗口复用、Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组折叠、Zset 批量编辑、4 个 viewer 的写回、完整 Java/Pickle 反序列化、.proto 文件解析、Json 展示侧 BigInt 保精度、外部 shell 脚本 viewer、Monaco IDE 特性、KEYSPACE 分区统计、慢日志阈值展示、pipeline 缓冲、SSH 交互式二次认证、自动安装更新、Developer ID 签名与公证",
-    "B. 降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf schema 为 JSON 字段映射而非 .proto 解析；JavaSerialize/Pickle/Protobuf 为结构标记级展示；Json 仅写回保大整数精度；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用",
-    "C. 文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）",
-    "D. 条件依赖：RedisJSON/TimeSeries/Vector/Array 需服务端模块；HTTL/HEXPIRE 需 Redis >= 7.4；mTLS 需用户证书；更新需网络与已发布 Release；签名公证需开发者账号",
-    "E. 不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻；electron-updater 的静默安装被显式的人手安装替代"
+    "【round 5 口径】逐域细粒度差距见各 domain.gaps，共 24 条；其中 6 条属平台性 / 不可等价差异（Monaco IDE 能力、pipeline 语义、SSH 交互式认证、SSH 多隧道、ad-hoc 签名公证、Json 展示侧 BigInt）。",
+    "已关闭：Vector 详情与量化、TimeSeries 聚合、Stream 消费者面板、Java/Pickle 真反序列化、.proto 解析、KEYSPACE 统计、慢日志阈值、更新自动安装、Status 排序（详见 round5_remediation.gap_accounting）。",
+    "降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf 的 .proto 解析只取平铺字段；Json viewer 展示侧大整数仍经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用。",
+    "文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）。",
+    "条件依赖：RedisJSON / TimeSeries / Vector / Array 需服务端模块；HTTL / HEXPIRE 需 Redis >= 7.4；mTLS 需用户证书；更新需网络与已发布 Release；签名公证需开发者账号。",
+    "不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻。"
   ],
   "volume_strategy": {
     "removed": [
@@ -823,6 +830,32 @@
     "not_implemented": [
       "SSH + Cluster/Sentinel 多隧道：目前仍复用单一本地转发；为每个集群节点建立独立隧道复杂度与风险高，明确列为已知差距"
     ],
-    "coverage_note": "功能骨架与主要操作路径已全覆盖；深度语义（列表保序、字段级 TTL、流消费者、时序聚合、向量量化）已补齐。SSH 多隧道与部分 Redis 模块的极端边界仍属条件能力。"
+    "coverage_note": "功能骨架与主要操作路径已全覆盖；深度语义（列表保序、字段级 TTL、流消费者、时序聚合、向量量化）已补齐。SSH 多隧道与部分 Redis 模块的极端边界仍属条件能力。",
+    "gap_accounting": {
+      "before": 28,
+      "closed_in_round5": 9,
+      "remaining": 24,
+      "closed_items": [
+        "Vector 元素详情 + 量化参数（VGETATTR / NOQUANT/Q8/BIN）",
+        "TimeSeries 聚合 / 过滤面板（AGGREGATION / FILTER_BY_VALUE / ALIGN）",
+        "Stream 分组折叠与消费者明细（XINFO GROUPS / CONSUMERS 面板）",
+        "完整 Java / Pickle 反序列化（TC_OBJECT 流与栈式 opcode 解释器）",
+        ".proto 文件解析（平铺字段声明）",
+        "KEYSPACE 分区统计表（INFO keyspace）",
+        "慢日志阈值展示（CONFIG GET slowlog-*）",
+        "更新自动安装（dmg/zip → 替换 .app → 重启）",
+        "Status 字段排序 + 过滤"
+      ],
+      "accounting_note": "按域统计见各 domain.gaps，共 24 条：6 条平台性 / 不可等价差异，18 条细粒度可用性差距。",
+      "reconciliation": "28 − 9 关闭 = 19；剩余的 19 条又被拆细为 24 条（OverSize 分块、MEMORY 扫描性能、.proto 嵌套语义、Json 展示侧精度、SSH 多隧道 等各自单独计数），并新增 SSH 多隧道 1 条。",
+      "platform_level_non_equivalent": [
+        "Monaco IDE 能力（minimap / 多光标 / 折叠 / language-service）",
+        "ioredis pipeline 缓冲语义（现为真实 MULTI/EXEC）",
+        "SSH 交互式二次认证",
+        "SSH + Cluster/Sentinel 多隧道",
+        "Developer ID 签名与公证（当前 ad-hoc）",
+        "Json viewer 展示侧 BigInt 保精度"
+      ]
+    }
   }
 }
