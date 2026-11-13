@@ -75,6 +75,40 @@ struct KeyBrowserView: View {
 
             Divider()
 
+            // PaginationTable.vue's sortable header: clicking "Key" cycles scan
+            // order → A→Z → Z→A; the menu also offers length ordering.
+            if !store.showTree {
+                HStack(spacing: 4) {
+                    Button { store.toggleNameSort() } label: {
+                        HStack(spacing: 3) {
+                            Text(L10n("Key"))
+                            Image(systemName: store.keySortOrder.isDescending ? "chevron.down" : "chevron.up")
+                                .opacity(store.keySortOrder.isByName ? 1 : 0.25)
+                        }
+                        .font(.caption)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n("Sort by key name"))
+                    Spacer()
+                    Menu {
+                        Picker("", selection: $store.keySortOrder) {
+                            ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 22)
+                    .help(L10n("Sort order"))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.06))
+                Divider()
+            }
+
             ScrollViewReader { proxy in
             Group {
             if store.showTree {

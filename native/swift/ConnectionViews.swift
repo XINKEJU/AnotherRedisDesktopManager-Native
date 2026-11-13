@@ -322,6 +322,12 @@ struct ConnectionEditorView: View {
                 TextField(L10n("Username (ACL)"), text: $draft.username)
                 SecureField(L10n("Password"), text: $draft.auth)
             }
+            Text(L10n("Passwords are stored in the macOS Keychain, never in connections.json."))
+                .font(.caption).foregroundStyle(.secondary)
+            if store.editingConnection?.secretUnavailable == true {
+                Text(L10n("The Keychain did not return the stored password — re-enter it if the server rejects the connection."))
+                    .font(.caption).foregroundStyle(.orange)
+            }
             Stepper("Database: \(draft.db)", value: $draft.db, in: 0...15)
             TextField(L10n("Client name"), text: $draft.connectionName)
             TextField(L10n("Key separator"), text: $draft.separator)
@@ -437,6 +443,11 @@ struct ConnectionEditorView: View {
             return
         }
         let config = makeConfig()
+        // A freshly typed secret means we can trust the Keychain path again.
+        if !draft.auth.isEmpty || !draft.sshPassword.isEmpty ||
+           !draft.sshPassphrase.isEmpty || !draft.sentinelNodePassword.isEmpty {
+            config.secretUnavailable = false
+        }
         if let index = store.connections.firstIndex(where: { $0.identifier == config.identifier }) {
             store.connections[index] = config
         } else {

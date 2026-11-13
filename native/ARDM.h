@@ -56,11 +56,30 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) NSInteger connectTimeout;
 /** Number of linear reconnect attempts before surfacing a failure (mirrors upstream, default 3). */
 @property (nonatomic, assign) NSInteger retryTimes;
+/** YES when connections.json recorded a stored secret but the Keychain returned
+    nothing (locked keychain / different user). Surfaced as a UI warning so the
+    user is not left with a silent NOAUTH failure. Not persisted. */
+@property (nonatomic, assign) BOOL secretUnavailable;
 
 + (NSArray<ARDMConnectionConfig *> *)loadAll;
 + (void)saveAll:(NSArray<ARDMConnectionConfig *> *)items;
 + (instancetype)fromDictionary:(NSDictionary *)d;
+/** Redacted snapshot: password / passphrase fields are always empty. */
 - (NSDictionary *)toDictionary;
+/** Snapshot used for connections.json. Falls back to keeping a secret in the
+    file when the Keychain refused to store it, so a password is never lost. */
+- (NSDictionary *)persistenceDictionary;
+@end
+
+#pragma mark - Keychain secret storage (replaces plaintext credentials)
+
+/** Generic-password items in the login keychain, one per connection + field.
+    Secrets never reach connections.json; the JSON only records that one exists. */
+@interface ARDMKeychain : NSObject
++ (BOOL)setSecret:(NSString *)secret forAccount:(NSString *)account;
++ (nullable NSString *)secretForAccount:(NSString *)account;
++ (BOOL)deleteSecretForAccount:(NSString *)account;
++ (BOOL)hasSecretForAccount:(NSString *)account;
 @end
 
 #pragma mark - Command log (mirrors the ioredis sendCommand wrapper)
@@ -140,6 +159,12 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 /** Optional {fieldNumber: fieldName} map for the Protobuf viewer. */
 + (void)setProtobufSchema:(NSDictionary<NSNumber *, NSString *> * _Nullable)schema;
 + (NSDictionary<NSNumber *, NSString *> * _Nullable)protobufSchema;
+/** Re-indent (pretty) or compact a JSON document token by token. Numbers are
+    copied verbatim, so integers beyond 2^53 keep every digit. Returns nil when
+    the input is not structurally valid JSON. */
++ (nullable NSString *)formatJSON:(NSData *)data pretty:(BOOL)pretty;
+/** Structural JSON check that does not re-encode numbers. */
++ (BOOL)validateJSON:(NSData *)data;
 @end
 
 #pragma mark - Localization (mirrors src/i18n/langs/*.js)

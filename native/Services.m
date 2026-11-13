@@ -378,16 +378,26 @@ static NSString *ARDMSpaces(NSInteger depth) {
     return s;
 }
 
-/** Re-indent a JSON document while preserving every token verbatim. Unlike
-    NSJSONSerialization, this never re-encodes numbers, so 64-bit-and-beyond
-    integers (e.g. 123456789012345678901) survive exactly as stored, matching
-    the upstream JSON editor's verbatim behaviour. Returns nil for non-object JSON. */
-static NSString *ARDMPrettyJSON(NSData *data) {
+/** Re-indent (or compact) a JSON document while preserving every token verbatim.
+    Unlike NSJSONSerialization this never re-encodes numbers, so integers beyond
+    DBL_DIG / 2^53 (e.g. 123456789012345678901) survive exactly as stored, which
+    is what the upstream JsonEditor does. Also validates bracket pairing and
+    string termination, so it can stand in for a validity check. Returns nil when
+    the input is not a structurally valid JSON value. */
+static NSString *ARDMFormatJSON(NSData *data, BOOL pretty) {
     const char *p = data.bytes;
     NSUInteger n = data.length, i = 0;
     while (i < n && (p[i] == ' ' || p[i] == '\n' || p[i] == '\r' || p[i] == '\t')) i++;
-    if (i >= n || (p[i] != '{' && p[i] != '[')) return nil;
-    NSMutableString *out = [NSMutableString string];
+    if (i >= n) return nil;
+    char first = p[i];
+    BOOL scalar = (first != '{' && first != '[');
+    if (scalar) {
+        BOOL allowed = (first == '"' || first == '-' || (first >= '0' && first <= '9')
+                        || first == 't' || first == 'f' || first == 'n');
+        if (!allowed) return nil;
+    }
+    NSMutableString *out = [NSMutableString stringWithCapacity:n + 64];
+    NSMutableData *stack = [NSMutableData data];   // expected closing characters
     NSInteger depth = 0;
     BOOL inString = NO, escape = NO;
     for (; i < n; i++) {
@@ -399,23 +409,39 @@ static NSString *ARDMPrettyJSON(NSData *data) {
             else if (c == '"') inString = NO;
             continue;
         }
+        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') continue; // layout is re-emitted
         switch (c) {
             case '"': inString = YES; [out appendFormat:@"%c", c]; break;
-            case '{': case '[':
+            case '{': case '[': {
+                unsigned char closer = (c == '{') ? '}' : ']';
+                [stack appendBytes:&closer length:1];
                 [out appendFormat:@"%c", c]; depth++;
-                [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)]; break;
-            case '}': case ']':
-                depth--; [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)];
-                [out appendFormat:@"%c", c]; break;
+                if (pretty) { [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)]; }
+                break;
+            }
+            case '}': case ']': {
+                if (stack.length == 0) return nil;                       // unbalanced closer
+                const unsigned char *s = stack.bytes;
+                if (s[stack.length - 1] != (unsigned char)c) return nil;  // { ] mismatch
+                [stack setLength:stack.length - 1];
+                depth--;
+                if (pretty) { [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)]; }
+                [out appendFormat:@"%c", c];
+                break;
+            }
             case ',':
-                [out appendString:@",\n"]; [out appendString:ARDMSpaces(depth)]; break;
-            case ':': [out appendString:@": "]; break;
-            case ' ': case '\n': case '\r': case '\t': break; // drop original whitespace
+                [out appendString:pretty ? @",\n" : @","];
+                if (pretty) [out appendString:ARDMSpaces(depth)];
+                break;
+            case ':': [out appendString:pretty ? @": " : @":"]; break;
             default: [out appendFormat:@"%c", c]; break;
         }
     }
+    if (inString || stack.length != 0) return nil;   // unterminated string / unclosed container
     return out;
 }
+
+static NSString *ARDMPrettyJSON(NSData *data) { return ARDMFormatJSON(data, YES); }
 
 #pragma mark - Java Object Serialization (real deserialization)
 
@@ -864,6 +890,14 @@ static NSString *ARDMUnpickle(NSData *data) {
     // Otherwise, valid UTF-8 is Text, anything else is binary Hex
     if ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]) return @"Text";
     return @"Hex";
+}
+
++ (NSString *)formatJSON:(NSData *)data pretty:(BOOL)pretty {
+    return ARDMFormatJSON(data, pretty);
+}
+
++ (BOOL)validateJSON:(NSData *)data {
+    return ARDMFormatJSON(data, NO) != nil;
 }
 
 + (NSString *)render:(NSData *)data as:(NSString *)viewer error:(NSError **)error {

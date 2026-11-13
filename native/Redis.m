@@ -186,23 +186,101 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
     return [dir stringByAppendingPathComponent:@"connections.json"];
 }
 
+#pragma mark Secrets <-> Keychain
+
+/** Account names are scoped per connection identifier and field so one item can
+    be replaced or deleted without touching the others. */
+- (NSString *)keychainAccount:(NSString *)field {
+    return [NSString stringWithFormat:@"%@/%@", self.identifier ?: @"", field];
+}
+
+- (void)persistSecretsToKeychain {
+    if (self.identifier.length == 0) return;
+    // When the Keychain refused access earlier we hold empty strings that do not
+    // mean "cleared" — writing them would delete a secret we simply could not
+    // read. Unavailable secrets are therefore left untouched.
+    NSArray<NSString *> *fields = @[@"auth", @"sshPassword", @"sshPassphrase", @"sentinelNodePassword"];
+    for (NSString *field in fields) {
+        NSString *value = [self valueForKey:field] ?: @"";
+        if (value.length == 0 && self.secretUnavailable) continue;
+        [ARDMKeychain setSecret:value forAccount:[self keychainAccount:field]];
+    }
+}
+
+/** Pulls each secret out of the Keychain, falling back to a legacy plaintext
+    value in the JSON file (first launch after upgrading). Returns YES when a
+    plaintext value was found, meaning the store should be rewritten. */
+- (BOOL)hydrateSecretsFromKeychain:(NSDictionary *)source {
+    BOOL migrated = NO;
+    NSArray<NSString *> *fields = @[@"auth", @"sshPassword", @"sshPassphrase", @"sentinelNodePassword"];
+    for (NSString *field in fields) {
+        NSString *stored = [ARDMKeychain secretForAccount:[self keychainAccount:field]];
+        if (stored.length > 0) {
+            [self setValue:stored forKey:field];
+            continue;
+        }
+        NSString *legacy = [source[field] isKindOfClass:NSString.class] ? source[field] : nil;
+        if (legacy.length > 0) {
+            [self setValue:legacy forKey:field];
+            migrated = YES;
+        }
+    }
+    if ([source[@"hasStoredSecret"] boolValue] &&
+        self.auth.length == 0 && self.sshPassword.length == 0 &&
+        self.sshPassphrase.length == 0 && self.sentinelNodePassword.length == 0) {
+        self.secretUnavailable = YES;
+    }
+    return migrated;
+}
+
+/** Dictionary used for connections.json. Normally fully redacted; if the
+    Keychain refused to store one of the secrets we fall back to keeping that
+    single field in the file rather than silently losing the password. */
+- (NSDictionary *)persistenceDictionary {
+    NSMutableDictionary *dict = [[self toDictionary] mutableCopy];
+    NSArray<NSString *> *fields = @[@"auth", @"sshPassword", @"sshPassphrase", @"sentinelNodePassword"];
+    BOOL lostOne = NO;
+    for (NSString *field in fields) {
+        NSString *value = [self valueForKey:field] ?: @"";
+        if (value.length == 0) continue;
+        if (![ARDMKeychain hasSecretForAccount:[self keychainAccount:field]]) {
+            dict[field] = value;
+            lostOne = YES;
+        }
+    }
+    if (lostOne) dict[@"hasStoredSecret"] = @NO;
+    return dict;
+}
+
 + (NSArray<ARDMConnectionConfig *> *)loadAll {
     NSData *d = [NSData dataWithContentsOfFile:[self storePath]];
     if (!d) return @[];
     NSArray *raw = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
     if (![raw isKindOfClass:NSArray.class]) return @[];
     NSMutableArray *out = [NSMutableArray array];
+    BOOL needsMigration = NO;
     for (NSDictionary *item in raw) {
-        if ([item isKindOfClass:NSDictionary.class]) [out addObject:[self fromDictionary:item]];
+        if (![item isKindOfClass:NSDictionary.class]) continue;
+        ARDMConnectionConfig *config = [self fromDictionary:item];
+        if ([config hydrateSecretsFromKeychain:item]) needsMigration = YES;
+        [out addObject:config];
     }
+    // Rewrite once so legacy plaintext leaves connections.json immediately.
+    if (needsMigration) [self saveAll:out];
     return out;
 }
 
 + (void)saveAll:(NSArray<ARDMConnectionConfig *> *)items {
     NSMutableArray *raw = [NSMutableArray array];
-    for (ARDMConnectionConfig *c in items) [raw addObject:[c toDictionary]];
+    for (ARDMConnectionConfig *c in items) {
+        [c persistSecretsToKeychain];
+        [raw addObject:[c persistenceDictionary]];
+    }
     NSData *d = [NSJSONSerialization dataWithJSONObject:raw options:NSJSONWritingPrettyPrinted error:nil];
     [d writeToFile:[self storePath] atomically:YES];
+    // Only the owner should be able to read the (secret-free) config file.
+    [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions: @0600}
+                                     ofItemAtPath:[self storePath] error:nil];
 }
 
 #define STR(k) c.k = ([d[@#k] isKindOfClass:NSString.class] ? d[@#k] : c.k)
@@ -225,20 +303,25 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
 }
 
 - (NSDictionary *)toDictionary {
+    // Secrets live in the Keychain; this snapshot is safe to write to disk or
+    // export. hasStoredSecret lets the loader tell "no password" apart from
+    // "password exists but the Keychain refused access".
+    BOOL hasSecret = self.auth.length > 0 || self.sshPassword.length > 0 ||
+                     self.sshPassphrase.length > 0 || self.sentinelNodePassword.length > 0;
     return @{
         @"identifier": self.identifier ?: @"", @"name": self.name ?: @"", @"host": self.host ?: @"",
-        @"port": @(self.port), @"auth": self.auth ?: @"", @"username": self.username ?: @"",
+        @"port": @(self.port), @"auth": @"", @"username": self.username ?: @"",
         @"db": @(self.db), @"group": self.group ?: @"", @"separator": self.separator ?: @"",
         @"readOnly": @(self.readOnly), @"cluster": @(self.cluster),
         @"connectionName": self.connectionName ?: @"",
         @"sshEnabled": @(self.sshEnabled), @"sshHost": self.sshHost ?: @"", @"sshPort": @(self.sshPort),
-        @"sshUser": self.sshUser ?: @"", @"sshPassword": self.sshPassword ?: @"",
-        @"sshPrivateKey": self.sshPrivateKey ?: @"", @"sshPassphrase": self.sshPassphrase ?: @"",
+        @"sshUser": self.sshUser ?: @"", @"sshPassword": @"",
+        @"sshPrivateKey": self.sshPrivateKey ?: @"", @"sshPassphrase": @"",
         @"sshTimeout": @(self.sshTimeout),
         @"tlsEnabled": @(self.tlsEnabled), @"tlsCA": self.tlsCA ?: @"", @"tlsCert": self.tlsCert ?: @"",
         @"tlsKey": self.tlsKey ?: @"", @"tlsSNI": self.tlsSNI ?: @"", @"tlsInsecure": @(self.tlsInsecure),
         @"sentinelEnabled": @(self.sentinelEnabled), @"sentinelMaster": self.sentinelMaster ?: @"",
-        @"sentinelNodePassword": self.sentinelNodePassword ?: @"",
+        @"sentinelNodePassword": @"",
         @"natMap": self.natMap ?: @{},         @"tlsIdentityPath": self.tlsIdentityPath ?: @"",
         @"autoReconnect": @(self.autoReconnect),
         @"connectTimeout": @(self.connectTimeout),
@@ -246,8 +329,70 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         @"sshKeepaliveInterval": @(self.sshKeepaliveInterval),
         @"sshReadyTimeout": @(self.sshReadyTimeout),
         @"sshAutoClose": @(self.sshAutoClose),
+        @"hasStoredSecret": @(hasSecret || self.secretUnavailable),
     };
 }
+@end
+
+#pragma mark - Keychain secret storage
+
+@implementation ARDMKeychain
+
++ (NSString *)serviceName { return @"me.qii404.ardm.native.credentials"; }
+
++ (NSDictionary *)baseQueryForAccount:(NSString *)account {
+    return @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: [self serviceName],
+        (__bridge id)kSecAttrAccount: account,
+    };
+}
+
++ (BOOL)setSecret:(NSString *)secret forAccount:(NSString *)account {
+    if (account.length == 0) return NO;
+    if (secret.length == 0) return [self deleteSecretForAccount:account];
+    NSDictionary *query = [self baseQueryForAccount:account];
+    SecItemDelete((__bridge CFDictionaryRef)query);
+    NSMutableDictionary *item = [query mutableCopy];
+    item[(__bridge id)kSecValueData] = [secret dataUsingEncoding:NSUTF8StringEncoding];
+    // Available after first unlock so a background reconnect still works, but
+    // never synced to iCloud or other devices.
+    item[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
+    item[(__bridge id)kSecAttrSynchronizable] = @NO;
+    OSStatus status = SecItemAdd((__bridge CFDictionaryRef)item, NULL);
+    if (status == errSecDuplicateItem) {
+        NSDictionary *update = @{(__bridge id)kSecValueData: [secret dataUsingEncoding:NSUTF8StringEncoding]};
+        status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)update);
+    }
+    return status == errSecSuccess;
+}
+
++ (NSString *)secretForAccount:(NSString *)account {
+    if (account.length == 0) return nil;
+    NSMutableDictionary *query = [[self baseQueryForAccount:account] mutableCopy];
+    query[(__bridge id)kSecReturnData] = @YES;
+    query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+    CFTypeRef result = NULL;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+    if (status != errSecSuccess || result == NULL) return nil;
+    NSData *data = (__bridge_transfer NSData *)result;
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
++ (BOOL)deleteSecretForAccount:(NSString *)account {
+    if (account.length == 0) return NO;
+    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)[self baseQueryForAccount:account]);
+    return status == errSecSuccess || status == errSecItemNotFound;
+}
+
++ (BOOL)hasSecretForAccount:(NSString *)account {
+    if (account.length == 0) return NO;
+    NSMutableDictionary *query = [[self baseQueryForAccount:account] mutableCopy];
+    query[(__bridge id)kSecReturnAttributes] = @YES;
+    query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+    return SecItemCopyMatching((__bridge CFDictionaryRef)query, NULL) == errSecSuccess;
+}
+
 @end
 
 @implementation ARDMCommandLog

@@ -502,28 +502,27 @@ struct JsonEditorSheet: View {
         .onAppear { text = store.editorText }
     }
 
-    private func jsonObject() -> Any? {
-        guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data)
-    }
-
+    /// Formatting goes through the token-preserving formatter so integers beyond
+    /// 2^53 are not rounded through Double (NSJSONSerialization would do that).
     private func pretty() {
-        guard let object = jsonObject(),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
-              let formatted = String(data: data, encoding: .utf8) else { validation = "Invalid JSON"; return }
+        guard let formatted = ARDMFormatters.formatJSON(Data(text.utf8), pretty: true) else {
+            validation = "Invalid JSON"; return
+        }
         text = formatted
         validation = "OK — formatted"
     }
 
     private func minify() {
-        guard let object = jsonObject(),
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let compact = String(data: data, encoding: .utf8) else { validation = "Invalid JSON"; return }
+        guard let compact = ARDMFormatters.formatJSON(Data(text.utf8), pretty: false) else {
+            validation = "Invalid JSON"; return
+        }
         text = compact
         validation = "OK — minified"
     }
 
-    private func validate() { validation = jsonObject() == nil ? "Invalid JSON" : "OK — valid JSON" }
+    private func validate() {
+        validation = ARDMFormatters.validateJSON(Data(text.utf8)) ? "OK — valid JSON" : "Invalid JSON"
+    }
 }
 
 // MARK: - CustomFormatter.vue management

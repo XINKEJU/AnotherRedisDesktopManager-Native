@@ -415,7 +415,12 @@ extension AppStore {
     }
 
     private func makeNodes(_ dict: [String: Any], prefix: String, sep: String) -> [KeyNode] {
-        dict.keys.sorted().compactMap { name -> KeyNode? in
+        // The tree only has one column, so length ordering is not meaningful here;
+        // it still honours the A→Z / Z→A direction chosen in the header.
+        let ordered: [String] = keySortOrder == .nameDesc
+            ? dict.keys.sorted { $0.localizedStandardCompare($1) == .orderedDescending }
+            : dict.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return ordered.compactMap { name -> KeyNode? in
             let path = prefix.isEmpty ? name : prefix + sep + name
             guard let value = dict[name] as? [String: Any] else { return nil }
             if let leaf = value["__leaf__"] as? String {
@@ -429,13 +434,48 @@ extension AppStore {
 
     func filteredKeys() -> [String] {
         let text = searchText.lowercased()
-        guard !text.isEmpty else { return keys }
-        return keys.filter { key in
+        guard !text.isEmpty else { return sortedKeys(keys) }
+        let matched = keys.filter { key in
             switch matchMode {
             case .exact: return key.lowercased() == text
             case .glob: return key.lowercased().contains(text.replacingOccurrences(of: "*", with: ""))
             case .fuzzy: return text.split(separator: " ").allSatisfy { key.lowercased().contains($0) }
             }
+        }
+        return sortedKeys(matched)
+    }
+
+    /// Applies the column-header ordering. `localizedStandardCompare` gives users
+    /// the same natural ordering as the Finder (item2 before item10).
+    func sortedKeys(_ input: [String]) -> [String] {
+        switch keySortOrder {
+        case .none:
+            return input
+        case .nameAsc:
+            return input.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        case .nameDesc:
+            return input.sorted { $0.localizedStandardCompare($1) == .orderedDescending }
+        case .lengthAsc:
+            return input.sorted {
+                $0.count == $1.count
+                    ? $0.localizedStandardCompare($1) == .orderedAscending
+                    : $0.count < $1.count
+            }
+        case .lengthDesc:
+            return input.sorted {
+                $0.count == $1.count
+                    ? $0.localizedStandardCompare($1) == .orderedAscending
+                    : $0.count > $1.count
+            }
+        }
+    }
+
+    /// Clicking the "Key" header cycles scan order → A→Z → Z→A.
+    func toggleNameSort() {
+        switch keySortOrder {
+        case .none, .lengthAsc, .lengthDesc: keySortOrder = .nameAsc
+        case .nameAsc: keySortOrder = .nameDesc
+        case .nameDesc: keySortOrder = .none
         }
     }
 }

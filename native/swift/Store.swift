@@ -91,6 +91,23 @@ enum MatchMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Column-header ordering for the key list (PaginationTable.vue's sortable header).
+enum KeySortOrder: String, CaseIterable, Identifiable {
+    case none, nameAsc, nameDesc, lengthAsc, lengthDesc
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .none: return "Scan order"
+        case .nameAsc: return "Key name (A→Z)"
+        case .nameDesc: return "Key name (Z→A)"
+        case .lengthAsc: return "Key length (short→long)"
+        case .lengthDesc: return "Key length (long→short)"
+        }
+    }
+    var isByName: Bool { self == .nameAsc || self == .nameDesc }
+    var isDescending: Bool { self == .nameDesc || self == .lengthDesc }
+}
+
 // MARK: - Localization (13 language files via JavaScriptCore)
 
 func L(_ key: String, _ fallback: String? = nil) -> String {
@@ -138,6 +155,11 @@ final class AppStore: ObservableObject {
     /// Incremented by the ⌘F menu command so the key search field can grab focus.
     @Published var searchFocusRequest = 0
     @Published var matchMode: MatchMode = .glob
+    /// Key-list column ordering (persisted). `.none` keeps the server's SCAN order.
+    @Published var keySortOrder: KeySortOrder = KeySortOrder(
+        rawValue: UserDefaults.standard.string(forKey: "ARDMKeySortOrder") ?? "none") ?? .none {
+        didSet { UserDefaults.standard.set(keySortOrder.rawValue, forKey: "ARDMKeySortOrder") }
+    }
     @Published var scanCursor: UInt = 0
     @Published var scanFinished = false
     @Published var selectedDB = 0

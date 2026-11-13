@@ -306,7 +306,17 @@ let uiChinese: [String: String] = [
     "All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore.": "全部 15 种格式视图（Text、Hex、Json、Binary、Msgpack、PHPSerialize、JavaSerialize、Pickle、Brotli、Gzip、Deflate、DeflateRaw、Protobuf、OverSize、Custom）均基于 Foundation / zlib / JavaScriptCore 实现。",
     "External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity.": "外部 / 条件能力：Brotli 视图需要系统安装 `brotli` 命令；RedisJSON / TimeSeries / Vector / Array 视图需要服务端加载对应模块；双向 TLS 需要 PKCS#12 或 PEM 客户端身份证书。",
     "Creates a group with a placeholder connection. Drag connections onto a group to move them.": "创建一个带占位连接的分组，把连接拖到分组上即可移动。",
-    "Mutual TLS loads the client identity via Security.framework (SecPKCS12Import / SecItemImport).": "双向 TLS 通过 Security.framework（SecPKCS12Import / SecItemImport）加载客户端身份证书。"
+    "Mutual TLS loads the client identity via Security.framework (SecPKCS12Import / SecItemImport).": "双向 TLS 通过 Security.framework（SecPKCS12Import / SecItemImport）加载客户端身份证书。",
+    "Key": "键名",
+    "Sort by key name": "按键名排序",
+    "Sort order": "排序方式",
+    "Scan order": "SCAN 返回顺序",
+    "Key name (A→Z)": "键名升序（A→Z）",
+    "Key name (Z→A)": "键名降序（Z→A）",
+    "Key length (short→long)": "键名长度（短→长）",
+    "Key length (long→short)": "键名长度（长→短）",
+    "Passwords are stored in the macOS Keychain, never in connections.json.": "口令保存在 macOS 钥匙串中，不会写入 connections.json。",
+    "The Keychain did not return the stored password — re-enter it if the server rejects the connection.": "钥匙串未能返回已保存的口令；若服务端拒绝连接，请重新输入。"
 ]
 
 /// Native names for the 13 upstream language tables.

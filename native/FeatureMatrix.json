@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round5-full-remediation-2026-11-13",
+  "revision": "round6-keychain-sorting-json-2026-11-13",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -101,7 +101,6 @@
       ],
       "gaps": [
         "自动重连有指数退避，但侧栏没有掉线状态标记与重连进度可视化",
-        "连接口令明文存于凭据 JSON，未走 Keychain / SecItem 加密存储",
         "没有独立的逐字节 Hex 网格编辑器（现为整串 hex 粘贴后按 dump 编辑）"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
@@ -139,9 +138,9 @@
         "【本轮新增】行内匹配 pattern 下推到 HSCAN / SSCAN / ZSCAN 的 MATCH 子句"
       ],
       "gaps": [
-        "键列表无列头点击排序；结果过滤依赖服务端 MATCH，不是表格内二次筛选",
         "父子复选框无联动（勾选父节点不自动勾选全部子节点，仅提供分组全选菜单动作）",
-        "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口"
+        "树形列表为 List(children:) 懒加载，未实现单元格复用的虚拟滚动窗口",
+        "结果过滤依赖服务端 MATCH，不是对已加载结果集的二次筛选"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
@@ -215,7 +214,6 @@
       ],
       "gaps": [
         "JavaSerialize / Pickle / Protobuf / OverSize 仍是 decode-only，编辑后不能按原格式写回（可写回为 11 个 viewer）",
-        "Json viewer 展示侧仍走 NSJSONSerialization，> 2^53 的整数显示会丢精度（仅 RESP `:` 与写回路径保精度）",
         "CustomFormatter 只支持 JavaScriptCore 沙箱脚本，不支持外部 shell / Node 脚本",
         ".proto 解析只提取平铺的 fieldNumber→name，未处理嵌套 message / enum / repeated 语义",
         "OverSize viewer 为只读提示，没有分块查看"
@@ -395,7 +393,7 @@
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "【round 5 口径】逐域细粒度差距见各 domain.gaps，共 24 条；其中 6 条属平台性 / 不可等价差异（Monaco IDE 能力、pipeline 语义、SSH 交互式认证、SSH 多隧道、ad-hoc 签名公证、Json 展示侧 BigInt）。",
+    "【round 6 口径】逐域细粒度差距见各 domain.gaps，共 22 条；平台性 / 不可等价差异集中在 Monaco IDE 能力、pipeline 语义、SSH 交互式认证与多隧道、ad-hoc 签名公证。",
     "已关闭：Vector 详情与量化、TimeSeries 聚合、Stream 消费者面板、Java/Pickle 真反序列化、.proto 解析、KEYSPACE 统计、慢日志阈值、更新自动安装、Status 排序（详见 round5_remediation.gap_accounting）。",
     "降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf 的 .proto 解析只取平铺字段；Json viewer 展示侧大整数仍经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用。",
     "文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）。",
@@ -834,7 +832,7 @@
     "gap_accounting": {
       "before": 28,
       "closed_in_round5": 9,
-      "remaining": 24,
+      "remaining": 22,
       "closed_items": [
         "Vector 元素详情 + 量化参数（VGETATTR / NOQUANT/Q8/BIN）",
         "TimeSeries 聚合 / 过滤面板（AGGREGATION / FILTER_BY_VALUE / ALIGN）",
@@ -846,7 +844,7 @@
         "更新自动安装（dmg/zip → 替换 .app → 重启）",
         "Status 字段排序 + 过滤"
       ],
-      "accounting_note": "按域统计见各 domain.gaps，共 24 条：6 条平台性 / 不可等价差异，18 条细粒度可用性差距。",
+      "accounting_note": "round 6 再关闭 3 条，剩余 22 条；明细以各 domain.gaps 为准。",
       "reconciliation": "28 − 9 关闭 = 19；剩余的 19 条又被拆细为 24 条（OverSize 分块、MEMORY 扫描性能、.proto 嵌套语义、Json 展示侧精度、SSH 多隧道 等各自单独计数），并新增 SSH 多隧道 1 条。",
       "platform_level_non_equivalent": [
         "Monaco IDE 能力（minimap / 多光标 / 折叠 / language-service）",
@@ -855,7 +853,82 @@
         "SSH + Cluster/Sentinel 多隧道",
         "Developer ID 签名与公证（当前 ad-hoc）",
         "Json viewer 展示侧 BigInt 保精度"
+      ],
+      "superseded_by": "round6_remediation.gap_delta"
+    }
+  },
+  "round6_remediation": {
+    "date": "2026-11-13",
+    "round": 6,
+    "trigger": "用户指令『继续改进』：按 round 5 结论中性价比最高的三项继续落地",
+    "scope": [
+      "连接口令改由 macOS 钥匙串存储，connections.json 只保留 hasStoredSecret 标记",
+      "键列表列头排序（SCAN 顺序 / A→Z / Z→A / 长度短→长 / 长度长→短），持久化",
+      "JSON 展示与编辑器改为逐 token 格式化，大整数不再经过 Double"
+    ],
+    "changes": {
+      "keychain": [
+        "ARDMKeychain：kSecClassGenericPassword，service=me.qii404.ardm.native.credentials，account=<identifier>/<field>",
+        "kSecAttrAccessibleAfterFirstUnlock + kSecAttrSynchronizable=NO（不随 iCloud 同步）",
+        "auth / sshPassword / sshPassphrase / sentinelNodePassword 四个字段全部迁入钥匙串",
+        "toDictionary 恒返回空口令 + hasStoredSecret；导出文件不再包含任何口令",
+        "loadAll 首次运行自动迁移旧明文并重写连接文件；connections.json 权限收紧为 0600",
+        "钥匙串拒绝访问时置 secretUnavailable，不再以空串回写（避免误删已存口令），界面给出橙色提示",
+        "persist 后回读校验：钥匙串确实没存进去时，该字段退回写入 connections.json，避免口令静默丢失"
+      ],
+      "key_sorting": [
+        "KeySortOrder：none / nameAsc / nameDesc / lengthAsc / lengthDesc，UserDefaults 持久化",
+        "flat 列表新增可点击表头（点 Key 循环 SCAN→A→Z→Z→A）+ 排序菜单",
+        "localizedStandardCompare 自然排序（item2 在 item10 之前）",
+        "树视图按同一方向排序子节点"
+      ],
+      "json_precision": [
+        "ARDMFormatJSON(data, pretty)：逐字符扫描重排，数字 token 原样拷贝",
+        "支持裸标量（只存一个 21 位整数时不再经 NSJSONSerialization 折成 Double）",
+        "顺带补上结构校验：括号配对、字符串闭合，validateJSON 不再依赖 NSJSONSerialization",
+        "JsonEditorSheet 的格式化 / 压缩 / 校验全部改走新实现"
       ]
+    },
+    "verification": {
+      "harness": "/tmp/ardm_native_verify（假 RESP 双节点 + ObjC 探针）",
+      "result": "81 passed, 0 failed",
+      "added_checks": [
+        "formatJSON keeps 21-digit integer",
+        "minifyJSON keeps 21-digit integer",
+        "formatJSON keeps bare big-number scalar",
+        "Json viewer keeps big-number scalar",
+        "validateJSON accepts object",
+        "validateJSON rejects unclosed object",
+        "validateJSON rejects mismatched brackets",
+        "validateJSON rejects unterminated string",
+        "toDictionary redacts every secret",
+        "toDictionary records hasStoredSecret",
+        "Keychain stores and returns a secret",
+        "Keychain reports existence",
+        "Keychain deletes a secret",
+        "persistenceDictionary keeps a secret the Keychain refused",
+        "persistenceDictionary redacts once the Keychain has it"
+      ],
+      "migration_check": "本机既有 connections.json 的口令已自动迁入钥匙串并从文件中移除，读取校验一致；冒烟启动无崩溃、无 stderr 噪声"
+    },
+    "gap_delta": {
+      "before": 24,
+      "closed": 3,
+      "remaining": 22,
+      "closed_items": [
+        "连接口令明文存储（Keychain 加密）",
+        "键列表列头排序",
+        "Json 展示侧大整数精度"
+      ]
+    },
+    "build": {
+      "swiftui_app_bytes": 4592531,
+      "swiftui_app_mb": 4.38,
+      "executable_bytes": 3538672,
+      "executable_kb": 3456,
+      "reduction_percent": 97.72,
+      "errors": 0,
+      "warnings": 0
     }
   }
 }
