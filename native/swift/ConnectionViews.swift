@@ -98,6 +98,11 @@ struct ConnectionSidebar: View {
     @State private var query = ""
     @State private var showingNewGroup = false
     @State private var newGroupName = ""
+    /// The List selects one string; connection rows use their identifier and
+    /// database rows use "db:<identifier>:<index>". A single local binding lets
+    /// the database rows be clickable without making them list selection.
+    @State private var sidebarSelection: String?
+    @State private var expandedConnections: Set<String> = []
 
 
     /// One connection tab. Extracted from `body` because the inline version with
@@ -153,6 +158,113 @@ struct ConnectionSidebar: View {
         return grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
+    // MARK: Connection tree
+
+    /// A connection is a leaf until its socket is up. Once it is open the row
+    /// grows a disclosure triangle listing db0…db15, so the database sits with
+    /// the connection instead of in a picker at the far right of the window.
+    /// Cluster connections have a single keyspace and stay leaves.
+    @ViewBuilder
+    private func connectionNode(_ config: ARDMConnectionConfig) -> some View {
+        if store.openConnectionIDs.contains(config.identifier) && !config.cluster {
+            let counts = config.identifier == store.activeConnectionID ? dbKeyCounts() : [:]
+            DisclosureGroup(isExpanded: expansionBinding(config.identifier)) {
+                ForEach(0..<16, id: \.self) { db in
+                    databaseRow(db, config: config, counts: counts)
+                }
+            } label: {
+                connectionLabel(config)
+            }
+        } else {
+            connectionLabel(config)
+        }
+    }
+
+    private func connectionLabel(_ config: ARDMConnectionConfig) -> some View {
+        ConnectionRow(config: config)
+            .tag(config.identifier)
+            .draggable(config.identifier)
+            .dropDestination(for: String.self) { identifiers, _ in
+                moveConnection(identifiers.first, onto: config)
+            }
+    }
+
+    private func moveConnection(_ dragged: String?, onto config: ARDMConnectionConfig) -> Bool {
+        guard let dragged, dragged != config.identifier,
+              let from = store.connections.firstIndex(where: { $0.identifier == dragged }),
+              let to = store.connections.firstIndex(where: { $0.identifier == config.identifier }) else {
+            return false
+        }
+        let moved = store.connections.remove(at: from)
+        store.connections.insert(moved, at: to > from ? to - 1 : to)
+        store.saveConnections()
+        return true
+    }
+
+    private func databaseRow(_ db: Int, config: ARDMConnectionConfig, counts: [Int: Int]) -> some View {
+        let current = store.databaseIndex(for: config.identifier) == db
+        return HStack(spacing: 6) {
+            Image(systemName: "cylinder.split.1x2")
+                .font(store.uiFont(10))
+                .foregroundStyle(current ? Color.accentColor : Color.secondary)
+                .accessibilityHidden(true)
+            Text("db\(db)")
+                .font(store.uiFont(12))
+                .fontWeight(current ? .semibold : .regular)
+                .foregroundStyle(current ? Color.accentColor : Color.primary)
+            Spacer(minLength: 2)
+            if let count = counts[db], count > 0 {
+                Text("\(count)").font(store.uiFont(10)).foregroundStyle(.secondary)
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 4))
+        // Two ways in on purpose: the tap handles the common case, and the tag
+        // keeps the click working on list styles that route clicks through
+        // selection. Both land on the same idempotent call.
+        .contentShape(Rectangle())
+        .onTapGesture { pickDatabase(db, config) }
+        .tag("db:\(config.identifier):\(db)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("db\(db)")
+        .accessibilityValue(current ? L10n("Selected") : "")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { pickDatabase(db, config) }
+    }
+
+    private func pickDatabase(_ db: Int, _ config: ARDMConnectionConfig) {
+        store.selectDatabase(db, for: config.identifier)
+    }
+
+    /// "db:8071E61F-…:3" → ("8071E61F-…", 3). Connection identifiers are UUIDs,
+    /// so they never contain a colon and a plain split is unambiguous.
+    private func databaseSelection(_ value: String) -> (id: String, db: Int)? {
+        guard value.hasPrefix("db:") else { return nil }
+        let parts = value.split(separator: ":")
+        guard parts.count == 3, let db = Int(parts[2]) else { return nil }
+        return (String(parts[1]), db)
+    }
+
+    private func expansionBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { expandedConnections.contains(id) },
+                set: { open in
+                    if open { expandedConnections.insert(id) } else { expandedConnections.remove(id) }
+                })
+    }
+
+    /// Per-database key counts come from INFO keyspace, which is only fetched for
+    /// the active connection — the same one whose tree is open.
+    private func dbKeyCounts() -> [Int: Int] {
+        var counts: [Int: Int] = [:]
+        for (name, stats) in store.keyspaceStats where name.hasPrefix("db") {
+            guard let db = Int(name.dropFirst(2)) else { continue }
+            for field in stats.split(separator: ",") {
+                let pair = field.split(separator: "=")
+                if pair.count == 2, pair[0] == "keys", let n = Int(pair[1]) { counts[db] = n }
+            }
+        }
+        return counts
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tabs.vue: one tab per open connection, all sockets stay alive.
@@ -203,7 +315,7 @@ struct ConnectionSidebar: View {
             .padding(8)
             .fixedSize(horizontal: false, vertical: true)
 
-            List(selection: $store.selectedConnectionID) {
+            List(selection: $sidebarSelection) {
                 if !store.favoriteKeys.isEmpty {
                     Section(L10n("Favorites")) {
                         ForEach(store.favoriteKeys, id: \.self) { key in
@@ -217,20 +329,7 @@ struct ConnectionSidebar: View {
                 ForEach(groups, id: \.0) { groupName, configs in
                     Section(L10n(groupName)) {
                         ForEach(configs, id: \.identifier) { config in
-                            ConnectionRow(config: config)
-                                .tag(config.identifier)
-                                .draggable(config.identifier)
-                                .dropDestination(for: String.self) { identifiers, _ in
-                                    guard let dragged = identifiers.first, dragged != config.identifier,
-                                          let from = store.connections.firstIndex(where: { $0.identifier == dragged }),
-                                          let to = store.connections.firstIndex(where: { $0.identifier == config.identifier }) else {
-                                        return false
-                                    }
-                                    let moved = store.connections.remove(at: from)
-                                    store.connections.insert(moved, at: to > from ? to - 1 : to)
-                                    store.saveConnections()
-                                    return true
-                                }
+                            connectionNode(config)
                         }
                     }
                     .dropDestination(for: String.self) { identifiers, _ in
@@ -245,6 +344,29 @@ struct ConnectionSidebar: View {
                 }
             }
             .listStyle(.sidebar)
+        }
+        .onAppear { sidebarSelection = store.selectedConnectionID }
+        .onChange(of: sidebarSelection) { _, newValue in
+            guard let value = newValue else { return }
+            if let picked = databaseSelection(value) {
+                store.selectDatabase(picked.db, for: picked.id)
+                // Leave the connection highlighted: the database rows are a
+                // sub-selection, not a second kind of list item.
+                sidebarSelection = store.activeConnectionID
+                return
+            }
+            store.selectedConnectionID = value
+        }
+        .onChange(of: store.selectedConnectionID) { _, newValue in
+            if sidebarSelection != newValue { sidebarSelection = newValue }
+        }
+        .onChange(of: store.activeConnectionID, initial: true) { _, newValue in
+            guard let newValue else { return }
+            sidebarSelection = newValue
+            expandedConnections.insert(newValue)
+        }
+        .onChange(of: store.openConnectionIDs) { _, ids in
+            expandedConnections = expandedConnections.intersection(ids)
         }
         .alert(L10n("New Group"), isPresented: $showingNewGroup) {
             TextField(L10n("Group name"), text: $newGroupName)
@@ -273,7 +395,9 @@ struct ConnectionRow: View {
                 .foregroundStyle(dotColor(store.connectionStates[config.identifier]))
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.name).lineLimit(1)
-                Text("\(config.host):\(config.port) · DB\(config.db)")
+                // The database is a row in the tree below once connected, so
+                // naming the configured default here would just contradict it.
+                Text("\(config.host):\(config.port)")
                     .font(store.uiFont(10)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 2)
@@ -303,7 +427,7 @@ struct ConnectionRow: View {
     }
 
     private var rowDescription: String {
-        var parts = [config.name, "\(config.host):\(config.port) · DB\(config.db)"]
+        var parts = [config.name, "\(config.host):\(config.port)"]
         parts.append(store.connectionStates[config.identifier]?.isOnline == true
                      ? L10n("Connected") : L10n("Not connected"))
         if config.readOnly { parts.append(L10n("Read-only")) }

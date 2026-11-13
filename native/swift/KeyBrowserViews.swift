@@ -33,7 +33,6 @@ struct KeyBrowserView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(L10n("Clear search"))
                 }
-                matchModeMenu
                 Button { store.refreshKeys(reset: true) } label: { Image(systemName: "arrow.clockwise") }
                     .help(L10n("Refresh"))
                     .accessibilityLabel(L10n("Refresh keys"))
@@ -96,25 +95,6 @@ struct KeyBrowserView: View {
 
     // MARK: Toolbar pieces
 
-    /// Match mode used to be a 74pt picker; a menu with the current mode as its
-    /// help text costs a single 22pt glyph and keeps the search field usable.
-    private var matchModeMenu: some View {
-        Menu {
-            Picker("", selection: $store.matchMode) {
-                ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: "asterisk")
-        }
-        .menuStyle(.borderlessButton)
-        .frame(width: 22)
-        .help(L10n("Match mode") + ": " + L10n(store.matchMode.label))
-        .accessibilityLabel(L10n("Match mode"))
-        .accessibilityValue(L10n(store.matchMode.label))
-        .accessibilityIdentifier("key.matchMode")
-    }
-
     private var moreMenu: some View {
         Menu {
             Button(L10n(store.showTree ? "Flat list" : "Tree view")) {
@@ -126,6 +106,13 @@ struct KeyBrowserView: View {
             }
             .accessibilityIdentifier("key.filter.toggle")
             Divider()
+            // Match mode used to sit beside the search field as an asterisk
+            // glyph, where the menu's own chevron was drawn on top of it. It
+            // belongs with the other search settings.
+            Picker(L10n("Match mode"), selection: $store.matchMode) {
+                ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
+            }
+            .pickerStyle(.inline)
             Picker(L10n("Sort order"), selection: $store.keySortOrder) {
                 ForEach(KeySortOrder.allCases) { Text(L10n($0.label)).tag($0) }
             }

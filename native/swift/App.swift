@@ -252,25 +252,12 @@ struct RootView: View {
 struct MainToolbar: ToolbarContent {
     @EnvironmentObject var store: AppStore
 
-    // Keep the title bar uncluttered. Tab switching lives in the detail pane's
-    // own labelled tab strip; everything else is grouped into one menu.
+    // The toolbar holds no actions of its own any more. New Connection lives in
+    // the sidebar, where the connections are, and the database picker moved into
+    // the sidebar tree under each open connection. What is left is one overflow
+    // menu for the commands that appear nowhere else.
     var body: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button { store.editingConnection = nil; store.showingConnectionEditor = true } label: {
-                Label(L10n("New Connection"), systemImage: "plus")
-            }
-            .help(L10n("New Connection"))
-            .accessibilityLabel(L10n("New Connection"))
-            .accessibilityIdentifier("toolbar.newConnection")
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
-            Picker(L10n("Database"), selection: $store.selectedDB) {
-                ForEach(0..<16, id: \.self) { Text("DB \($0)").tag($0) }
-            }
-            .frame(width: 96)
-            .accessibilityLabel(L10n("Database"))
-            .accessibilityIdentifier("toolbar.database")
-            .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button(L10n("Connect")) { if let c = store.selectedConnection { store.connect(to: c) } }
                 Button(L10n("Disconnect")) { store.disconnect() }
@@ -279,6 +266,15 @@ struct MainToolbar: ToolbarContent {
                 Button(L10n("New Key")) { store.showingNewKey = true }
                 Button(L10n("Batch Delete")) { store.showingBatchDelete = true }
                 Divider()
+                if store.connected {
+                    Menu(L10n("Database")) {
+                        ForEach(0..<16, id: \.self) { db in
+                            Button("db\(db)" + (store.selectedDB == db ? " ✓" : "")) {
+                                store.changeDatabase(db)
+                            }
+                        }
+                    }
+                }
                 Button(L10n("Import / Export…")) { store.showingImportExport = true }
                 Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
                 Button(L10n("JSON Editor…")) { store.showingJsonEditor = true }
@@ -297,9 +293,8 @@ struct MainToolbar: ToolbarContent {
 struct StatusBar: View {
     @EnvironmentObject var store: AppStore
 
-    // The DB index and the UI language used to be repeated here even though the
-    // toolbar picker and the Language menu already show them. The bar now only
-    // carries what appears nowhere else: socket state, counters, live mode.
+    // The database index is in the sidebar tree now; statusText already names
+    // the current DB alongside the counters, so the bar stays as it was.
     var body: some View {
         HStack(spacing: 10) {
             Circle().fill(store.connected ? Color.green : Color.gray).frame(width: 8, height: 8)

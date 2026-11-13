@@ -419,6 +419,22 @@ final class AppStore: ObservableObject {
         connections.first { $0.identifier == activeConnectionID }?.cluster ?? false
     }
 
+    /// Database a given open connection is sitting on. Each tab keeps its own
+    /// socket with its own SELECT state, so this cannot read `selectedDB`, which
+    /// only describes the active tab.
+    func databaseIndex(for id: String) -> Int {
+        clients[id]?.selectedDB ?? connections.first { $0.identifier == id }?.db ?? 0
+    }
+
+    /// Sidebar database tree: activate that connection first, then SELECT.
+    /// `changeDatabase` always talks to the active client, so a click on a
+    /// background tab's database has to switch tabs before it can work.
+    func selectDatabase(_ db: Int, for id: String) {
+        if activeConnectionID != id { switchConnection(id) }
+        guard connected, activeConnectionID == id, selectedDB != db else { return }
+        changeDatabase(db)
+    }
+
     func saveConnections() {
         ARDMConnectionConfig.saveAll(connections)
         objectWillChange.send()

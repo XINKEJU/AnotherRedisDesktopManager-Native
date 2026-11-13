@@ -210,7 +210,9 @@ extension AppStore {
             var error: NSError?
             let info = ardmString(client.send(["INFO", "server"], error: &error))
             guard error == nil else { return }
-            let version = info.split(separator: "\n")
+            // Same CRLF cluster trap as INFO parsing in loadStatus: split on any
+            // newline character, not on "\n".
+            let version = info.split(whereSeparator: \.isNewline)
                 .first { $0.contains("redis_version") }
                 .map { line -> String in
                     let parts = line.split(separator: ":")

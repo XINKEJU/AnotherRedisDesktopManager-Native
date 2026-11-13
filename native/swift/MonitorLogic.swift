@@ -12,7 +12,11 @@ extension AppStore {
             var sections: [InfoSection] = []
             var currentName = "server"
             var fields: [(String, String)] = []
-            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            // INFO arrives as one bulk string with CRLF line endings. Swift
+            // treats "\r\n" as a single Character, so splitting on "\n" never
+            // matches and the whole reply lands in one line — every section below
+            // then parses to nothing (empty INFO-derived panels, no per-db counts).
+            for line in text.split(whereSeparator: \.isNewline) {
                 let raw = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
                 if raw.hasPrefix("# ") {
                     if !fields.isEmpty { sections.append(InfoSection(name: currentName, fields: fields)) }
