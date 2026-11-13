@@ -60,6 +60,11 @@ struct SettingsView: View {
                 Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1) { Text(L10n("Zoom")) }
                 Text(String(format: "%.1f×", store.zoom)).font(store.monoFont(11))
             }
+            HStack {
+                Text(L10n("Sidebar width"))
+                Slider(value: $store.sidebarWidth, in: 200...1500, step: 10)
+                Text("\(Int(store.sidebarWidth)) px").font(store.monoFont(11)).frame(width: 60, alignment: .trailing)
+            }
             Text("\(store.fonts.count) system font families enumerated (font-list replacement).")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Translated sample: \(L("message.new_connection", "New Connection"))")
@@ -134,12 +139,20 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(checkingUpdate)
-                Button(L10n("Download update")) {
+                Button(L10n("Download & install")) {
                     checkingUpdate = true
                     ARDMAppServices.downloadUpdate { status, file in
-                        checkingUpdate = false
+                        guard let file else {
+                            checkingUpdate = false
+                            store.updateStatus = status
+                            return
+                        }
                         store.updateStatus = status
-                        if let file { NSWorkspace.shared.open(file) }
+                        // Mount the .dmg / unzip the .zip, replace the installed .app, relaunch.
+                        ARDMAppServices.installUpdate(file) { installStatus in
+                            checkingUpdate = false
+                            store.updateStatus = status + " · " + installStatus
+                        }
                     }
                 }
                 .disabled(checkingUpdate)

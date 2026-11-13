@@ -23,6 +23,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)checkForUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable releasePage))completion;
 /** Downloads the latest macOS release asset into ~/Downloads and returns its file URL. */
 + (void)downloadUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable localFile))completion;
+/** Mounts a downloaded .dmg/.zip, replaces the installed .app bundle, and relaunches it. */
++ (void)installUpdateAtURL:(NSURL *)url completion:(void (^)(NSString *status))completion
+    NS_SWIFT_NAME(installUpdate(_:completion:));
 
 /** FileInput.vue security-scoped bookmarks for TLS / SSH key files. */
 + (NSData * _Nullable)bookmarkForURL:(NSURL *)url;

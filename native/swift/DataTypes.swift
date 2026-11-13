@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 // MARK: - Per-type value decoding (KeyContent*.vue, all 10 types)
 
@@ -96,6 +97,32 @@ extension AppStore {
             }
             return
         }
+        // Vector Set: there is no single read command for all elements, so fetch a
+        // window of dimensions via VGETATTR and stop at the first missing index.
+        // Redis < 8 has no vector type — surface a clear notice instead of failing.
+        if type == .vector {
+            if redisMajor < 8 {
+                self.onMain {
+                    self.keyRows = []
+                    self.editorText = "VECTOR type requires Redis 8.0+ (current server: \(self.redisVersion.isEmpty ? "unknown" : self.redisVersion))."
+                    self.statusText = "\(key) · vector · unsupported server version"
+                }
+                return
+            }
+            onBackground {
+                do {
+                    var rows: [KeyRow] = []
+                    for i in 0..<limit {
+                        let reply = try self.sendSync(["VGETATTR", key, "\(i)"])
+                        let text = ardmString(reply)
+                        if text.isEmpty || text == "(nil)" || text == "nil" { break }
+                        rows.append(KeyRow(id: "\(i)", field: "\(i)", value: text, raw: ardmData(reply)))
+                    }
+                    self.onMain { self.keyRows = rows; self.statusText = "\(key) · vector · \(rows.count) dim(s) · quant=\(self.vectorQuantization)" }
+                } catch { self.onMain { self.fail(error.localizedDescription) } }
+            }
+            return
+        }
         onBackground {
             do {
                 let command = self.readCommand(for: type, key: key, offset: offset, limit: limit, path: path)
@@ -126,11 +153,23 @@ extension AppStore {
         case .set: return ["SMEMBERS", key]
         case .zSet: return ["ZRANGE", key, start, stop, "WITHSCORES"]
         case .hash: return ["HGETALL", key]
-        case .stream: return ["XRANGE", key, "-", "+", "COUNT", "\(limit)"]
+        case .stream: return streamReverse
+            ? ["XREVRANGE", key, "+", "-", "COUNT", "\(limit)"]
+            : ["XRANGE", key, "-", "+", "COUNT", "\(limit)"]
         case .reJSON: return ["JSON.GET", key, path]
-        case .timeSeries: return timeSeriesReverse
-            ? ["TS.REVRANGE", key, "-", "+", "COUNT", "\(limit)"]
-            : ["TS.RANGE", key, "-", "+", "COUNT", "\(limit)"]
+        case .timeSeries:
+            var args: [String] = timeSeriesReverse
+                ? ["TS.REVRANGE", key, "-", "+"]
+                : ["TS.RANGE", key, "-", "+"]
+            if tsAggregation != "None" {
+                args += ["AGGREGATION", tsAggregation, tsBucket]
+            }
+            if !tsFilterMin.isEmpty {
+                let max = tsFilterMax.isEmpty ? tsFilterMin : tsFilterMax
+                args += ["FILTER_BY_VALUE", tsFilterMin, max]
+            }
+            args += ["COUNT", "\(limit)"]
+            return args
         case .vector: return ["VGETATTR", key, "0"]
         case .array: return ["ARGET", key, start, stop]
         case .unknown: return ["GET", key]
@@ -142,13 +181,29 @@ extension AppStore {
 
     func saveRow(_ row: KeyRow, field: String, value: String, extra: String) {
         guard let key = selectedKey else { return }
-        let commands = writeCommands(for: selectedKeyType, key: key, row: row,
+        let type = selectedKeyType
+        let commands = writeCommands(for: type, key: key, row: row,
                                      field: field, value: value, extra: extra, remove: false)
         guard !commands.isEmpty else { return }
         onBackground {
             do {
                 for command in commands { try self.sendSync(command) }
-                self.onMain { self.reloadKeyDetail(); self.notify("Saved") }
+                self.onMain {
+                    if type == .hash {
+                        // Incremental update: patch the visible row instead of a full
+                        // reloadKeyDetail (matches upstream's local store update).
+                        if let idx = self.keyRows.firstIndex(where: { $0.field == field }) {
+                            self.keyRows[idx].value = value
+                            self.keyRows[idx].raw = Data(value.utf8)
+                        } else {
+                            self.keyRows.append(KeyRow(id: field, field: field, value: value, raw: Data(value.utf8)))
+                        }
+                        self.notify("Saved")
+                    } else {
+                        self.reloadKeyDetail()
+                        self.notify("Saved")
+                    }
+                }
             } catch { self.onMain { self.fail(error.localizedDescription) } }
         }
     }
@@ -176,7 +231,12 @@ extension AppStore {
         case .list:
             if remove { return [["LREM", key, "1", row.value]] }
             if row.id == "__new__" { return [["RPUSH", key, value]] }
-            return [["LSET", key, field, value]]
+            // Order-preserving in-place replacement: insert the new value right after
+            // the old one, then remove exactly one occurrence of the old value
+            // (matches upstream ListContent.vue LINSERT AFTER + LREM behaviour).
+            if value == row.value { return [["LSET", key, field, value]] }
+            return [["LINSERT", key, "AFTER", row.value, value],
+                    ["LREM", key, "1", row.value]]
         case .set:
             if remove { return [["SREM", key, row.value]] }
             var commands: [[String]] = [["SADD", key, value]]
@@ -189,7 +249,7 @@ extension AppStore {
         case .reJSON:
             return remove ? [["JSON.DEL", key, jsonPath]] : [["JSON.SET", key, jsonPath, value]]
         case .timeSeries:
-            return remove ? [] : [["TS.ADD", key, field.isEmpty ? "*" : field, value]]
+            return remove ? [] : [["TS.ADD", key, field.isEmpty ? "*" : field, value, "ON_DUPLICATE", "LAST"]]
         case .vector:
             return remove ? [["VREM", key, row.field]] : [["VSETATTR", key, field, value]]
         case .array:
@@ -287,6 +347,32 @@ extension AppStore {
         }
     }
 
+    /// TS.INFO — flatten labels / rules / source key into readable rows.
+    func loadTimeSeriesInfo() {
+        guard let key = selectedKey, selectedKeyType == .timeSeries else { return }
+        onBackground {
+            do {
+                let reply = try self.sendSync(["TS.INFO", key])
+                var rows: [[String]] = []
+                let flat = ardmArray(reply)
+                var i = 0
+                while i + 1 < flat.count {
+                    let name = ardmString(flat[i])
+                    let value = flat[i + 1]
+                    if let nested = value as? [Any], !nested.isEmpty {
+                        // labels / rules come back as arrays of pairs.
+                        let pairs = nested.map { ardmString($0) }.filter { !$0.isEmpty }
+                        rows.append([name, pairs.joined(separator: " ")])
+                    } else {
+                        rows.append([name, ardmString(value)])
+                    }
+                    i += 2
+                }
+                self.onMain { self.tsInfo = rows; self.notify("TS.INFO · \(rows.count) field(s)") }
+            } catch { self.onMain { self.fail(error.localizedDescription) } }
+        }
+    }
+
     /// Millisecond TTL (PTTL / PEXPIRE), matching KeyList.vue's PTTL support.
     func setTTLMillis(_ millis: Int) {
         guard let key = selectedKey else { return }
@@ -344,23 +430,62 @@ extension AppStore {
         }
     }
 
-    /// Load a {fieldNumber: fieldName} JSON map for the Protobuf viewer.
+    /// Load a Protobuf schema for the viewer. Accepts either a
+    /// {fieldNumber: fieldName} JSON map or a real `.proto` file.
     func loadProtobufSchema() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.json]
+        let protoType = UTType(filenameExtension: "proto")
+        panel.allowedContentTypes = [.json] + (protoType.map { [$0] } ?? [])
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = try? Data(contentsOf: url),
-              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            fail("Protobuf schema must be a JSON object of {\"fieldNumber\": \"fieldName\"}.")
+              let data = try? Data(contentsOf: url) else { return }
+
+        var schema: [NSNumber: String] = [:]
+        if url.pathExtension.lowercased() == "proto" {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            for (number, name) in parseProtoFields(text) {
+                schema[NSNumber(value: number)] = name
+            }
+            guard !schema.isEmpty else {
+                fail("No `type name = number;` field declarations found in the .proto file.")
+                return
+            }
+            ARDMFormatters.setProtobufSchema(schema)
+            notify("Protobuf schema loaded from .proto: \(schema.count) fields")
+            renderValue()
             return
         }
-        var schema: [NSNumber: String] = [:]
+
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            fail("Protobuf schema must be a JSON object of {\"fieldNumber\": \"fieldName\"} or a .proto file.")
+            return
+        }
         for (number, name) in raw {
             if let n = Int(number) { schema[NSNumber(value: n)] = name }
         }
         ARDMFormatters.setProtobufSchema(schema)
         notify("Protobuf schema loaded: \(schema.count) fields")
         renderValue()
+    }
+
+    /// Minimal `.proto` parser: extracts `[label] type name = number;` declarations
+    /// across all message blocks (nested messages included) into fieldNumber → name.
+    private func parseProtoFields(_ text: String) -> [Int: String] {
+        var schema: [Int: String] = [:]
+        for rawLine in text.components(separatedBy: .newlines) {
+            var line = rawLine
+            if let comment = line.range(of: "//") { line = String(line[..<comment.lowerBound]) }
+            line = line.trimmingCharacters(in: .whitespaces)
+            guard line.contains("="), line.hasSuffix(";") else { continue }
+            let lower = line.lowercased()
+            if lower.hasPrefix("syntax") || lower.hasPrefix("option") || lower.hasPrefix("reserved")
+                || lower.hasPrefix("import") || lower.hasPrefix("package") { continue }
+            let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard let eq = tokens.firstIndex(of: "="), eq >= 1, eq + 1 < tokens.count else { continue }
+            let name = tokens[eq - 1]
+            let number = tokens[eq + 1].trimmingCharacters(in: CharacterSet(charactersIn: ";"))
+            if let value = Int(number) { schema[value] = name }
+        }
+        return schema
     }
 }

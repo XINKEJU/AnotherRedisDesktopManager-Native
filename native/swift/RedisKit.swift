@@ -94,6 +94,8 @@ extension AppStore {
             if case .success(let reply) = result {
                 self.cliOutput = ardmString(reply)
                 self.activeTab = .cli
+                // A successful mutating command must refresh the key list (upstream refreshKeyList).
+                if self.client?.isWriteCommand(args) ?? false { self.refreshKeys(reset: false) }
                 self.notify("\(args.first ?? "") OK")
             }
         }
@@ -121,6 +123,9 @@ extension AppStore {
                 try client.connect()
                 let size = client.dbSize(nil)
                 self.onMain {
+                    // Drop any stale CLI connection from a previous session first.
+                    self.cliClient?.disconnect()
+                    self.cliClient = nil
                     self.clients[config.identifier] = client
                     if !self.openConnectionIDs.contains(config.identifier) {
                         self.openConnectionIDs.append(config.identifier)
@@ -136,10 +141,71 @@ extension AppStore {
                     self.statusText = L10n("Connected:") + " \(config.name) @ \(client.hostUsed):\(client.portUsed)"
                     self.refreshKeys(reset: true)
                     self.loadStatus()
+                    self.fetchRedisVersion()
                 }
             } catch {
                 self.onMain { self.connected = false; self.client = nil; self.fail("Connect failed: \(error.localizedDescription)") }
             }
+        }
+    }
+
+    /// Lazily open a dedicated CLI connection (mirrors upstream client.duplicate()) so that
+    /// long-running or blocking commands such as MONITOR do not stall key browsing.
+    @discardableResult
+    func ensureCliClient() -> ARDMRedisClient? {
+        if let existing = cliClient, existing.isConnected { return existing }
+        guard let config = selectedConnection else { return nil }
+        let dup = (config.copy() as? ARDMConnectionConfig) ?? config
+        let client = ARDMRedisClient(config: dup)
+        do {
+            try client.connect()
+        } catch {
+            return nil
+        }
+        client.onLog = { log in
+            let entry = LogEntry(time: log.time, connection: log.connectionName,
+                                 command: log.command, cost: log.cost)
+            self.onMain { self.logs.insert(entry, at: 0); if self.logs.count > 5000 { self.logs.removeLast() } }
+        }
+        cliClient = client
+        return client
+    }
+
+    /// Run a command on the dedicated CLI connection (falling back to the main client).
+    func sendOnCli(_ args: [String], completion: @escaping (Result<Any, Error>) -> Void = { _ in }) {
+        onBackground {
+            if let cli = self.ensureCliClient() {
+                var error: NSError?
+                let reply = cli.send(args, error: &error)
+                if let error {
+                    self.onMain { self.fail(error.localizedDescription); completion(.failure(error)) }
+                } else {
+                    self.onMain { completion(.success(reply)) }
+                }
+                return
+            }
+            do {
+                let reply = try self.sendSync(args)
+                self.onMain { completion(.success(reply)) }
+            } catch {
+                self.onMain { self.fail(error.localizedDescription); completion(.failure(error)) }
+            }
+        }
+    }
+
+    func fetchRedisVersion() {
+        onBackground {
+            guard let client = self.client else { return }
+            var error: NSError?
+            let info = ardmString(client.send(["INFO", "server"], error: &error))
+            guard error == nil else { return }
+            let version = info.split(separator: "\n")
+                .first { $0.contains("redis_version") }
+                .map { line -> String in
+                    let parts = line.split(separator: ":")
+                    return parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+                } ?? ""
+            self.onMain { self.redisVersion = version }
         }
     }
 
@@ -292,7 +358,7 @@ extension AppStore {
         }
     }
 
-    private func scanBatch(pattern: String, cursor: inout UInt) throws -> [String] {
+    func scanBatch(pattern: String, cursor: inout UInt) throws -> [String] {
         guard let client else { throw ARDMKitError.notConnected }
         var error: NSError?
         var local = cursor
@@ -392,9 +458,12 @@ extension AppStore {
             let type = client.type(ofKey: key, error: &error)
             let ttl = client.ttl(ofKey: key, error: &error)
             if type == .hash || type == .set {
+                // HLEN / SCARD give an immediate count without streaming the whole key.
+                let count = ardmString(client.send(type == .hash ? ["HLEN", key] : ["SCARD", key], error: &error))
                 self.onMain {
                     self.selectedKeyType = type
                     self.selectedKeyTTL = ttl
+                    self.hashLen = Int(count) ?? 0
                     self.keyRawValue = Data()
                     self.editorText = ""
                 }
@@ -419,6 +488,28 @@ extension AppStore {
             let rows = self.rowsForType(type, key: key, value: value)
             let raw = ardmData(value)
             let detected = ARDMFormatters.detectViewer(for: raw)
+            // Stream consumer groups + consumers (KeyContentStream.vue panel).
+            var groups: [[String: Any]] = []
+            var consumers: [[String: Any]] = []
+            if type == .stream {
+                if let rawGroups = client.send(["XINFO", "GROUPS", key], error: &error) as? [[Any]] {
+                    groups = rawGroups.map { entry -> [String: Any] in
+                        var dict: [String: Any] = [:]
+                        var i = 0
+                        while i + 1 < entry.count { dict[ardmString(entry[i])] = entry[i + 1]; i += 2 }
+                        return dict
+                    }
+                }
+                if let firstName = groups.first?["name"] as? String,
+                   let rawConsumers = client.send(["XINFO", "CONSUMERS", key, firstName], error: &error) as? [[Any]] {
+                    consumers = rawConsumers.map { entry -> [String: Any] in
+                        var dict: [String: Any] = [:]
+                        var i = 0
+                        while i + 1 < entry.count { dict[ardmString(entry[i])] = entry[i + 1]; i += 2 }
+                        return dict
+                    }
+                }
+            }
             self.onMain {
                 self.selectedKeyType = type
                 self.selectedKeyTTL = ttl
@@ -427,8 +518,11 @@ extension AppStore {
                 self.editorText = ardmString(value)
                 self.viewerName = detected.isEmpty ? "Text" : detected
                 self.renderValue()
+                self.streamGroups = groups
+                self.streamConsumers = consumers
                 self.statusText = "\(key) · \(typeName(type)) · TTL \(ttl)"
                 self.refreshPTTL()
+                if type == .timeSeries { self.loadTimeSeriesInfo() }
             }
         }
     }
@@ -491,6 +585,7 @@ extension AppStore {
         case .hash: commands = [["HSET", name, "field", value]]
         case .zSet: commands = [["ZADD", name, "0", value]]
         case .stream: commands = [["XADD", name, "*", "field", value]]
+        case .vector: commands = [["VADD", name, "VALUES", "1", value, vectorQuantization]]
         case .reJSON: commands = [["JSON.SET", name, "$", value]]
         default: commands = [["SET", name, value]]
         }

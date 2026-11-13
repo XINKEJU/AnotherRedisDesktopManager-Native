@@ -7,6 +7,7 @@ struct KeyBrowserView: View {
     @EnvironmentObject var store: AppStore
     @State private var treeSelection: String?
     @State private var scrollProxy: ScrollViewProxy?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,11 +17,26 @@ struct KeyBrowserView: View {
                 TextField(L10n("Search keys"), text: $store.searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 90)
-                    .onSubmit { store.refreshKeys(reset: true) }
+                    .focused($searchFocused)
+                    .onSubmit { store.recordSearch(store.searchText); store.refreshKeys(reset: true) }
                 if !store.searchText.isEmpty {
                     Button { store.searchText = ""; store.refreshKeys(reset: true) } label: {
                         Image(systemName: "xmark.circle.fill")
                     }.buttonStyle(.plain)
+                }
+                if !store.searchHistory.isEmpty {
+                    Menu {
+                        ForEach(Array(store.searchHistory.prefix(20)), id: \.self) { term in
+                            Button(term) {
+                                store.searchText = term
+                                store.recordSearch(term)
+                                store.refreshKeys(reset: true)
+                            }
+                        }
+                    } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 22)
+                    .help(L10n("Search history"))
                 }
                 Picker("", selection: $store.matchMode) {
                     ForEach(MatchMode.allCases) { Text(L10n($0.label)).tag($0) }
@@ -95,6 +111,7 @@ struct KeyBrowserView: View {
             .onAppear { scrollProxy = proxy }
             }
         }
+        .onChange(of: store.searchFocusRequest) { _, _ in searchFocused = true }
     }
 
     /// Explicit DisclosureGroup tree so expansion state is observable and persistable

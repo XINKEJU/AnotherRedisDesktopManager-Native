@@ -28,6 +28,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *sshPrivateKey;
 @property (nonatomic, copy) NSString *sshPassphrase;
 @property (nonatomic, assign) NSInteger sshTimeout;
+/** SSH ServerAliveInterval (seconds); 0 = use default. Mirrors upstream keepaliveInterval. */
+@property (nonatomic, assign) NSInteger sshKeepaliveInterval;
+/** Max seconds to wait for the tunnel to become ready (mirrors upstream readyTimeout). */
+@property (nonatomic, assign) NSInteger sshReadyTimeout;
+/** Close the local forward when the connection drops (mirrors upstream autoClose). */
+@property (nonatomic, assign) BOOL sshAutoClose;
 
 @property (nonatomic, assign) BOOL tlsEnabled;
 @property (nonatomic, copy) NSString *tlsCA;
@@ -46,6 +52,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *tlsIdentityPath;
 /** Reconnect with exponential backoff after a dropped connection (default YES). */
 @property (nonatomic, assign) BOOL autoReconnect;
+/** Socket connect timeout in milliseconds (mirrors upstream connectTimeout, default 30000). */
+@property (nonatomic, assign) NSInteger connectTimeout;
+/** Number of linear reconnect attempts before surfacing a failure (mirrors upstream, default 3). */
+@property (nonatomic, assign) NSInteger retryTimes;
 
 + (NSArray<ARDMConnectionConfig *> *)loadAll;
 + (void)saveAll:(NSArray<ARDMConnectionConfig *> *)items;
@@ -87,6 +97,8 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 @property (nonatomic, readonly) NSInteger portUsed;
 
 - (id)send:(NSArray<NSString *> *)args error:(NSError **)error;
+/** Heuristic used by the UI to decide whether a command mutates state (e.g. to refresh the key list). */
+- (BOOL)isWriteCommand:(NSArray<NSString *> *)args;
 /** Atomic MULTI ... EXEC: returns the replies of every queued command plus EXEC's result array. */
 - (NSArray *)sendTransaction:(NSArray<NSArray<NSString *> *> *)commands error:(NSError **)error;
 /** Variant accepting NSData arguments for binary keys / values. */

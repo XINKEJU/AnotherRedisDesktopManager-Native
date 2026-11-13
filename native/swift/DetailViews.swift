@@ -130,6 +130,7 @@ struct KeyDetailView: View {
                 Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
                     .background(Capsule().fill(Color.accentColor.opacity(0.15)))
                 Text(store.ttlInMilliseconds ? "PTTL \(store.selectedKeyTTLMillis) ms" : "TTL \(store.selectedKeyTTL)").font(.caption)
+                if store.selectedKeyType == .hash { Text("HLEN \(store.hashLen)").font(.caption) }
             }
             HStack(spacing: 8) {
                 Button(L10n("Refresh")) { store.reloadKeyDetail() }
@@ -184,6 +185,22 @@ struct KeyDetailView: View {
             }
             .padding(8)
 
+            if store.selectedKeyType == .vector {
+                HStack(spacing: 8) {
+                    Text(L10n("Quantization")).font(.caption)
+                    Picker("", selection: $store.vectorQuantization) {
+                        ForEach(["NOQUANT", "Q8", "BIN"], id: \.self) { Text($0).tag($0) }
+                    }
+                    .frame(width: 120).labelsHidden()
+                    Text(store.redisMajor < 8
+                         ? L10n("Vector type requires Redis 8.0+")
+                         : L10n("Applied when adding vectors with VADD"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+            }
+
             HSplitView {
                 TextEditor(text: $store.editorText)
                     .font(store.monoFont(store.fontSize))
@@ -232,6 +249,11 @@ struct KeyDetailView: View {
                 Spacer()
                 Button(L10n("Add row")) { addingRow = true }
                 if store.selectedKeyType == .stream { streamGroupMenu }
+                if store.selectedKeyType == .stream {
+                    Toggle(L10n("Reverse (XREVRANGE)"), isOn: $store.streamReverse)
+                        .toggleStyle(.checkbox)
+                        .onChange(of: store.streamReverse) { _, _ in store.loadTypedValue() }
+                }
                 moduleMenu
                 if store.selectedKeyType == .timeSeries {
                     Toggle(L10n("Reverse range"), isOn: $store.timeSeriesReverse)
@@ -241,6 +263,29 @@ struct KeyDetailView: View {
                 Button(L10n("Refresh")) { store.reloadKeyDetail() }
             }
             .padding(8)
+
+            // TimeSeries aggregation / value filtering (TS.RANGE / TS.REVRANGE options).
+            if store.selectedKeyType == .timeSeries {
+                HStack(spacing: 8) {
+                    Text(L10n("Aggregation")).font(.caption)
+                    Picker("", selection: $store.tsAggregation) {
+                        ForEach(["None", "avg", "sum", "min", "max", "range", "count", "first", "last", "std.p", "std.s", "var.p", "var.s"], id: \.self) {
+                            Text($0).tag($0)
+                        }
+                    }
+                    .frame(width: 100).labelsHidden()
+                    Text(L10n("Bucket")).font(.caption)
+                    TextField("", text: $store.tsBucket).frame(width: 80).textFieldStyle(.roundedBorder)
+                    Text(L10n("Filter min")).font(.caption)
+                    TextField("", text: $store.tsFilterMin).frame(width: 80).textFieldStyle(.roundedBorder)
+                    Text(L10n("max")).font(.caption)
+                    TextField("", text: $store.tsFilterMax).frame(width: 80).textFieldStyle(.roundedBorder)
+                    Button(L10n("Apply")) { store.loadTypedValue() }
+                    Button(L10n("TS.INFO")) { store.loadTimeSeriesInfo() }
+                    Spacer()
+                }
+                .padding(.horizontal, 8).padding(.bottom, 6)
+            }
 
             HStack {
                 Text(columnTitle(0)).font(.caption.bold()).frame(width: 180, alignment: .leading)
@@ -287,6 +332,46 @@ struct KeyDetailView: View {
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+
+            if store.selectedKeyType == .stream && (!store.streamGroups.isEmpty || !store.streamConsumers.isEmpty) {
+                Divider()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n("Consumer groups")).font(.caption.bold())
+                    ScrollView {
+                        ForEach(store.streamGroups.indices, id: \.self) { i in
+                            let g = store.streamGroups[i]
+                            Text("• \(ardmString(g["name"])) · consumers \(ardmString(g["consumers"])) · pending \(ardmString(g["pending"])) · last \(ardmString(g["last-delivered-id"]))")
+                                .font(store.monoFont(10))
+                        }
+                        ForEach(store.streamConsumers.indices, id: \.self) { i in
+                            let c = store.streamConsumers[i]
+                            Text("      consumer \(ardmString(c["name"])) · pending \(ardmString(c["pending"])) · idle \(ardmString(c["idle"]))ms")
+                                .font(store.monoFont(10)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxHeight: 110)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
+
+            if store.selectedKeyType == .timeSeries && !store.tsInfo.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("TS.INFO").font(.caption.bold())
+                    ScrollView {
+                        ForEach(store.tsInfo.indices, id: \.self) { i in
+                            HStack {
+                                Text(store.tsInfo[i].first ?? "").frame(width: 170, alignment: .leading)
+                                Text(store.tsInfo[i].count > 1 ? store.tsInfo[i][1] : "")
+                                Spacer()
+                            }
+                            .font(store.monoFont(10))
+                        }
+                    }
+                    .frame(maxHeight: 120)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
         }
     }
 

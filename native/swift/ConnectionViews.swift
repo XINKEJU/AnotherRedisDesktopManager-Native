@@ -328,6 +328,11 @@ struct ConnectionEditorView: View {
             TextField(L10n("Group"), text: $draft.group)
             Toggle(L10n("Read-only mode"), isOn: $draft.readOnly)
             Toggle(L10n("Cluster mode"), isOn: $draft.cluster)
+                .disabled(draft.sentinelEnabled)
+            if draft.sentinelEnabled {
+                Text(L10n("Cluster mode is unavailable while Sentinel is enabled."))
+                    .font(.caption).foregroundStyle(.orange)
+            }
         }
         .formStyle(.grouped)
     }
@@ -369,6 +374,11 @@ struct ConnectionEditorView: View {
     private var advancedTab: some View {
         Form {
             Toggle(L10n("Sentinel"), isOn: $draft.sentinelEnabled)
+                .disabled(draft.cluster)
+            if draft.cluster {
+                Text(L10n("Sentinel is unavailable while Cluster mode is enabled."))
+                    .font(.caption).foregroundStyle(.orange)
+            }
             TextField(L10n("Master name"), text: $draft.sentinelMaster)
             SecureField(L10n("Sentinel node password"), text: $draft.sentinelNodePassword)
             Divider()
@@ -420,6 +430,12 @@ struct ConnectionEditorView: View {
     }
 
     private func save() {
+        // Sentinel and Cluster are mutually exclusive connection modes (upstream
+        // NewConnectionDialog.vue enforces the same rule).
+        if draft.sentinelEnabled && draft.cluster {
+            testResult = "Sentinel and Cluster are mutually exclusive — disable one."
+            return
+        }
         let config = makeConfig()
         if let index = store.connections.firstIndex(where: { $0.identifier == config.identifier }) {
             store.connections[index] = config

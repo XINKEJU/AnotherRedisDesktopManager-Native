@@ -25,6 +25,12 @@ extension AppStore {
             }
             if !fields.isEmpty { sections.append(InfoSection(name: currentName, fields: fields)) }
             self.infoSections = sections
+            // INFO keyspace: one `dbN:keys=..,expires=..,avg_ttl=..` line per database.
+            var keyspace: [(String, String)] = []
+            for section in sections where section.name.lowercased() == "keyspace" {
+                keyspace.append(contentsOf: section.fields)
+            }
+            self.keyspaceStats = keyspace
         }
     }
 
@@ -32,6 +38,46 @@ extension AppStore {
         send(["SLOWLOG", "GET", "128"]) { result in
             guard case .success(let reply) = result else { return }
             self.slowLogRows = ardmRows(reply)
+        }
+        // Surface the active thresholds (upstream SlowLog.vue shows these).
+        send(["CONFIG", "GET", "slowlog-log-slower-than", "slowlog-max-len"]) { result in
+            guard case .success(let reply) = result else { return }
+            let flat = ardmArray(reply)
+            var index = 0
+            while index + 1 < flat.count {
+                let name = ardmString(flat[index]).lowercased()
+                let value = Int(ardmString(flat[index + 1])) ?? 0
+                if name.contains("slower-than") { self.slowLogSlowerThan = value }
+                if name.contains("max-len") { self.slowLogMaxLen = value }
+                index += 2
+            }
+        }
+    }
+
+    /// Scan every key with MEMORY USAGE and keep those at/above the minimum size.
+    /// Mirrors upstream MemoryAnalysis per-key mode instead of only MEMORY STATS.
+    func loadMemoryPerKey() {
+        guard connected else { return }
+        let minimum = memoryMinSize
+        onBackground {
+            do {
+                var cursor: UInt = 0
+                var rows: [(String, Int)] = []
+                repeat {
+                    let batch = try self.scanBatch(pattern: "*", cursor: &cursor)
+                    for key in batch {
+                        guard let reply = try? self.sendSync(["MEMORY", "USAGE", key]),
+                              let bytes = Int(ardmString(reply)) else { continue }
+                        if Double(bytes) >= minimum { rows.append((key, bytes)) }
+                    }
+                } while cursor != 0 && rows.count < 5000
+                rows.sort { $0.1 > $1.1 }
+                let top = Array(rows.prefix(500))
+                self.onMain {
+                    self.memoryPerKeyRows = top
+                    self.notify("\(rows.count) key(s) ≥ \(Int(minimum)) bytes")
+                }
+            } catch { self.onMain { self.fail(error.localizedDescription) } }
         }
     }
 
@@ -78,10 +124,13 @@ extension AppStore {
     func startMonitor() { startLive(["MONITOR"], label: "MONITOR") }
 
     private func startLive(_ command: [String], label: String) {
-        guard let client else { return }
+        // MONITOR / SUBSCRIBE push streams must not share the browsing connection,
+        // so prefer the dedicated CLI client (created lazily on connect).
+        let liveClient = cliClient ?? client
+        guard let liveClient else { return }
         liveEvents = []
         liveRunning = true
-        client.startLive(withCommand: command, onEvent: { rows in
+        liveClient.startLive(withCommand: command, onEvent: { rows in
             let message = rows.map { ardmString($0) }.joined(separator: " | ")
             self.liveEvents.insert(LiveEvent(time: Date(), text: message), at: 0)
             if self.liveEvents.count > 1000 { self.liveEvents.removeLast() }
@@ -94,6 +143,7 @@ extension AppStore {
 
     func stopLive() {
         client?.stopLive()
+        cliClient?.stopLive()
         liveRunning = false
         notify("Live stream stopped")
     }
@@ -172,12 +222,16 @@ extension AppStore {
                 return
             }
         }
-        send(parts) { result in
+        // Run on the dedicated CLI connection (mirrors upstream client.duplicate())
+        // so long-running or blocking commands never stall the key browser.
+        sendOnCli(parts) { result in
             switch result {
             case .success(let reply):
                 self.cliOutput = ardmString(reply)
                 self.activeTab = .cli
                 self.notify("\(parts.first ?? "") · \(ardmArray(reply).count) element(s)")
+                // A mutating command must refresh the key list (upstream refreshKeyList).
+                if self.client?.isWriteCommand(parts) ?? false { self.refreshKeys(reset: false) }
             case .failure(let error):
                 self.cliOutput = "ERR \(error.localizedDescription)"
             }

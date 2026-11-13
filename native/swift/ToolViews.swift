@@ -86,12 +86,21 @@ struct CLIView: View {
 
 struct StatusView: View {
     @EnvironmentObject var store: AppStore
+    @State private var sortAscending = true
+    @State private var sectionFilter = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(L10n("Server Status")).font(.headline)
                 Spacer()
+                TextField(L10n("Filter"), text: $sectionFilter)
+                    .textFieldStyle(.roundedBorder).frame(width: 140)
+                Button {
+                    sortAscending.toggle()
+                } label: {
+                    Label(sortAscending ? L10n("A→Z") : L10n("Z→A"), systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                }
                 Text("every \(store.statusRefreshSeconds)s").font(.caption)
                 Stepper("", value: $store.statusRefreshSeconds, in: 1...60).labelsHidden()
                     .onChange(of: store.statusRefreshSeconds) {
@@ -113,9 +122,20 @@ struct StatusView: View {
             }
 
             List {
-                ForEach(store.infoSections) { section in
+                if !store.keyspaceStats.isEmpty {
+                    Section(L10n("Keyspace")) {
+                        ForEach(store.keyspaceStats, id: \.0) { db, stats in
+                            HStack {
+                                Text(db).font(store.monoFont(11)).frame(width: 80, alignment: .leading)
+                                Text(stats).font(store.monoFont(11)).textSelection(.enabled)
+                                Spacer()
+                            }
+                        }
+                    }
+                }
+                ForEach(filteredSections) { section in
                     Section(section.name) {
-                        ForEach(section.fields, id: \.0) { key, value in
+                        ForEach(sortedFields(section), id: \.0) { key, value in
                             HStack {
                                 Text(key).font(store.monoFont(11)).frame(width: 240, alignment: .leading)
                                 Text(value).font(store.monoFont(11)).textSelection(.enabled)
@@ -128,6 +148,18 @@ struct StatusView: View {
             .listStyle(.inset(alternatesRowBackgrounds: true))
         }
         .onAppear { store.loadStatus() }
+    }
+
+    private var filteredSections: [InfoSection] {
+        guard !sectionFilter.isEmpty else { return store.infoSections }
+        return store.infoSections.filter { section in
+            section.name.localizedCaseInsensitiveContains(sectionFilter)
+                || section.fields.contains { $0.0.localizedCaseInsensitiveContains(sectionFilter) }
+        }
+    }
+
+    private func sortedFields(_ section: InfoSection) -> [(String, String)] {
+        section.fields.sorted { sortAscending ? $0.0 < $1.0 : $0.0 > $1.0 }
     }
 
     private func chartValues(prefix: String) -> Double? {
@@ -165,6 +197,8 @@ struct SlowLogView: View {
             HStack {
                 Text(L10n("Slow Log")).font(.headline)
                 Spacer()
+                Text("log-slower-than \(store.slowLogSlowerThan) µs · max-len \(store.slowLogMaxLen)")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button(L10n("Refresh")) { store.loadSlowLog() }
                 Button(L10n("RESET")) { store.execute(["SLOWLOG", "RESET"]); store.loadSlowLog() }
             }.padding(10)
@@ -186,24 +220,57 @@ struct SlowLogView: View {
 
 struct MemoryView: View {
     @EnvironmentObject var store: AppStore
+    @State private var selection = 0
+
     var body: some View {
         VStack(alignment: .leading) {
             HStack {
                 Text(L10n("Memory Analysis")).font(.headline)
+                Picker("", selection: $selection) {
+                    Text(L10n("Aggregate")).tag(0)
+                    Text(L10n("Per key")).tag(1)
+                }
+                .pickerStyle(.segmented).frame(width: 200).labelsHidden()
                 Spacer()
+                if selection == 1 {
+                    Text(L10n("Min bytes")).font(.caption)
+                    TextField("", value: $store.memoryMinSize, format: .number).frame(width: 90)
+                        .textFieldStyle(.roundedBorder)
+                    Button(L10n("Scan")) { store.loadMemoryPerKey() }
+                }
                 Button(L10n("Refresh")) { store.loadMemory() }
                 Button(L10n("MEMORY DOCTOR")) { store.execute(["MEMORY", "DOCTOR"]) }
             }.padding(10)
-            let maximum = max(1, store.memoryStats.map { $0.1 }.max() ?? 1)
-            List(store.memoryStats.indices, id: \.self) { index in
-                let item = store.memoryStats[index]
-                HStack {
-                    Text(item.0).font(store.monoFont(11)).frame(width: 260, alignment: .leading)
-                    GeometryReader { geo in
-                        Rectangle().fill(Color.accentColor)
-                            .frame(width: max(2, geo.size.width * item.1 / maximum), height: 8)
+
+            if selection == 0 {
+                let maximum = max(1, store.memoryStats.map { $0.1 }.max() ?? 1)
+                List(store.memoryStats.indices, id: \.self) { index in
+                    let item = store.memoryStats[index]
+                    HStack {
+                        Text(item.0).font(store.monoFont(11)).frame(width: 260, alignment: .leading)
+                        GeometryReader { geo in
+                            Rectangle().fill(Color.accentColor)
+                                .frame(width: max(2, geo.size.width * item.1 / maximum), height: 8)
+                        }
+                        Text(String(format: "%.0f", item.1)).font(store.monoFont(10)).frame(width: 100, alignment: .trailing)
                     }
-                    Text(String(format: "%.0f", item.1)).font(store.monoFont(10)).frame(width: 100, alignment: .trailing)
+                }
+            } else {
+                if store.memoryPerKeyRows.isEmpty {
+                    Text(L10n("Click Scan to measure every key with MEMORY USAGE."))
+                        .font(.caption).foregroundStyle(.secondary).padding()
+                }
+                let maximumKey = max(1, store.memoryPerKeyRows.map { $0.1 }.max() ?? 1)
+                List(store.memoryPerKeyRows.indices, id: \.self) { index in
+                    let item = store.memoryPerKeyRows[index]
+                    HStack {
+                        Text(item.0).font(store.monoFont(11)).frame(width: 260, alignment: .leading)
+                        GeometryReader { geo in
+                            Rectangle().fill(Color.orange)
+                                .frame(width: max(2, geo.size.width * Double(item.1) / Double(maximumKey)), height: 8)
+                        }
+                        Text("\(item.1) B").font(store.monoFont(10)).frame(width: 100, alignment: .trailing)
+                    }
                 }
             }
         }

@@ -135,6 +135,8 @@ final class AppStore: ObservableObject {
     @Published var keyNodes: [KeyNode] = []
     @Published var selectedKey: String?
     @Published var searchText = ""
+    /// Incremented by the ⌘F menu command so the key search field can grab focus.
+    @Published var searchFocusRequest = 0
     @Published var matchMode: MatchMode = .glob
     @Published var scanCursor: UInt = 0
     @Published var scanFinished = false
@@ -159,6 +161,39 @@ final class AppStore: ObservableObject {
     @Published var ttlInMilliseconds = false
     @Published var rowSearchPattern = "*"
     @Published var timeSeriesReverse = false
+    @Published var streamReverse = false
+    /// HLEN of the currently selected hash (Redis >= any version).
+    @Published var hashLen = 0
+    /// Detected server version, e.g. "7.4.1"; gates Redis >= 7.4 field-TTL support.
+    @Published var redisVersion = ""
+    /// Dedicated CLI connection (mirrors upstream client.duplicate()), so long commands
+    /// and MONITOR never block the key browser. Created lazily on connect.
+    var cliClient: ARDMRedisClient?
+    // SlowLog thresholds surfaced from CONFIG GET.
+    @Published var slowLogSlowerThan = 10000
+    @Published var slowLogMaxLen = 128
+    /// Keyspace partition stats parsed from INFO keyspace.
+    @Published var keyspaceStats: [(String, String)] = []
+    /// Per-key memory usage scan (MEMORY USAGE), filtered by min size.
+    @Published var memoryPerKeyRows: [(String, Int)] = []
+    @Published var memoryMinSize: Double = 1024
+    /// Stream consumer-groups / consumers (XINFO GROUPS / XINFO CONSUMERS).
+    @Published var streamGroups: [[String: Any]] = []
+    @Published var streamConsumers: [[String: Any]] = []
+    /// TimeSeries aggregation / filter options for TS.RANGE / TS.REVRANGE.
+    @Published var tsAggregation = "None"
+    @Published var tsBucket = "1000"
+    @Published var tsFilterMin = ""
+    @Published var tsFilterMax = ""
+    @Published var tsInfo: [[String]] = []
+    /// Vector quantization selector passed to VADD / shown in the detail view.
+    /// Valid Redis options: NOQUANT / Q8 / BIN (Q4/Q6 on newer servers).
+    @Published var vectorQuantization = "NOQUANT"
+    /// Sidebar width (persisted) and key-search history (persisted).
+    @Published var sidebarWidth: Double = UserDefaults.standard.double(forKey: "ARDMSidebarWidth").nonZero(or: 240) {
+        didSet { UserDefaults.standard.set(sidebarWidth, forKey: "ARDMSidebarWidth") }
+    }
+    @Published var searchHistory: [String] = UserDefaults.standard.stringArray(forKey: "ARDMKeySearchHistory") ?? []
     @Published var checkedKeys: Set<String> = []
     @Published var favoriteKeys: [String] = []
     /// Persisted tree expansion state (KeyListVirtualTree.vue).
@@ -271,6 +306,24 @@ final class AppStore: ObservableObject {
         let tail = Array(cliHistory.suffix(200))
         UserDefaults.standard.set(tail, forKey: "ARDMCliHistory")
     }
+
+    /// Records a key-search term (de-duplicated, capped at 200) so it survives window close.
+    func recordSearch(_ term: String) {
+        let t = term.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        searchHistory.removeAll { $0 == t }
+        searchHistory.insert(t, at: 0)
+        if searchHistory.count > 200 { searchHistory.removeLast() }
+        UserDefaults.standard.set(searchHistory, forKey: "ARDMKeySearchHistory")
+    }
+
+    var redisMajor: Int { Int(redisVersion.split(separator: ".").first ?? "0") ?? 0 }
+    var redisMinor: Int {
+        let parts = redisVersion.split(separator: ".")
+        return parts.count > 1 ? (Int(parts[1]) ?? 0) : 0
+    }
+    /// Redis >= 7.4 exposes HTTL / HEXPIRE field-level TTLs.
+    var supportsFieldTTL: Bool { (redisMajor > 7) || (redisMajor == 7 && redisMinor >= 4) }
 
     func fail(_ message: String) {
         errorMessage = message

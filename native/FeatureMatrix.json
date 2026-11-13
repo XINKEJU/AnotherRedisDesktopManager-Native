@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "parity-gap-closure-2026-11-13",
+  "revision": "round5-full-remediation-2026-11-13",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -688,12 +688,30 @@
       "caveat": "仍为协议层 + ObjC 内核断言，不加载 SwiftUI 视图、无真实 Redis/SSH/TLS/集群；只能证明『协议往返与纯函数在构造输入下不崩』，不蕴含完整功能等价——盲点见 deep_audit.probe_blind_spots"
     },
     "p0_fixed": [
-      {"id": "P0-1", "fix": "新增 ARDMCommandLogString 日志脱敏：AUTH 参数掩为 ***、PING 不入日志、单参数 >200 截断、上限 5000（原 500）。Swift 侧删除 recordLog 旁路（独立于 ObjC onLog 的双写，且用原始 args 绕过脱敏）"},
-      {"id": "P0-2", "fix": "send: 只读双匹配（首词 + 首两词，覆盖 CONFIG SET / CLIENT KILL / XGROUP DESTROY 等含空格命令）；写命令黑名单从 75 项扩展到约 150 项（加入 DEBUG/MODULE/REPLICAOF/ACL/FAILOVER 等）；live 流（Pub/Sub、MONITOR）也走双匹配校验"},
-      {"id": "P0-3", "fix": "configureTLSForRead:write: 默认开启证书链校验（kCFStreamSSLValidatesCertificateChain=@(!insecure)），加载 tlsCA 文件入链；新增 tlsInsecure 开关与其 UI，剔除原无效的 kCFStreamSSLPeerName=kCFNull 赋值"},
-      {"id": "P0-4", "fix": "SSH -L 转发目标从硬编码 127.0.0.1 改为 config.host；ConnectTimeout 用 sshTimeout；sshPassphrase / sshTimeout 在 ARDM.h 定义并接入内核"},
-      {"id": "P0-5", "fix": "集群重定向按最后一个冒号拆分（兼容 IPv6 字面量 [::1]:port）；MOVED 永久重定向、ASK 一次性重定向（暂存原连接、用完恢复）；CLUSTER NODES 正确拆分 host/port"},
-      {"id": "P0-6", "fix": "Json viewer 侧新增逐字符 ARDMPrettyJSON 保留数字字面量，避免 NSJSONSerialization 把大整数折成 double；写回原样透传大整数。协议层整数回复仍走 longLong（见 remaining_p0 ③）"}
+      {
+        "id": "P0-1",
+        "fix": "新增 ARDMCommandLogString 日志脱敏：AUTH 参数掩为 ***、PING 不入日志、单参数 >200 截断、上限 5000（原 500）。Swift 侧删除 recordLog 旁路（独立于 ObjC onLog 的双写，且用原始 args 绕过脱敏）"
+      },
+      {
+        "id": "P0-2",
+        "fix": "send: 只读双匹配（首词 + 首两词，覆盖 CONFIG SET / CLIENT KILL / XGROUP DESTROY 等含空格命令）；写命令黑名单从 75 项扩展到约 150 项（加入 DEBUG/MODULE/REPLICAOF/ACL/FAILOVER 等）；live 流（Pub/Sub、MONITOR）也走双匹配校验"
+      },
+      {
+        "id": "P0-3",
+        "fix": "configureTLSForRead:write: 默认开启证书链校验（kCFStreamSSLValidatesCertificateChain=@(!insecure)），加载 tlsCA 文件入链；新增 tlsInsecure 开关与其 UI，剔除原无效的 kCFStreamSSLPeerName=kCFNull 赋值"
+      },
+      {
+        "id": "P0-4",
+        "fix": "SSH -L 转发目标从硬编码 127.0.0.1 改为 config.host；ConnectTimeout 用 sshTimeout；sshPassphrase / sshTimeout 在 ARDM.h 定义并接入内核"
+      },
+      {
+        "id": "P0-5",
+        "fix": "集群重定向按最后一个冒号拆分（兼容 IPv6 字面量 [::1]:port）；MOVED 永久重定向、ASK 一次性重定向（暂存原连接、用完恢复）；CLUSTER NODES 正确拆分 host/port"
+      },
+      {
+        "id": "P0-6",
+        "fix": "Json viewer 侧新增逐字符 ARDMPrettyJSON 保留数字字面量，避免 NSJSONSerialization 把大整数折成 double；写回原样透传大整数。协议层整数回复仍走 longLong（见 remaining_p0 ③）"
+      }
     ],
     "dead_links_fixed": [
       "D-01 stopKeepalive→clearActiveState：断开连接时 stopStatusTimer + stopKeepalive，30 秒 PING 定时器不再泄漏",
@@ -743,5 +761,68 @@
       ]
     },
     "what_still_needs_work": "以上 independent_reaudit 列出的 remaining_p0/p1/p2 即『再次检查后仍需改进的地方』。P0 三项（非 JSON 大整数、CLI 独立连接、写后刷新键列表）属正确性/体验缺陷，建议优先；P1 为各数据类型的深度语义与原版功能对齐；P2 为集成/快捷键/启动参数/SSH 高级场景。覆盖率口径维持 deep_audit 结论：功能骨架与主要操作路径全覆盖，但距 100% 等价仍有差距，不能宣称『所有功能都保留』"
+  },
+  "round5_remediation": {
+    "date": "2026-11-13",
+    "round": 5,
+    "trigger": "用户指令『全部修复，开干』：把第四轮独立复核列出的 remaining P0(3) / P1(11) / P2(11) 全部落地",
+    "method": "逐项实现 → 重建 .app（0 错误 0 警告）→ 扩展验证 harness（55→66 断言）→ 运行时冒烟",
+    "build": {
+      "swiftui_app_bytes": 4452195,
+      "swiftui_app_mb": 4.25,
+      "executable_bytes": 3398336,
+      "executable_kb": 3319,
+      "electron_baseline_bytes": 201188875,
+      "reduction_percent": 97.79,
+      "swift_typecheck_errors": 0,
+      "build_warnings": 0
+    },
+    "verification": {
+      "harness": "/tmp/ardm_native_verify：假 RESP 双节点服务 + ObjC 原生探针",
+      "result": "66 passed, 0 failed",
+      "added_checks": [
+        "RESP integer > INT64 keeps digits（9223372036854775808）",
+        "isWriteCommand FAILOVER = YES / GET = NO",
+        "Java stream deserialized（TC_STRING）",
+        "Java object fields decoded（TC_CLASSDESC + classdata）",
+        "Pickle deserialized（SHORT_BINUNICODE）",
+        "detect Brotli / PHP / Deflate / DeflateRaw / Protobuf"
+      ],
+      "runtime_smoke": "以 --host/--port/--name 启动 3 秒存活，无崩溃（仅系统 NSFontManager 良性提示）"
+    },
+    "p0_fixed": [
+      "① 非 JSON 大整数精度：RESP `:` 回复改用 strtoll+errno，超出 INT64 时保留原始字符串；Swift 侧 ardmString 走 NSNumber.stringValue，不折 double",
+      "② CLI 独立连接：新增 cliClient / ensureCliClient / sendOnCli；runCLI 与 MONITOR/SUBSCRIBE 改走独立连接，重连时先清理旧 CLI 连接",
+      "③ 写命令后刷新键列表：execute / runCLI 对 isWriteCommand 命中的命令调用 refreshKeys(reset:false)"
+    ],
+    "p1_fixed": [
+      "只读黑名单补全：FAILOVER / FAILOVER AUTH / CLUSTER ADDSLOTS / SCHEDULE / LATENCY / SWAPDB 等",
+      "List 保序编辑：LINSERT AFTER + LREM（替代 LSET），新旧值相同时退化为 LSET",
+      "Hash：HLEN/SCARD 计数、redis_version 判定 7.4+、保存后本地增量更新（不再全量 reloadKeyDetail）",
+      "Stream：XREVRANGE 倒序读取 + 去重、XINFO GROUPS / CONSUMERS 消费者面板",
+      "TimeSeries：TS.RANGE/REVRANGE 支持 AGGREGATION/BUCKET/FILTER_BY_VALUE、TS.INFO 扁平化、TS.ADD ON_DUPLICATE LAST",
+      "Vector：VGETATTR 逐维读取、量化选择 NOQUANT/Q8/BIN、<8.0 显式降级提示、VADD VALUES 语法",
+      "Viewer 自动识别：Brotli/PHP/Deflate/DeflateRaw/Protobuf/不可见字节→Hex，Msgpack 全量合法性校验",
+      "Status：字段 A→Z/Z→A 可排序 + 过滤 + INFO keyspace 分区统计表",
+      "SlowLog：CONFIG GET slowlog-log-slower-than / slowlog-max-len 阈值展示",
+      "Memory：逐 key MEMORY USAGE 扫描 + 最小字节过滤（Aggregate / Per-key 切换）",
+      "Sentinel 与 Cluster 互斥：保存校验 + 开关互禁 + 界面提示"
+    ],
+    "p2_fixed": [
+      "侧栏宽度持久：ARDMSidebarWidth + Settings 滑杆 + NavigationSplitView 列宽",
+      "搜索历史持久：ARDMKeySearchHistory（去重、上限 200）+ 下拉菜单",
+      "全局快捷键：⌘1…⌘9 切换标签、⌘F 聚焦键搜索",
+      "命令行启动参数：--host/--port/--auth/--user/--db/--name/--cluster/--ssh-*/--sentinel-*/--ssl-*",
+      "连接超时/重试对齐：connectTimeout=30000、retryTimes=3 线性退避",
+      "SSH 选项：sshKeepaliveInterval / sshReadyTimeout / sshAutoClose",
+      "JavaSerialize 真反序列化：TC_OBJECT / TC_CLASSDESC / 字段 / 数组 / 枚举 / 引用句柄",
+      "Pickle 真反序列化：栈式 opcode 解释器（int/float/str/bytes/list/dict/set/tuple/global/reduce）",
+      ".proto 解析：从 .proto 提取 fieldNumber→name（兼容嵌套 message 的平铺字段声明）",
+      "更新自动安装：下载 .dmg/.zip → 挂载/解压 → 替换 .app → 重启"
+    ],
+    "not_implemented": [
+      "SSH + Cluster/Sentinel 多隧道：目前仍复用单一本地转发；为每个集群节点建立独立隧道复杂度与风险高，明确列为已知差距"
+    ],
+    "coverage_note": "功能骨架与主要操作路径已全覆盖；深度语义（列表保序、字段级 TTL、流消费者、时序聚合、向量量化）已补齐。SSH 多隧道与部分 Redis 模块的极端边界仍属条件能力。"
   }
 }

@@ -176,6 +176,72 @@ static NSURL *sARDMUpdateAssetURL;
     [task resume];
 }
 
++ (void)installUpdateAtURL:(NSURL *)url completion:(void (^)(NSString *))completion {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *status = nil;
+        NSString *sourceApp = nil;
+        NSString *mountPoint = nil;
+        NSString *work = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+        [fm createDirectoryAtPath:work withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *ext = url.pathExtension.lowercaseString;
+
+        if ([ext isEqualToString:@"dmg"]) {
+            mountPoint = [work stringByAppendingPathComponent:@"vol"];
+            [fm createDirectoryAtPath:mountPoint withIntermediateDirectories:YES attributes:nil error:nil];
+            NSTask *attach = [[NSTask alloc] init];
+            attach.executableURL = [NSURL fileURLWithPath:@"/usr/bin/hdiutil"];
+            attach.arguments = @[@"attach", url.path, @"-nobrowse", @"-quiet", @"-mountpoint", mountPoint];
+            attach.standardError = [NSFileHandle fileHandleWithNullDevice];
+            @try { [attach launch]; [attach waitUntilExit]; } @catch (NSException *e) {}
+            for (NSString *entry in [fm contentsOfDirectoryAtPath:mountPoint error:nil]) {
+                if ([entry hasSuffix:@".app"]) { sourceApp = [mountPoint stringByAppendingPathComponent:entry]; break; }
+            }
+        } else if ([ext isEqualToString:@"zip"]) {
+            NSTask *unzip = [[NSTask alloc] init];
+            unzip.executableURL = [NSURL fileURLWithPath:@"/usr/bin/ditto"];
+            unzip.arguments = @[@"-x", @"-k", url.path, work];
+            unzip.standardError = [NSFileHandle fileHandleWithNullDevice];
+            @try { [unzip launch]; [unzip waitUntilExit]; } @catch (NSException *e) {}
+            NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:work];
+            for (NSString *relative in enumerator) {
+                if ([relative hasSuffix:@".app"]) { sourceApp = [work stringByAppendingPathComponent:relative]; break; }
+            }
+        }
+
+        if (!sourceApp) {
+            status = @"The update package did not contain an .app bundle.";
+        } else {
+            NSString *dest = [@"/Applications" stringByAppendingPathComponent:[sourceApp lastPathComponent]];
+            NSError *copyError = nil;
+            [fm removeItemAtPath:dest error:nil];
+            if ([fm copyItemAtPath:sourceApp toPath:dest error:&copyError]) {
+                status = [NSString stringWithFormat:@"Installed to %@ — relaunching.", dest];
+                [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:dest]];
+            } else {
+                NSString *fallback = [NSHomeDirectory() stringByAppendingPathComponent:[sourceApp lastPathComponent]];
+                [fm removeItemAtPath:fallback error:nil];
+                if ([fm copyItemAtPath:sourceApp toPath:fallback error:nil]) {
+                    status = [NSString stringWithFormat:@"Installed to %@ (no /Applications write access).", fallback];
+                    [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:fallback]];
+                } else {
+                    status = [NSString stringWithFormat:@"Install failed: %@", copyError.localizedDescription ?: @"unknown error"];
+                }
+            }
+        }
+
+        if (mountPoint) {
+            NSTask *detach = [[NSTask alloc] init];
+            detach.executableURL = [NSURL fileURLWithPath:@"/usr/bin/hdiutil"];
+            detach.arguments = @[@"detach", mountPoint, @"-quiet", @"-force"];
+            detach.standardError = [NSFileHandle fileHandleWithNullDevice];
+            @try { [detach launch]; [detach waitUntilExit]; } @catch (NSException *e) {}
+        }
+        [fm removeItemAtPath:work error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(status ?: @"Install finished."); });
+    });
+}
+
 #pragma mark - Security-scoped bookmarks (FileInput.vue)
 
 + (NSData * _Nullable)bookmarkForURL:(NSURL *)url {

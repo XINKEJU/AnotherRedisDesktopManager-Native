@@ -39,6 +39,61 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         AppStore.shared.startAutoRefresh()
+        applyStartupArguments()
+    }
+
+    /// Parse command-line launch flags (mirrors electron-main.js argv handling):
+    /// --host/--port/--auth/--db/--name, --cluster, --ssh-*, --sentinel-*, --ssl-*.
+    private func applyStartupArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains(where: { $0.hasPrefix("--") }) else { return }
+        func value(_ flag: String) -> String? {
+            guard let index = args.firstIndex(of: flag), index + 1 < args.count else { return nil }
+            let next = args[index + 1]
+            return next.hasPrefix("--") ? nil : next
+        }
+        func flag(_ name: String) -> Bool { args.contains(name) }
+
+        let store = AppStore.shared
+        let config = ARDMConnectionConfig()
+        config.identifier = UUID().uuidString
+        if config.separator.isEmpty { config.separator = ":" }
+        if let host = value("--host") { config.host = host }
+        if let port = value("--port"), let parsed = Int(port) { config.port = parsed }
+        if let auth = value("--auth") { config.auth = auth }
+        if let user = value("--user") ?? value("--username") { config.username = user }
+        if let db = value("--db"), let parsed = Int(db) { config.db = parsed }
+        if config.host.isEmpty { config.host = "127.0.0.1" }
+        if config.port <= 0 { config.port = 6379 }
+        config.name = value("--name") ?? "\(config.host):\(config.port)"
+        config.cluster = flag("--cluster")
+
+        if flag("--ssh") || value("--ssh-host") != nil {
+            config.sshEnabled = true
+            if let v = value("--ssh-host") { config.sshHost = v }
+            if let v = value("--ssh-port"), let parsed = Int(v) { config.sshPort = parsed }
+            if let v = value("--ssh-user") { config.sshUser = v }
+            if let v = value("--ssh-password") { config.sshPassword = v }
+            if let v = value("--ssh-key") { config.sshPrivateKey = v }
+        }
+        if flag("--sentinel") || value("--sentinel-master") != nil {
+            config.sentinelEnabled = true
+            config.cluster = false
+            if let v = value("--sentinel-master") { config.sentinelMaster = v }
+            if let v = value("--sentinel-password") { config.sentinelNodePassword = v }
+        }
+        if flag("--ssl") || flag("--tls") {
+            config.tlsEnabled = true
+            if let v = value("--tls-ca") { config.tlsCA = v }
+            if let v = value("--tls-cert") { config.tlsCert = v }
+            if let v = value("--tls-key") { config.tlsKey = v }
+            if let v = value("--tls-sni") { config.tlsSNI = v }
+        }
+        if config.sentinelEnabled && config.cluster { config.cluster = false }
+
+        store.connections.append(config)
+        store.saveConnections()
+        store.connect(to: config)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -81,10 +136,21 @@ struct ARDMCommands: Commands {
             Button(L10n("Add to Favorites")) { addFavorite() }
         }
         CommandMenu(L10n("Workspace")) {
+            // ⌘1 … ⌘9 switch between the nine workspace tabs (upstream HotKeys.vue).
             ForEach(MainTab.allCases) { tab in
-                Button(L10n(tab.title)) { store.activeTab = tab }
+                if let index = MainTab.allCases.firstIndex(of: tab), index < 9 {
+                    Button(L10n(tab.title)) { store.activeTab = tab }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                } else {
+                    Button(L10n(tab.title)) { store.activeTab = tab }
+                }
             }
             Divider()
+            Button(L10n("Search Keys")) {
+                store.activeTab = .keys
+                store.searchFocusRequest += 1
+            }
+            .keyboardShortcut("f", modifiers: .command)
             Button(L10n("Toggle Tree View")) { store.showTree.toggle(); store.buildTree() }
             Button(L10n("Settings…")) { store.showingSettings = true }
                 .keyboardShortcut(",", modifiers: .command)
@@ -138,7 +204,10 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             ConnectionSidebar()
-                .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 320)
+                // Persisted sidebar width (upstream localStorage.sideWidth, 200–1500px).
+                .navigationSplitViewColumnWidth(min: 200,
+                                                ideal: CGFloat(min(1500, max(200, store.sidebarWidth))),
+                                                max: 1500)
         } content: {
             KeyBrowserView()
                 .navigationSplitViewColumnWidth(min: 260, ideal: 330, max: 480)

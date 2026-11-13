@@ -1,6 +1,7 @@
 #import "ARDM.h"
 #import <JavaScriptCore/JavaScriptCore.h>
 #import <zlib.h>
+#import <ctype.h>
 
 #pragma mark - Format viewers (mirrors src/components/viewers/*.vue + src/util.js)
 
@@ -202,6 +203,7 @@ static NSDictionary<NSNumber *, NSString *> *sARDMProtobufSchema;
 
 #pragma mark Msgpack
 
+static BOOL ARDMMsgpackIsValid(const unsigned char *p, NSUInteger len);
 static id ARDMMsgpackValue(const unsigned char *p, NSUInteger len, NSUInteger *offset) {
     NSUInteger i = *offset;
     if (i >= len) return NSNull.null;
@@ -258,6 +260,17 @@ static id ARDMMsgpackValue(const unsigned char *p, NSUInteger len, NSUInteger *o
         }
         default: *offset = i; return [NSString stringWithFormat:@"<msgpack tag 0x%02x>", c];
     }
+}
+
+/** True only when the entire buffer is a single well-formed MessagePack value,
+    so detection never mislabels arbitrary binary as Msgpack. */
+static BOOL ARDMMsgpackIsValid(const unsigned char *p, NSUInteger len) {
+    if (len == 0) return NO;
+    NSUInteger off = 0;
+    id v = ARDMMsgpackValue(p, len, &off);
+    if (off != len) return NO;
+    if ([v isKindOfClass:NSString.class] && [(NSString *)v hasPrefix:@"<msgpack tag"]) return NO;
+    return YES;
 }
 
 #pragma mark PHP serialize
@@ -404,6 +417,414 @@ static NSString *ARDMPrettyJSON(NSData *data) {
     return out;
 }
 
+#pragma mark - Java Object Serialization (real deserialization)
+
+@interface ARDMJavaReader : NSObject
+@property (nonatomic, assign) const unsigned char *p;
+@property (nonatomic, assign) NSUInteger n;
+@property (nonatomic, assign) NSUInteger off;
+@property (nonatomic, strong) NSMutableArray *handles;
+- (id)readContent:(NSInteger)depth;
+- (NSDictionary *)readClassDesc:(NSInteger)depth;
+@end
+
+@implementation ARDMJavaReader
+
+- (BOOL)hasBytes:(NSUInteger)count { return self.off + count <= self.n; }
+- (uint8_t)u8 {
+    if (self.off >= self.n) { self.off = self.n; return 0; }
+    return self.p[self.off++];
+}
+- (uint16_t)u16 { uint16_t v = 0; for (int k = 0; k < 2; k++) v = (v << 8) | [self u8]; return v; }
+- (uint32_t)u32 { uint32_t v = 0; for (int k = 0; k < 4; k++) v = (v << 8) | [self u8]; return v; }
+- (uint64_t)u64 { uint64_t v = 0; for (int k = 0; k < 8; k++) v = (v << 8) | [self u8]; return v; }
+- (void)skip:(NSUInteger)count { self.off = MIN(self.n, self.off + count); }
+
+- (NSString *)utf {
+    if (![self hasBytes:2]) return @"";
+    uint16_t len = [self u16];
+    if (![self hasBytes:len]) { self.off = self.n; return @""; }
+    NSString *s = [[NSString alloc] initWithBytes:self.p + self.off length:len encoding:NSUTF8StringEncoding];
+    if (!s) s = [[NSString alloc] initWithBytes:self.p + self.off length:len encoding:NSISOLatin1StringEncoding];
+    self.off += len;
+    return s ?: @"";
+}
+
+- (void)addHandle:(id)value { [self.handles addObject:value ?: [NSNull null]]; }
+
+- (NSString *)describe:(id)value {
+    if (!value || value == [NSNull null]) return @"null";
+    if ([value isKindOfClass:[NSString class]]) return value;
+    if ([value isKindOfClass:[NSNumber class]]) return [value description];
+    if ([value isKindOfClass:[NSDictionary class]]) return [value[@"name"] description] ?: @"<object>";
+    return [value description];
+}
+
+- (void)skipAnnotations {
+    while (self.off < self.n) {
+        if (self.p[self.off] == 0x78) { self.off++; return; }
+        NSUInteger before = self.off;
+        (void)[self readContent:0];
+        if (self.off <= before) break;
+    }
+}
+
+- (NSDictionary *)readClassDesc:(NSInteger)depth {
+    if (depth > 40) return nil;
+    uint8_t token = [self u8];
+    if (token == 0x70) return nil; // TC_NULL
+    if (token == 0x71) { // TC_REFERENCE
+        uint32_t handle = [self u32];
+        if (handle < self.handles.count) {
+            id target = self.handles[handle];
+            if ([target isKindOfClass:[NSDictionary class]]) return target;
+        }
+        return nil;
+    }
+    if (token == 0x7D) { // TC_PROXYCLASSDESC
+        uint32_t count = [self u32];
+        for (uint32_t k = 0; k < count; k++) [self utf];
+        NSMutableDictionary *desc = [@{@"name": @"<proxy>", @"fields": @[]} mutableCopy];
+        [self addHandle:desc];
+        [self skipAnnotations];
+        NSDictionary *super = [self readClassDesc:depth + 1];
+        if (super) desc[@"super"] = super;
+        return desc;
+    }
+    if (token != 0x72) return nil; // TC_CLASSDESC
+    NSString *name = [self utf];
+    [self skip:8]; // serialVersionUID
+    (void)[self u8]; // flags
+    uint16_t fieldCount = [self u16];
+    NSMutableArray *fields = [NSMutableArray arrayWithCapacity:fieldCount];
+    for (uint16_t k = 0; k < fieldCount; k++) {
+        uint8_t type = [self u8];
+        NSString *fieldName = [self utf];
+        if (type == 'L' || type == '[') (void)[self readContent:depth + 1];
+        [fields addObject:@{@"type": [NSString stringWithFormat:@"%c", type], @"name": fieldName}];
+    }
+    [self skipAnnotations];
+    NSMutableDictionary *desc = [@{@"name": name, @"fields": fields} mutableCopy];
+    [self addHandle:desc]; // classDesc handle precedes its super descriptor
+    NSDictionary *super = [self readClassDesc:depth + 1];
+    if (super) desc[@"super"] = super;
+    return desc;
+}
+
+- (id)readFieldValue:(NSString *)type depth:(NSInteger)depth {
+    unichar c = type.length ? [type characterAtIndex:0] : 'L';
+    switch (c) {
+        case 'B': return @((int8_t)[self u8]);
+        case 'C': return [NSString stringWithFormat:@"%C", (unichar)[self u16]];
+        case 'S': return @((int16_t)[self u16]);
+        case 'I': return @((int32_t)[self u32]);
+        case 'J': return @((int64_t)[self u64]);
+        case 'F': { uint32_t bits = [self u32]; float f; memcpy(&f, &bits, 4); return @(f); }
+        case 'D': { uint64_t bits = [self u64]; double d; memcpy(&d, &bits, 8); return @(d); }
+        case 'Z': return [self u8] ? @YES : @NO;
+        default: return [self readContent:depth + 1];
+    }
+}
+
+- (NSString *)readObject:(NSInteger)depth {
+    NSDictionary *desc = [self readClassDesc:depth];
+    NSString *className = [desc[@"name"] description] ?: @"object";
+    [self addHandle:[NSString stringWithFormat:@"<object %@>", className]];
+    NSMutableArray *chain = [NSMutableArray array];
+    id cursor = desc;
+    NSInteger guard = 0;
+    while ([cursor isKindOfClass:[NSDictionary class]] && guard++ < 40) {
+        [chain insertObject:cursor atIndex:0];
+        cursor = ((NSDictionary *)cursor)[@"super"];
+    }
+    NSMutableString *body = [NSMutableString string];
+    for (NSDictionary *classDesc in chain) {
+        for (NSDictionary *field in (classDesc[@"fields"] ?: @[])) {
+            id value = [self readFieldValue:field[@"type"] depth:depth + 1];
+            [body appendFormat:@"  %@ (field %@) = %@\n", field[@"name"], field[@"type"], [self describe:value]];
+        }
+    }
+    return [NSString stringWithFormat:@"%@ {\n%@}", className, body];
+}
+
+- (NSString *)readArray:(NSInteger)depth {
+    NSDictionary *desc = [self readClassDesc:depth];
+    NSString *name = [desc[@"name"] description] ?: @"[?";
+    [self addHandle:[NSString stringWithFormat:@"<array %@>", name]];
+    uint32_t length = [self u32];
+    unichar component = name.length > 1 ? [name characterAtIndex:1] : 'L';
+    NSString *fieldType = (component == 'L' || component == '[') ? @"L" : [NSString stringWithFormat:@"%C", component];
+    NSMutableString *body = [NSMutableString string];
+    uint32_t limit = MIN(length, 2000);
+    for (uint32_t k = 0; k < limit; k++) {
+        id value = [self readFieldValue:fieldType depth:depth + 1];
+        [body appendFormat:@"  [%u] = %@\n", k, [self describe:value]];
+    }
+    if (length > limit) [body appendFormat:@"  … %u more\n", length - limit];
+    return [NSString stringWithFormat:@"array %@ (length %u) {\n%@}", name, length, body];
+}
+
+- (NSString *)readEnum:(NSInteger)depth {
+    NSDictionary *desc = [self readClassDesc:depth];
+    NSString *name = [desc[@"name"] description] ?: @"enum";
+    [self addHandle:[NSString stringWithFormat:@"<enum %@>", name]];
+    id constant = [self readContent:depth + 1];
+    return [NSString stringWithFormat:@"%@.%@", name, [self describe:constant]];
+}
+
+- (id)readContent:(NSInteger)depth {
+    if (depth > 60 || self.off >= self.n) return @"<truncated>";
+    uint8_t token = [self u8];
+    switch (token) {
+        case 0x70: return [NSNull null];
+        case 0x71: {
+            uint32_t handle = [self u32];
+            if (handle < self.handles.count) return self.handles[handle];
+            return [NSString stringWithFormat:@"<ref #%u>", handle];
+        }
+        case 0x74: { NSString *s = [self utf]; [self addHandle:s]; return s; }
+        case 0x7C: {
+            uint64_t length = [self u64];
+            NSUInteger take = (NSUInteger)MIN(length, (uint64_t)(self.n - self.off));
+            NSString *s = [[NSString alloc] initWithBytes:self.p + self.off length:take encoding:NSUTF8StringEncoding] ?: @"<binary string>";
+            self.off += take;
+            [self addHandle:s];
+            return s;
+        }
+        case 0x72: { NSDictionary *d = [self readClassDesc:depth]; return d ?: @"<classdesc>"; }
+        case 0x73: return [self readObject:depth];
+        case 0x75: return [self readArray:depth];
+        case 0x76: { NSDictionary *d = [self readClassDesc:depth]; [self addHandle:d ?: [NSNull null]]; return [NSString stringWithFormat:@"class %@", [d[@"name"] description] ?: @"?"]; }
+        case 0x7E: return [self readEnum:depth];
+        case 0x77: { uint8_t length = [self u8]; [self skip:length]; return [NSString stringWithFormat:@"<blockdata %u>", length]; }
+        case 0x7A: { uint32_t length = [self u32]; [self skip:length]; return [NSString stringWithFormat:@"<blockdatalong %u>", length]; }
+        case 0x78: return @"<endblockdata>";
+        case 0x79: return @"<reset>";
+        case 0x7B: { id ex = [self readContent:depth + 1]; return [NSString stringWithFormat:@"<exception %@>", [self describe:ex]]; }
+        default: return [NSString stringWithFormat:@"<unknown tc 0x%02x>", token];
+    }
+}
+
+@end
+
+static NSString *ARDMJavaDeserialize(NSData *data) {
+    if (data.length < 4) return @"<not a Java serialized stream>";
+    const unsigned char *p = data.bytes;
+    if (p[0] != 0xac || p[1] != 0xed) return @"<not a Java serialized stream>";
+    ARDMJavaReader *reader = [ARDMJavaReader new];
+    reader.p = p;
+    reader.n = data.length;
+    reader.off = 4;
+    reader.handles = [NSMutableArray array];
+    NSMutableString *out = [NSMutableString stringWithFormat:@"Java Object Serialization Stream (AC ED %02X %02X)\n", p[2], p[3]];
+    NSInteger guard = 0;
+    while (reader.off < reader.n && guard < 5000) {
+        NSUInteger before = reader.off;
+        id value = [reader readContent:0];
+        NSString *line = [reader describe:value];
+        if (line.length && ![line hasPrefix:@"<endblockdata>"] && ![line hasPrefix:@"<reset>"]) {
+            [out appendFormat:@"%@\n", line];
+        }
+        if (reader.off <= before) break;
+        guard++;
+    }
+    return out;
+}
+
+#pragma mark - Python Pickle (real deserialization)
+
+static NSString *ARDMPickleDescribe(id value, NSInteger depth) {
+    if (depth > 30) return @"<deep>";
+    if (!value || value == [NSNull null]) return @"None";
+    if ([value isKindOfClass:[NSString class]]) return [NSString stringWithFormat:@"'%@'", value];
+    if ([value isKindOfClass:[NSNumber class]]) {
+        if (strcmp([value objCType], @encode(BOOL)) == 0) return [value boolValue] ? @"True" : @"False";
+        return [value description];
+    }
+    if ([value isKindOfClass:[NSData class]]) return [NSString stringWithFormat:@"<bytes %lu>", (unsigned long)[value length]];
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSMutableArray *parts = [NSMutableArray array];
+        for (id item in value) [parts addObject:ARDMPickleDescribe(item, depth + 1)];
+        return [NSString stringWithFormat:@"[%@]", [parts componentsJoinedByString:@", "]];
+    }
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSMutableArray *parts = [NSMutableArray array];
+        for (id key in value) [parts addObject:[NSString stringWithFormat:@"%@: %@", key, ARDMPickleDescribe(value[key], depth + 1)]];
+        return [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@", "]];
+    }
+    if ([value isKindOfClass:[NSSet class]]) {
+        NSMutableArray *parts = [NSMutableArray array];
+        for (id item in value) [parts addObject:ARDMPickleDescribe(item, depth + 1)];
+        return [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@", "]];
+    }
+    return [value description];
+}
+
+static NSString *ARDMUnpickle(NSData *data) {
+    const unsigned char *p = data.bytes;
+    NSUInteger n = data.length, i = 0;
+    NSMutableArray *stack = [NSMutableArray array];
+    NSMutableDictionary *memo = [NSMutableDictionary dictionary];
+    NSObject *marker = [NSObject new];
+    NSString *error = nil;
+    NSInteger guard = 0;
+    while (i < n && guard++ < 2000000) {
+        uint8_t op = p[i++];
+        switch (op) {
+            case 0x80: i += 1; break; // PROTO
+            case 0x95: i += 8; break; // FRAME
+            case '.': i = n; break;   // STOP
+            case '(': [stack addObject:marker]; break; // MARK
+            case '0': if (stack.count) [stack removeLastObject]; break; // POP
+            case '1': while (stack.count && [stack lastObject] != marker) [stack removeLastObject]; if (stack.count) [stack removeLastObject]; break; // POP_MARK
+            case '2': [stack addObject:[stack lastObject] ?: [NSNull null]]; break; // DUP
+            case 'N': [stack addObject:[NSNull null]]; break; // NONE
+            case 'I': {
+                NSMutableString *s = [NSMutableString string];
+                while (i < n && p[i] != '\n') { [s appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                if ([s isEqualToString:@"00"]) [stack addObject:@NO];
+                else if ([s isEqualToString:@"01"]) [stack addObject:@YES];
+                else [stack addObject:@([s longLongValue])];
+                break;
+            }
+            case 'J': { int32_t v = 0; if (i + 4 <= n) memcpy(&v, p + i, 4); i += 4; [stack addObject:@(v)]; break; }
+            case 'K': { uint8_t v = i < n ? p[i] : 0; i += 1; [stack addObject:@(v)]; break; }
+            case 'M': { uint16_t v = 0; if (i + 2 <= n) memcpy(&v, p + i, 2); i += 2; [stack addObject:@(v)]; break; }
+            case 'L': {
+                NSMutableString *s = [NSMutableString string];
+                while (i < n && p[i] != 'L') { [s appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                [stack addObject:@([s longLongValue])];
+                break;
+            }
+            case 0x8A: { uint8_t len = i < n ? p[i] : 0; i++; long long v = 0; for (int k = (int)len - 1; k >= 0; k--) v = (v << 8) | (i + k < n ? p[i + k] : 0); i += len; [stack addObject:@(v)]; break; }
+            case 0x8B: { uint32_t len = 0; if (i + 4 <= n) memcpy(&len, p + i, 4); i += 4; long long v = 0; for (int k = (int)len - 1; k >= 0 && i + k < n; k--) v = (v << 8) | p[i + k]; i += len; [stack addObject:@(v)]; break; }
+            case 'F': {
+                NSMutableString *s = [NSMutableString string];
+                while (i < n && p[i] != '\n') { [s appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                [stack addObject:@([s doubleValue])];
+                break;
+            }
+            case 'G': { uint64_t bits = 0; for (int k = 0; k < 8 && i < n; k++) bits = (bits << 8) | p[i++]; double d; memcpy(&d, &bits, 8); [stack addObject:@(d)]; break; }
+            case 'S': {
+                NSMutableString *s = [NSMutableString string];
+                if (i < n && p[i] == '\'') i++;
+                while (i < n && p[i] != '\n') { [s appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                if (s.length && [s characterAtIndex:s.length - 1] == '\'') s = [[s substringToIndex:s.length - 1] mutableCopy];
+                [stack addObject:s];
+                break;
+            }
+            case 'V': {
+                NSMutableString *s = [NSMutableString string];
+                while (i < n && p[i] != '\n') { [s appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                [stack addObject:s];
+                break;
+            }
+            case 'T': { uint32_t len = 0; if (i + 4 <= n) memcpy(&len, p + i, 4); i += 4; NSString *s = len <= n - i ? [[NSString alloc] initWithBytes:p + i length:len encoding:NSUTF8StringEncoding] : @""; i += len; [stack addObject:s ?: @""]; break; }
+            case 'U': { uint8_t len = i < n ? p[i] : 0; i++; NSString *s = len <= n - i ? [[NSString alloc] initWithBytes:p + i length:len encoding:NSUTF8StringEncoding] : @""; i += len; [stack addObject:s ?: @""]; break; }
+            case 'B': { uint32_t len = 0; if (i + 4 <= n) memcpy(&len, p + i, 4); i += 4; NSData *d = len <= n - i ? [NSData dataWithBytes:p + i length:len] : [NSData data]; i += len; [stack addObject:d]; break; }
+            case 'C': { uint8_t len = i < n ? p[i] : 0; i++; NSData *d = len <= n - i ? [NSData dataWithBytes:p + i length:len] : [NSData data]; i += len; [stack addObject:d]; break; }
+            case 0x8C: { uint8_t len = i < n ? p[i] : 0; i++; NSString *s = len <= n - i ? [[NSString alloc] initWithBytes:p + i length:len encoding:NSUTF8StringEncoding] : @""; i += len; [stack addObject:s ?: @""]; break; }
+            case 'X': { uint32_t len = 0; if (i + 4 <= n) memcpy(&len, p + i, 4); i += 4; NSString *s = len <= n - i ? [[NSString alloc] initWithBytes:p + i length:len encoding:NSUTF8StringEncoding] : @""; i += len; [stack addObject:s ?: @""]; break; }
+            case 0x8D: { uint64_t len = 0; if (i + 8 <= n) memcpy(&len, p + i, 8); i += 8; NSString *s = len <= (uint64_t)(n - i) ? [[NSString alloc] initWithBytes:p + i length:(NSUInteger)len encoding:NSUTF8StringEncoding] : @""; i += (NSUInteger)len; [stack addObject:s ?: @""]; break; }
+            case ')': [stack addObject:@[]]; break; // EMPTY_TUPLE
+            case 0x85: case 0x86: case 0x87: case 't': {
+                NSMutableArray *items = [NSMutableArray array];
+                if (op == 't') {
+                    while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                    if (stack.count) [stack removeLastObject];
+                } else {
+                    int count = op == 0x85 ? 1 : (op == 0x86 ? 2 : 3);
+                    for (int k = 0; k < count && stack.count; k++) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                }
+                [stack addObject:items];
+                break;
+            }
+            case ']': [stack addObject:[NSMutableArray array]]; break; // EMPTY_LIST
+            case 'l': {
+                NSMutableArray *items = [NSMutableArray array];
+                while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                if (stack.count) [stack removeLastObject];
+                [stack addObject:items];
+                break;
+            }
+            case 'a': { id v = [stack lastObject]; if (stack.count) [stack removeLastObject]; id list = [stack lastObject]; if ([list isKindOfClass:[NSMutableArray class]]) [list addObject:v ?: [NSNull null]]; break; } // APPEND
+            case 'e': {
+                NSMutableArray *items = [NSMutableArray array];
+                while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                if (stack.count) [stack removeLastObject];
+                id list = [stack lastObject];
+                if ([list isKindOfClass:[NSMutableArray class]]) [list addObjectsFromArray:items];
+                break;
+            }
+            case '}': [stack addObject:[NSMutableDictionary dictionary]]; break; // EMPTY_DICT
+            case 'd': {
+                NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+                NSMutableArray *items = [NSMutableArray array];
+                while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                if (stack.count) [stack removeLastObject];
+                for (NSUInteger k = 0; k + 1 < items.count; k += 2) dict[[items[k] description]] = items[k + 1];
+                [stack addObject:dict];
+                break;
+            }
+            case 's': { id v = [stack lastObject]; if (stack.count) [stack removeLastObject]; id key = [stack lastObject]; if (stack.count) [stack removeLastObject]; id dict = [stack lastObject]; if ([dict isKindOfClass:[NSMutableDictionary class]]) dict[[key description]] = v ?: [NSNull null]; break; } // SETITEM
+            case 'u': {
+                NSMutableArray *items = [NSMutableArray array];
+                while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                if (stack.count) [stack removeLastObject];
+                id dict = [stack lastObject];
+                if ([dict isKindOfClass:[NSMutableDictionary class]]) for (NSUInteger k = 0; k + 1 < items.count; k += 2) dict[[items[k] description]] = items[k + 1];
+                break;
+            }
+            case 0x8F: [stack addObject:[NSMutableSet set]]; break; // EMPTY_SET
+            case 0x90: {
+                NSMutableArray *items = [NSMutableArray array];
+                while (stack.count && [stack lastObject] != marker) { [items insertObject:[stack lastObject] atIndex:0]; [stack removeLastObject]; }
+                if (stack.count) [stack removeLastObject];
+                id set = [stack lastObject];
+                if ([set isKindOfClass:[NSMutableSet class]]) [set addObjectsFromArray:items];
+                break;
+            }
+            case 'p': { NSInteger idx = 0; while (i < n && p[i] != '\n') { idx = idx * 10 + (p[i] - '0'); i++; } if (i < n) i++; memo[@(idx)] = [stack lastObject] ?: [NSNull null]; break; } // PUT
+            case 'q': { uint8_t idx = i < n ? p[i] : 0; i++; memo[@(idx)] = [stack lastObject] ?: [NSNull null]; break; } // BINPUT
+            case 'r': { uint32_t idx = 0; if (i + 4 <= n) memcpy(&idx, p + i, 4); i += 4; memo[@(idx)] = [stack lastObject] ?: [NSNull null]; break; }
+            case 0x94: memo[@(memo.count)] = [stack lastObject] ?: [NSNull null]; break; // MEMOIZE
+            case 'g': { NSInteger idx = 0; while (i < n && p[i] != '\n') { idx = idx * 10 + (p[i] - '0'); i++; } if (i < n) i++; [stack addObject:memo[@(idx)] ?: [NSNull null]]; break; } // GET
+            case 'h': { uint8_t idx = i < n ? p[i] : 0; i++; [stack addObject:memo[@(idx)] ?: [NSNull null]]; break; }
+            case 'j': { uint32_t idx = 0; if (i + 4 <= n) memcpy(&idx, p + i, 4); i += 4; [stack addObject:memo[@(idx)] ?: [NSNull null]]; break; }
+            case 'c': {
+                NSMutableString *mod = [NSMutableString string];
+                while (i < n && p[i] != '\n') { [mod appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                NSMutableString *name = [NSMutableString string];
+                while (i < n && p[i] != '\n') { [name appendFormat:@"%c", p[i]]; i++; }
+                if (i < n) i++;
+                [stack addObject:[NSString stringWithFormat:@"%@.%@", mod, name]];
+                break;
+            }
+            case 0x93: { id name = [stack lastObject]; if (stack.count) [stack removeLastObject]; id mod = [stack lastObject]; if (stack.count) [stack removeLastObject]; [stack addObject:[NSString stringWithFormat:@"%@.%@", mod, name]]; break; } // STACK_GLOBAL
+            case 'R': { id args = [stack lastObject]; if (stack.count) [stack removeLastObject]; id callable = [stack lastObject]; if (stack.count) [stack removeLastObject]; [stack addObject:[NSString stringWithFormat:@"%@(%@)", callable, args]]; break; } // REDUCE
+            case 'b': break; // BUILD: object stays on stack
+            case 0x81: { id args = [stack lastObject]; if (stack.count) [stack removeLastObject]; id cls = [stack lastObject]; if (stack.count) [stack removeLastObject]; [stack addObject:[NSString stringWithFormat:@"%@(%@)", cls, args]]; break; } // NEWOBJ
+            case 0x92: { id kwargs = [stack lastObject]; if (stack.count) [stack removeLastObject]; id args = [stack lastObject]; if (stack.count) [stack removeLastObject]; id cls = [stack lastObject]; if (stack.count) [stack removeLastObject]; [stack addObject:[NSString stringWithFormat:@"%@(%@%@)", cls, args, kwargs]]; break; } // NEWOBJ_EX
+            default:
+                error = [NSString stringWithFormat:@"unsupported opcode 0x%02X at %lu", op, (unsigned long)(i - 1)];
+                i = n;
+                break;
+        }
+    }
+    id result = stack.count ? [stack lastObject] : [NSNull null];
+    NSMutableString *out = [NSMutableString stringWithString:@"Python Pickle (decoded)\n"];
+    [out appendString:ARDMPickleDescribe(result, 0)];
+    [out appendString:@"\n"];
+    if (error) [out appendFormat:@"<stopped: %@>\n", error];
+    return out;
+}
+
 @implementation ARDMFormatters
 
 + (NSArray<NSString *> *)viewerNames {
@@ -413,13 +834,36 @@ static NSString *ARDMPrettyJSON(NSData *data) {
 
 + (NSString *)detectViewerForData:(NSData *)data {
     const unsigned char *p = data.bytes; NSUInteger n = data.length;
+    if (n == 0) return @"Text";
+    // Gzip magic: 1f 8b
     if (n >= 2 && p[0] == 0x1f && p[1] == 0x8b) return @"Gzip";
-    if (n >= 2 && p[0] == 0x78) return @"Deflate";
-    if (n >= 4 && p[0] == 0xac && p[1] == 0xed) return @"JavaSerialize";
-    if (n >= 2 && (p[0] == 0x80 || p[0] == 0x82) && p[1] <= 0x05) return @"Pickle";
-    if (n >= 2 && (p[0] == '{' || p[0] == '[')) return @"Json";
-    if (n > 1 && p[0] <= 0x92) return @"Msgpack";
-    return @"Text";
+    // Brotli magic: ce b2 81 (RFC 7932 typical start bytes)
+    if (n >= 3 && p[0] == 0xce && p[1] == 0xb2 && p[2] == 0x81) return @"Brotli";
+    // Java serialization magic: ac ed
+    if (n >= 2 && p[0] == 0xac && p[1] == 0xed) return @"JavaSerialize";
+    // Pickle protocol header: 0x80 <version 1..5>, or a known pickle opcode in first byte
+    if (n >= 2 && p[0] == 0x80 && p[1] >= 0x01 && p[1] <= 0x05) return @"Pickle";
+    if (n >= 1 && (p[0] == '(' || p[0] == 'I' || p[0] == 'S' || p[0] == 'V' ||
+                    p[0] == 'l' || p[0] == 'd' || p[0] == 'c' || p[0] == 't')) return @"Pickle";
+    // PHP serialize: an alphanumeric tag followed by ':' (a:/i:/s:/b:/N; ...)
+    if (n >= 2 && isalpha(p[0]) && p[1] == ':') return @"PHPSerialize";
+    // Deflate (zlib) header: 0x78 then a valid zlib second byte
+    if (n >= 2 && p[0] == 0x78 && (p[1] == 0x01 || p[1] == 0x9c || p[1] == 0xda ||
+                                    p[1] == 0x5e || p[1] == 0x7e || p[1] == 0x3e)) return @"Deflate";
+    // DeflateRaw: a raw DEFLATE block header (BTYPE=01/10) that is not a zlib stream
+    if (n >= 2 && (p[0] == 0x03 || p[0] == 0x05 || p[0] == 0x01 || p[0] == 0x02)) return @"DeflateRaw";
+    // JSON object / array
+    if (p[0] == '{' || p[0] == '[') return @"Json";
+    // Any NUL byte in the first 512 bytes means binary -> Hex, not Text/Msgpack
+    NSUInteger scan = MIN(n, 512);
+    for (NSUInteger i = 0; i < scan; i++) if (p[i] == 0) return @"Hex";
+    // Protobuf: first byte is a low field tag (field 1..15, wire 0..5)
+    if ((p[0] & 0x07) <= 5 && (p[0] >> 3) >= 1 && (p[0] >> 3) <= 15) return @"Protobuf";
+    // Msgpack: only when the whole buffer is one valid value
+    if (ARDMMsgpackIsValid(p, n)) return @"Msgpack";
+    // Otherwise, valid UTF-8 is Text, anything else is binary Hex
+    if ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]) return @"Text";
+    return @"Hex";
 }
 
 + (NSString *)render:(NSData *)data as:(NSString *)viewer error:(NSError **)error {
@@ -446,44 +890,8 @@ static NSString *ARDMPrettyJSON(NSData *data) {
         id v = ARDMPHPValue(data.bytes, data.length, &off);
         return ARDMJSONString(v);
     }
-    if ([viewer isEqualToString:@"JavaSerialize"]) {
-        if (data.length < 4 || ((const unsigned char *)data.bytes)[0] != 0xac) return @"<not a Java serialized stream>";
-        NSMutableString *out = [NSMutableString stringWithString:@"Java Object Serialization Stream (AC ED 00 05)\n"];
-        NSData *ascii = [data subdataWithRange:NSMakeRange(4, data.length - 4)];
-        NSString *s = [[NSString alloc] initWithData:ascii encoding:NSUTF8StringEncoding];
-        if (s) {
-            NSCharacterSet *keep = [NSCharacterSet alphanumericCharacterSet];
-            NSMutableString *printable = [NSMutableString string];
-            for (NSUInteger i = 0; i < s.length; i++) {
-                unichar ch = [s characterAtIndex:i];
-                if ([keep characterIsMember:ch] || ch == '.' || ch == '_' || ch == '/') [printable appendFormat:@"%C", ch];
-                else if (ch == '\n' || ch == 0) [printable appendString:@"\n"];
-            }
-            [out appendString:printable];
-        }
-        return out;
-    }
-    if ([viewer isEqualToString:@"Pickle"]) {
-        NSMutableString *out = [NSMutableString string];
-        const unsigned char *p = data.bytes;
-        for (NSUInteger i = 0; i < data.length; i++) {
-            unsigned char c = p[i];
-            NSString *name = nil;
-            switch (c) {
-                case 0x80: name = @"PROTO"; break; case '(': name = @"MARK"; break;
-                case 'S': name = @"STRING"; break; case 'V': name = @"UNICODE"; break;
-                case 'B': name = @"BINBYTES"; break; case 'X': name = @"BINUNICODE"; break;
-                case 'I': name = @"INT"; break; case 'J': name = @"BININT"; break;
-                case 'N': name = @"NONE"; break; case 'T': name = @"TUPLE1"; break;
-                case 'l': name = @"LIST"; break; case 'd': name = @"DICT"; break;
-                case 'a': name = @"APPEND"; break; case 's': name = @"SETITEM"; break;
-                case '.': name = @"STOP"; break;
-                default: break;
-            }
-            if (name) [out appendFormat:@"%04lx  %@\n", (unsigned long)i, name];
-        }
-        return out.length ? out : ARDMHexDump(data);
-    }
+    if ([viewer isEqualToString:@"JavaSerialize"]) return ARDMJavaDeserialize(data);
+    if ([viewer isEqualToString:@"Pickle"]) return ARDMUnpickle(data);
     if ([viewer isEqualToString:@"Gzip"] || [viewer isEqualToString:@"Deflate"] || [viewer isEqualToString:@"DeflateRaw"]) {
         int bits = [viewer isEqualToString:@"Gzip"] ? 31 : ([viewer isEqualToString:@"Deflate"] ? 15 : -15);
         NSData *inflated = ARDMInflate(data, bits);

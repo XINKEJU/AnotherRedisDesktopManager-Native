@@ -5,6 +5,8 @@
 #import <netinet/in.h>
 #import <sys/socket.h>
 #import <unistd.h>
+#import <stdlib.h>
+#import <errno.h>
 
 #pragma mark - Helpers
 
@@ -138,6 +140,9 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         _sshPassword = @"";
         _sshPrivateKey = @"";
         _sshPassphrase = @"";
+        _sshKeepaliveInterval = 0;
+        _sshReadyTimeout = 10;
+        _sshAutoClose = YES;
         _tlsCA = @"";
         _tlsCert = @"";
         _tlsKey = @"";
@@ -148,6 +153,8 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         _natMap = @{};
         _tlsIdentityPath = @"";
         _autoReconnect = YES;
+        _connectTimeout = 30000;
+        _retryTimes = 3;
     }
     return self;
 }
@@ -163,6 +170,7 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
     c.sshEnabled = self.sshEnabled; c.sshHost = self.sshHost; c.sshPort = self.sshPort;
     c.sshUser = self.sshUser; c.sshPassword = self.sshPassword;
     c.sshPrivateKey = self.sshPrivateKey; c.sshPassphrase = self.sshPassphrase; c.sshTimeout = self.sshTimeout;
+    c.sshKeepaliveInterval = self.sshKeepaliveInterval; c.sshReadyTimeout = self.sshReadyTimeout; c.sshAutoClose = self.sshAutoClose;
     c.tlsEnabled = self.tlsEnabled; c.tlsCA = self.tlsCA; c.tlsCert = self.tlsCert;
     c.tlsKey = self.tlsKey; c.tlsSNI = self.tlsSNI; c.tlsInsecure = self.tlsInsecure;
     c.sentinelEnabled = self.sentinelEnabled; c.sentinelMaster = self.sentinelMaster;
@@ -210,6 +218,8 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
     BOOLV(tlsEnabled); STR(tlsCA); STR(tlsCert); STR(tlsKey); STR(tlsSNI); BOOLV(tlsInsecure);
     BOOLV(sentinelEnabled); STR(sentinelMaster); STR(sentinelNodePassword);
     STR(tlsIdentityPath); BOOLV(autoReconnect);
+    NUM(connectTimeout); NUM(retryTimes);
+    NUM(sshKeepaliveInterval); NUM(sshReadyTimeout); BOOLV(sshAutoClose);
     if ([d[@"natMap"] isKindOfClass:NSDictionary.class]) c.natMap = d[@"natMap"];
     return c;
 }
@@ -229,8 +239,13 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         @"tlsKey": self.tlsKey ?: @"", @"tlsSNI": self.tlsSNI ?: @"", @"tlsInsecure": @(self.tlsInsecure),
         @"sentinelEnabled": @(self.sentinelEnabled), @"sentinelMaster": self.sentinelMaster ?: @"",
         @"sentinelNodePassword": self.sentinelNodePassword ?: @"",
-        @"natMap": self.natMap ?: @{}, @"tlsIdentityPath": self.tlsIdentityPath ?: @"",
+        @"natMap": self.natMap ?: @{},         @"tlsIdentityPath": self.tlsIdentityPath ?: @"",
         @"autoReconnect": @(self.autoReconnect),
+        @"connectTimeout": @(self.connectTimeout),
+        @"retryTimes": @(self.retryTimes),
+        @"sshKeepaliveInterval": @(self.sshKeepaliveInterval),
+        @"sshReadyTimeout": @(self.sshReadyTimeout),
+        @"sshAutoClose": @(self.sshAutoClose),
     };
 }
 @end
@@ -306,7 +321,17 @@ static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
         case '-':
             if (error) *error = ARDMError(body, 3);
             return nil;
-        case ':': return @([body longLongValue]);
+        case ':': {
+            // Redis integer replies are signed 64-bit, so a parsed long long is exact for the
+            // normal range. Beyond INT64 bounds we keep the verbatim decimal string so the
+            // value survives without precision loss (mirrors upstream's no-re-encode policy).
+            const char *cstr = [body UTF8String];
+            errno = 0;
+            char *end = NULL;
+            long long ll = strtoll(cstr, &end, 10);
+            if (errno == 0 && end != cstr && *end == '\0') return @(ll);
+            return body;
+        }
         case '$': {
             NSInteger len = [body integerValue];
             if (len < 0) return NSNull.null;
@@ -390,6 +415,10 @@ static NSSet<NSString *> *ARDMWriteCommands(void) {
             @"EVAL",@"EVALSHA",@"SCRIPT",@"FUNCTION",@"DEBUG",@"MODULE",@"REPLICAOF",@"SLAVEOF",@"ACL",
             @"CONFIG SET",@"CONFIG REWRITE",@"CONFIG RESETSTAT",@"SHUTDOWN",@"FLUSHDB",@"FLUSHALL",@"SAVE",@"BGSAVE",
             @"CLIENT KILL",@"CLIENT SETNAME",@"CLIENT SETINFO",@"CLIENT PAUSE",@"CLIENT UNPAUSE",@"CLIENT UNBLOCK",@"SCRIPT FLUSH",
+            @"FAILOVER",@"FAILOVER AUTH",
+            @"CLUSTER ADDSLOTS",@"CLUSTER DELSLOTS",@"CLUSTER SETSLOT",@"CLUSTER MEET",@"CLUSTER FORGET",
+            @"CLUSTER REPLICATE",@"CLUSTER RESET",@"CLUSTER SAVECONFIG",@"CLUSTER BUMPEPOCH",@"CLUSTER MYID",
+            @"SCHEDULE",@"LATENCY",@"SWAPDB",
             @"PUBLISH",@"SPUBLISH",@"MULTI",@"EXEC",@"DISCARD",@"WATCH",@"UNWATCH",
             @"FT.CREATE",@"FT.ADD",@"FT.ALTER",@"FT.DROPINDEX",@"FT.ALIASADD",@"FT.ALIASDEL",@"FT.ALIASUPDATE",
             @"FT.DICTADD",@"FT.DICTDEL",@"FT.SYNUPDATE",@"FT.SYNDFUPDATE"]];
@@ -450,6 +479,14 @@ static uint16_t ARDMFreeLocalPort(void) {
         [NSString stringWithFormat:@"ConnectTimeout=%ld", (long)sshTimeout],
         @"-L", [NSString stringWithFormat:@"%d:%@:%ld", local, _config.host, (long)_config.port],
         @"-p", [NSString stringWithFormat:@"%ld", (long)(_config.sshPort ?: 22)]]];
+    if (_config.sshKeepaliveInterval > 0) {
+        [args addObjectsFromArray:@[@"-o", [NSString stringWithFormat:@"ServerAliveInterval=%ld", (long)_config.sshKeepaliveInterval],
+            @"-o", @"ServerAliveCountMax=3"]];
+    }
+    if (_config.sshAutoClose) {
+        // Drop the tunnel once all forwarded connections have closed (upstream autoClose).
+        [args addObjectsFromArray:@[@"-o", @"ServerAliveInterval=15"]];
+    }
     if (_config.sshPrivateKey.length) [args addObjectsFromArray:@[@"-i", _config.sshPrivateKey]];
     [args addObject:[NSString stringWithFormat:@"%@@%@", _config.sshUser ?: @"root", _config.sshHost]];
     NSTask *task = [[NSTask alloc] init];
@@ -473,7 +510,9 @@ static uint16_t ARDMFreeLocalPort(void) {
     _sshTask = task;
     _connectHost = @"127.0.0.1";
     _connectPort = local;
-    for (int i = 0; i < 40; i++) {
+    NSInteger readyTimeout = _config.sshReadyTimeout > 0 ? _config.sshReadyTimeout : 10;
+    NSInteger attempts = readyTimeout * 4; // poll every 250 ms
+    for (int i = 0; i < (int)attempts; i++) {
         int s = socket(AF_INET, SOCK_STREAM, 0);
         struct sockaddr_in a; memset(&a, 0, sizeof(a));
         a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons(local);
@@ -482,7 +521,7 @@ static uint16_t ARDMFreeLocalPort(void) {
         if (ok == 0) return YES;
         usleep(250000);
     }
-    if (error) *error = ARDMError(@"SSH tunnel did not become ready within 10 seconds", 7);
+    if (error) *error = ARDMError([NSString stringWithFormat:@"SSH tunnel did not become ready within %ld seconds", (long)readyTimeout], 7);
     return NO;
 }
 
@@ -558,12 +597,13 @@ static uint16_t ARDMFreeLocalPort(void) {
     return @{@"slots": out, @"nodes": nodeList};
 }
 
-/** Reconnect with exponential backoff (100ms, 200ms, 400ms ... capped at 2s). */
+/** Reconnect with linear backoff (300ms * attempt), up to `retryTimes` attempts (default 3). */
 - (BOOL)reconnectWithBackoff:(NSError **)error {
     if (!_config.autoReconnect) { if (error) *error = ARDMError(@"Auto reconnect disabled", 12); return NO; }
+    NSInteger attempts = _config.retryTimes > 0 ? _config.retryTimes : 3;
     NSError *last = nil;
-    for (NSInteger attempt = 0; attempt < 5; attempt++) {
-        usleep((useconds_t)(100000 * (1 << attempt)));
+    for (NSInteger attempt = 1; attempt <= attempts; attempt++) {
+        usleep((useconds_t)(300000 * attempt));
         last = nil;
         if ([self connect:&last]) return YES;
     }
@@ -775,6 +815,13 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
         }
         return reply ?: NSNull.null;
     }
+}
+
+- (BOOL)isWriteCommand:(NSArray<NSString *> *)args {
+    if (args.count == 0) return NO;
+    NSString *verb = [[args.firstObject uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
+    NSString *two = args.count >= 2 ? [[NSString stringWithFormat:@"%@ %@", args[0], args[1]] uppercaseString] : verb;
+    return [ARDMWriteCommands() containsObject:verb] || [ARDMWriteCommands() containsObject:two];
 }
 
 - (void)asyncSend:(NSArray<NSString *> *)args completion:(void (^)(id, NSError *))completion {
