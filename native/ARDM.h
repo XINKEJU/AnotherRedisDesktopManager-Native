@@ -86,6 +86,8 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 @property (nonatomic, readonly) NSInteger portUsed;
 
 - (id)send:(NSArray<NSString *> *)args error:(NSError **)error;
+/** Atomic MULTI ... EXEC: returns the replies of every queued command plus EXEC's result array. */
+- (NSArray *)sendTransaction:(NSArray<NSArray<NSString *> *> *)commands error:(NSError **)error;
 /** Variant accepting NSData arguments for binary keys / values. */
 - (id)sendArguments:(NSArray *)args error:(NSError **)error;
 - (void)asyncSend:(NSArray<NSString *> *)args completion:(void (^)(id _Nullable reply, NSError * _Nullable error))completion;
@@ -119,6 +121,12 @@ typedef NS_ENUM(NSUInteger, ARDMKeyType) {
 + (NSString *)detectViewerForData:(NSData *)data;
 + (NSString *)render:(NSData *)data as:(NSString *)viewer error:(NSError **)error;
 + (NSString *)renderCustom:(NSData *)data script:(NSString *)script error:(NSError **)error;
+/** Viewers that support editing and writing the encoded bytes back to Redis. */
++ (NSArray<NSString *> *)encodableViewers;
++ (NSData *)encode:(NSString *)text as:(NSString *)viewer error:(NSError **)error;
+/** Optional {fieldNumber: fieldName} map for the Protobuf viewer. */
++ (void)setProtobufSchema:(NSDictionary<NSNumber *, NSString *> * _Nullable)schema;
++ (NSDictionary<NSNumber *, NSString *> * _Nullable)protobufSchema;
 @end
 
 #pragma mark - Localization (mirrors src/i18n/langs/*.js)

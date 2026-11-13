@@ -14,6 +14,7 @@ struct ARDMNativeApp: App {
                 .environmentObject(store)
                 .frame(minWidth: 1120, minHeight: 700)
                 .preferredColorScheme(store.preferredColorScheme)
+                .environment(\.dynamicTypeSize, store.dynamicTypeSize)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
@@ -209,7 +210,7 @@ struct StatusBar: View {
             }
             Text(uiIsChinese() ? "中文" : store.language.uppercased()).font(.caption)
         }
-        .font(.system(size: store.scaled(11)))
+        .font(store.uiFont(11))
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .background(.bar)
@@ -246,10 +247,17 @@ struct ARDMSheets: ViewModifier {
                 .environmentObject(store).frame(width: 420, height: 180)
             }
             .sheet(isPresented: $store.showingTTL) {
-                TextInputSheet(title: L10n("Set TTL"), prompt: L10n("Seconds (-1 to persist)"), initial: "\(store.selectedKeyTTL)") { value in
-                    if let seconds = Int(value) { store.setTTL(seconds) }
+                VStack(spacing: 12) {
+                    Toggle(L10n("Milliseconds (PTTL / PEXPIRE)"), isOn: $store.ttlInMilliseconds)
+                    TextInputSheet(
+                        title: L10n("Set TTL"),
+                        prompt: store.ttlInMilliseconds ? L10n("Milliseconds (-1 to persist)") : L10n("Seconds (-1 to persist)"),
+                        initial: "\(store.ttlInMilliseconds ? store.selectedKeyTTLMillis : store.selectedKeyTTL)") { value in
+                            guard let amount = Int(value) else { return }
+                            if store.ttlInMilliseconds { store.setTTLMillis(amount) } else { store.setTTL(amount) }
+                        }
                 }
-                .environmentObject(store).frame(width: 420, height: 180)
+                .environmentObject(store).frame(width: 460, height: 220)
             }
             .sheet(isPresented: $store.showingImportExport) {
                 ImportExportSheet().environmentObject(store).frame(width: 640, height: 480)

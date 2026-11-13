@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "swiftui-full-port",
+  "revision": "parity-gap-closure-2026-11-13",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -16,10 +16,13 @@
     "app_asar_mb": 9.88,
     "official_mac_arm64_dmg_mb": 83.2,
     "appkit_first_pass_mb": 1.22,
-    "swiftui_app_bytes": 3754018,
-    "swiftui_app_mb": 3.58,
-    "reduction_percent": 98.13,
-    "native_source_lines": 4816
+    "swiftui_app_bytes": 4026835,
+    "swiftui_app_mb": 3.84,
+    "reduction_percent": 98.0,
+    "native_source_lines": 6346,
+    "compiled_swift_files": 14,
+    "compiled_objc_sources": 3,
+    "note": "native_source_lines 为实际编译的 14 个 Swift 文件 + 3 个 ObjC .m + 头文件；已停用的 UI.m（AppKit 第一版界面）不计入"
   },
   "toolchain": {
     "developer_dir": "/Applications/Xcode.app/Contents/Developer",
@@ -31,12 +34,21 @@
   },
   "verification": {
     "swift_typecheck_errors": 0,
-    "runtime_probe": "32 passed, 0 failed (RESP round-trip against a local fake Redis server)",
-    "gui": "app launches, three-column SwiftUI window renders correctly (screenshot verified)",
-    "localization_probe": "中文界面截图实测：菜单栏、工具栏、标签条、空态、状态栏全部中文；其余 12 语言仍走 en.js 反查",
-    "labels_localized": 217,
+    "build_warnings": 0,
+    "runtime_probe": "49 passed, 0 failed (自建假 Redis 的协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 13 语言 / 命令参考断言)",
+    "probe_harness": "/tmp/ardm_native_verify/verify.py + probe.m；无 bundle 运行时通过 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 目录，以加载 13 语言与 commands.js",
+    "gui": "2026-11-13 12:46 实测截图：应用启动、三栏 SwiftUI 窗口、中文菜单栏/工具栏/标签条/空态/状态栏均正常，无 ERR、无控件挤压",
+    "localization_probe": "13 张语言表全部可解析；12 张非英语表各自返回 message.new_connection 的本地译文（cn=新建连接 … vi=Kết nối mới）",
+    "distinct_ui_labels_wrapped_in_l10n": 238,
     "chinese_table_entries": 303,
-    "gui_layout": "工具栏精简为 3 个控件，9 个功能标签移到详情区中文标签条；窗口最小 1120x700，未连接时不触发集群命令"
+    "chinese_table_coverage": "217/222 个界面标签，其余为 $ / ↑ / ↓ / SSH / TLS 等符号与专有名词",
+    "gui_layout": "工具栏精简为 3 个控件，9 个功能标签移到详情区中文标签条；窗口最小 1120×700，未连接时不触发集群命令",
+    "new_capability_checks": [
+      "Msgpack / PHPSerialize / Gzip / Deflate / DeflateRaw / Hex / Binary 编码→解码往返",
+      "11 个可写回 viewer 清单、Json 大整数写回原样透传、Protobuf schema 字段名作用于 varint",
+      "MULTI / QUEUED / EXEC、HSCAN 游标、HTTL 字段 TTL、PTTL、RESTORE 二进制 DUMP、只读拦截 HEXPIRE / RESTORE",
+      "229 条命令参考、255 个字体、13 语言表解析"
+    ]
   },
   "domains": [
     {
@@ -81,12 +93,14 @@
         "JSON 持久化 + 导入 / 导出",
         "右键菜单、行内拖拽排序、拖拽到分组改归属",
         "NSOpenPanel 文件选择 + 安全作用域书签 (含非沙盒降级)",
-        "二进制值选择 (InputBinary.vue)"
+        "二进制值选择 (InputBinary.vue)",
+        "【本轮新增】30 秒定时 PING 保活：连接成功后 startKeepalive()，断开时 stopKeepalive()",
+        "【本轮新增】Hex 字符串粘贴输入：pasteHexValue() 转 NSData 后交给可编辑的 Hex viewer"
       ],
       "gaps": [
-        "缺少 ConnectionWrapper.vue 的定时 PING 保活（startPingInterval）与掉线状态 UI",
-        "InputBinary.vue 的 Hex 逐字节输入/编辑缺失；原生版二进制文件读入后非 UTF-8 数据仅显示 <binary N bytes> 占位",
-        "缺少连接配置的加密口令存储（原版 InputPassword 走系统凭据能力）"
+        "保活只发送 PING，连接侧栏没有原版 ConnectionWrapper.vue 的掉线状态标记与自动重连可视化",
+        "缺少连接配置的加密口令存储（原版 InputPassword 走系统凭据能力）",
+        "缺少独立的逐字节 Hex 网格编辑器，现为粘贴整串 hex 后经 Hex dump 编辑"
       ]
     },
     {
@@ -115,13 +129,15 @@
         "重命名 / TTL / PERSIST / 删除 / 刷新 / 导出",
         "ScrollViewReader 实现的 Scroll to top",
         "拖拽 (draggable/dropDestination)",
-        "快捷键表 + 全局键盘快捷键"
+        "快捷键表 + 全局键盘快捷键",
+        "【本轮新增】DUMP 快照导入：每行 keyHex,dumpHex,ttl → RESTORE key ttl dump REPLACE，逐条统计成功/失败",
+        "【本轮新增】PTTL / PEXPIRE 毫秒级 TTL、DUMP/RESTORE 二进制参数往返",
+        "【本轮新增】树节点展开状态持久化 (ARDMExpandedNodes) 与分组全选右键动作",
+        "【本轮新增】行内匹配 pattern 下推到 HSCAN / SSCAN / ZSCAN 的 MATCH 子句"
       ],
       "gaps": [
-        "缺少 ConnectionMenu.vue 的 DUMP 快照文件导入（RESTORE key ttl <hex> REPLACE，含成功/失败计数）；原生版只能导出 JSON",
-        "缺少 PTTL 毫秒级 TTL 与 DUMP/RESTORE 往返",
-        "缺少 KeyListVirtualTree.vue 的树节点展开状态持久化与父子勾选联动",
-        "缺少 PaginationTable.vue 的表格内列排序与结果内筛选",
+        "缺少 PaginationTable.vue 的列头点击排序；结果过滤现为服务端 MATCH，不是表格内二次筛选",
+        "父子复选框联动（勾选父节点自动勾选全部子节点）未实现，仅提供分组全选菜单动作",
         "树形列表用 List(children:) 懒加载，但无原版百万键级别的虚拟滚动窗口复用"
       ]
     },
@@ -146,17 +162,17 @@
         "分页加载 (offset / limit / Previous / Next)",
         "RedisJSON 路径编辑 (jsonPath + JSON.SET/JSON.DEL)",
         "Stream 消费组管理 (XINFO GROUPS / XGROUP CREATE / XREADGROUP / XACK / DELCONSUMER)",
-        "新建键对话框支持全部 10 种类型 + TTL"
+        "新建键对话框支持全部 10 种类型 + TTL",
+        "【本轮新增】Hash / Set / Zset 改为 HSCAN / SSCAN / ZSCAN 游标分批读取 + Load more，不再一次性全量加载大键",
+        "【本轮新增】Hash 字段级 TTL：HTTL 批量查询、HEXPIRE / HPERSIST 设置（Redis >= 7.4，低版本静默降级）",
+        "【本轮新增】每行 Copy write command（对应上游 dumpCommand）",
+        "【本轮新增】ModuleCommands.swift 29 条高级命令：Vector 7（VINFO / VRANDMEMBER / VRANGE / VSIM / VADD / VSETATTR / VREM）、TimeSeries 9（TS.INFO / TS.GET / TS.REVRANGE / TS.CREATE / TS.ALTER / TS.DEL / TS.INCRBY / TS.DECRBY / TS.QUERYINDEX）、Array 6（ARINFO / ARLEN / ARSCAN / ARGREP / ARSET / ARDEL）、Stream 7（XINFO STREAM / GROUPS / CONSUMERS、XPENDING、XTRIM、XGROUP CREATECONSUMER、XACK）+ Stream ID 时间格式化"
       ],
       "gaps": [
-        "Hash / Set / Zset 用 HGETALL / SMEMBERS / ZRANGE 一次性全量读取；原版用 ioredis hscanBufferStream / sscanBufferStream / zscanBufferStream 流式扫描，大键会阻塞并吃内存",
-        "缺少 Hash 字段级 TTL（HTTL 查询、HEXPIRE 设置，原版 KeyContentHash.vue 第 180/287 行）",
-        "缺少每行的 DUMP 命令生成与复制（原版 10 个 KeyContent 组件均有 dumpCommand）",
-        "Vector 缺失最多：VSIM 相似度搜索弹窗、VRANGE / VRANDMEMBER 浏览、量化选项、向量元素详情 parseVectorText、VADD / VSETATTR 的完整参数",
-        "TimeSeries 缺 TS.INFO 详情面板、TS.REVRANGE 反向查询、时间戳格式化、聚合/过滤参数、TS.CREATE 建序列",
-        "Array 缺 ARSCAN / ARGREP / ARINFO / ARLEN 与 initInfo 信息面板",
-        "Stream 缺 XINFO CONSUMERS 消费者列表展开、条目 ID 时间格式化、分组行折叠；原生版只有 5 个粗粒度动作",
-        "Zset 缺 ZSCAN 流式分支与 score 校验之外的批量编辑"
+        "Vector 缺 parseVectorText 向量元素详情面板与 VADD 完整量化参数（现为 NOQUANT 简化形式）",
+        "TimeSeries 缺聚合 / 过滤参数面板（TS.RANGE 的 AGGREGATION、FILTER、ALIGN）",
+        "Stream 分组行折叠与消费者明细表格仍为原始数组展示",
+        "Zset 缺 score 校验之外的批量编辑"
       ]
     },
     {
@@ -188,15 +204,20 @@
         "JavaScriptCore 执行自定义 viewer",
         "FormatterManagerSheet：自定义 formatter 增删改、保存、运行测试、设为当前 viewer",
         "JsonEditorSheet：格式化 / 压缩 / 校验 / 写回",
-        "AttributedString 语法高亮渲染"
+        "AttributedString 语法高亮渲染",
+        "【本轮新增】11 个 viewer 支持编码写回（Text / Hex / Binary / Json / Msgpack / PHPSerialize / Gzip / Deflate / DeflateRaw / Brotli / Custom）：encode:as: 返回原始字节供 SET 写回",
+        "【本轮新增】PHP serialize 解码器按 s:N: 字节长度解析，支持引号 / 分号 / 嵌套数组；编码端支持 JSON → PHP 序列化",
+        "【本轮新增】Protobuf 字段号→字段名 schema（从 JSON 映射文件加载），作用于 varint / bytes / fixed32 / fixed64 全部 wire type",
+        "【本轮新增】Json 写回原样透传，避免 NSJSONSerialization 把大整数经 Double 丢失精度",
+        "【本轮新增】Brotli CLI 的 stderr 重定向到空设备，非 brotli 输入不再污染应用日志"
       ],
       "gaps": [
-        "所有 viewer 只有解码展示（render: 返回 NSString），没有原版 getContent()/encode 的编码写回链路：Msgpack、PHPSerialize、Gzip/Deflate/Brotli、Protobuf 均无法编辑后按原格式写回 Redis",
-        "ViewerProtobuf.vue（289 行）支持加载 .proto schema 解码；原生版 ARDMProtobufDump 仅做无 schema 的 wire-format 猜测",
+        "JavaSerialize / Pickle / Protobuf / OverSize 仍为 decode-only，编辑后不能按原格式写回",
         "JavaSerialize / Pickle 是结构标记级输出，不是 java-object-serialization / pickleparser 的完整对象反序列化",
-        "缺少 @qii404/json-bigint 的 BigInt 保精度 JSON 解析",
+        "Protobuf schema 是 {fieldNumber: fieldName} 的 JSON 映射，不解析 .proto 文件（无嵌套 message / enum / repeated）",
+        "@qii404/json-bigint 的 BigInt 保精度只在写回路径生效；Json viewer 展示仍走 NSJSONSerialization，显示大整数时精度会丢失",
         "CustomFormatter.vue 支持外部 shell / Node 脚本，原生版自定义脚本仅在 JavaScriptCore 中拿到 bytes（Uint8Array）",
-        "Brotli 依赖系统 brotli CLI，缺失时只返回提示，不解压"
+        "Brotli 仍依赖系统 brotli CLI，缺失时只返回提示，不解压"
       ]
     },
     {
@@ -215,11 +236,11 @@
         "命令历史 (↑/↓ 按钮 + 持久化)、命令自动补全候选",
         "commands.js 229 条命令参考侧栏（JavaScriptCore 加载原 JS 文件）",
         "命令日志记录命令 / 连接 / 耗时，可筛选、复制、清空",
-        "引号感知的命令行参数解析"
+        "引号感知的命令行参数解析",
+        "【本轮新增】MULTI / QUEUED / EXEC / DISCARD 事务队列：CliTab 累积命令，sendTransaction: 原子执行并返回全部回复"
       ],
       "notes": "Monaco 被替换为 SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet；缺少 minimap、多光标、代码折叠等 IDE 特性",
       "gaps": [
-        "缺少 CliTab.vue 的 MULTI / EXEC / DISCARD 事务队列（原生版 CLI 直接逐条执行）",
         "monaco-editor 的 minimap、多光标、代码折叠、language-service 级补全未保留"
       ]
     },
@@ -240,7 +261,7 @@
         "CLUSTER SLOTS / NODES 拓扑表格 + NAT 映射 + CLUSTER INFO"
       ],
       "gaps": [
-        "Status.vue 的自动刷新是 2 秒定时任务并带 KEYSPACE 分区查询；原生版自动刷新粒度与图表数据来源不同",
+        "Status.vue 的自动刷新是 2 秒定时任务并带 KEYSPACE 分区查询；原生版自动刷新粒度可配置，但无 KEYSPACE 分区统计与图表同源数据",
         "缺少 SlowLog.vue 的 CONFIG GET slowlog-log-slower-than / max-len 阈值展示"
       ]
     },
@@ -257,14 +278,13 @@
       "native": [
         "主题 (system/light/dark)、13 语言、255 个系统字体枚举、字号、页面缩放",
         "每页键数量、分隔符、只读、树视图、DB 选择、默认 viewer、自定义 viewer 脚本",
-        "自动更新检查 (GitHub Releases API + 版本比对 + 打开 Release 页)",
-        "连接/键值导入导出、快捷键表、自定义 formatter 管理入口"
+        "连接/键值导入导出、快捷键表、自定义 formatter 管理入口",
+        "【本轮修复】fontFamily 经 uiFont() / monoFont() 全局套用（53 处调用）；fontSize 与 zoom 共同作用于 scaled()，语义字体经 Dynamic Type 跟随缩放",
+        "【本轮修复】自动更新检查改指本原生仓库 XINKEJU/AnotherRedisDesktopManager-Native 的 releases/latest，而非上游 Electron 仓库",
+        "【本轮新增】Download update：把最新 macOS Release 的 .dmg / .zip 资产下载到 ~/Downloads"
       ],
       "gaps": [
-        "【失效】fontFamily 设置写入 NSUserDefaults，但没有任何视图读取使用——选择字体不改变界面",
-        "【失效】zoom / fontSize 只作用于部分文本（store.scaled），未全局生效",
-        "【错误】自动更新检查指向上游 Electron 仓库 qishibo/AnotherRedisDesktopManager 的 releases/latest，不是本原生版仓库，结果对原生版无意义",
-        "原版 electron-updater 会自动下载并安装更新；原生版只能打开发布页，无下载安装"
+        "更新只下载到 ~/Downloads，未实现自动替换安装与重启（原版 electron-updater 会自动安装）"
       ]
     },
     {
@@ -286,14 +306,16 @@
       ],
       "status": "partial",
       "native": [
-        "复用项目原有 13 个语言文件，bundle 内 langs/ 经 JavaScriptCore 加载",
+        "复用项目原有 13 个语言文件，bundle 内 langs/ 经 JavaScriptCore 加载；探针确认 13 张表全部可解析",
         "303 条显式简体中文表 (swift/UILabels.swift) 覆盖 217/222 个界面标签；其余为 $ / 箭头 / SSH / TLS 等符号与专有名词",
-        "tText: 英文标签反查 en.js 键再解析当前语言，保留给其余 12 语言",
-        "默认语言跟随系统：中文 macOS 首次启动即为简体中文；菜单、工具栏、连接编辑器、键操作、设置、监控、CLI、状态栏全部走本地化链路"
+        "默认语言跟随系统：中文 macOS 首次启动即为简体中文；菜单、工具栏、连接编辑器、键操作、设置、监控、CLI、状态栏全部走本地化链路",
+        "【本轮新增】swift/UILocalization.swift 三层解析：41 条 uiAliases 直接复用上游 13 语言表 + 34 条整句表（11 语言）+ 86 条单词词典逐词兜底 + tText: 最终回退",
+        "【本轮新增】238 个不同 UI 标签统一经 L10n() → uiLocalized() 解析，非中文语言不再只命中 27/163 个标签",
+        "【本轮新增】繁体中文 tw 走上游 tw.js 别名表与繁体整句表，不再被中文判定误导向简体"
       ],
       "gaps": [
-        "【严重】13 语言中只有简体中文真正生效：uiChinese 表仅在 uiIsChinese() 时查用，其余 12 语言走 en.js 反查，只能命中约 27/163 个标签，界面基本仍是英文",
-        "tw（繁体中文）默认语言会被判定为中文环境，但同样没有繁体文案表"
+        "非中文语言的逐词兜底是近似翻译，不是官方逐句译文；未命中别名 / 整句 / 词典的标签仍回退英文",
+        "动态拼接文案与极少数符号标签（$ / ↑ / ↓ / SSH / TLS）不做翻译"
       ]
     },
     {
@@ -315,11 +337,12 @@
         "只读模式写命令拦截",
         "二进制参数 (NSData) 发送",
         "Pub/Sub、PSUBSCRIBE、MONITOR 独立长连接实时推送流",
-        "命令耗时日志"
+        "命令耗时日志",
+        "【本轮新增】sendTransaction: 实现 MULTI → QUEUED → EXEC 原子事务，异常时 DISCARD 回滚，避免连接残留 MULTI 状态"
       ],
       "gaps": [
-        "【虚标】解析器能识别 RESP3 的 # , _ ( % ~ > 类型，但客户端从不发送 HELLO 3，实际始终运行在 RESP2；原版 redisClient.js 同样未启用 RESP3，属于文档表述夸大而非功能退化",
-        "缺少 pipeline / 事务批量执行（原版 ioredis multi().execBuffer）",
+        "【文档夸大，非功能退化】解析器能识别 RESP3 的 # , _ ( % ~ > 类型，但客户端从不发送 HELLO 3，实际始终运行在 RESP2；原版 redisClient.js 同样未启用 RESP3",
+        "ioredis pipeline 的批量缓冲语义未复刻；现为真实 MULTI/EXEC 事务，不是 pipeline",
         "SSH 隧道依赖系统 /usr/bin/ssh 与 SSH_ASKPASS 环境变量，无法处理交互式二次认证"
       ]
     },
@@ -336,21 +359,20 @@
         "NSApplication 生命周期 + 原生菜单/工具栏",
         "窗口几何持久化",
         "NSUserDefaults 偏好持久化",
-        "GitHub Releases 更新检查",
+        "【本轮修复】GitHub Releases 更新检查指向本原生仓库 + Release 资产下载",
         "NSFontManager 字体枚举",
         "ad-hoc codesign"
       ],
       "gaps": [
-        "更新检查目标仓库错误（见设置域）",
-        "ad-hoc 签名，未做 Developer ID 签名与公证"
+        "ad-hoc 签名，未做 Developer ID 签名与公证；下载后的更新包需用户手动安装"
       ]
     }
   ],
   "conditional_capabilities": [
-    "Brotli viewer 需要系统 brotli CLI；缺失时返回错误提示而非崩溃（验证中非 brotli 输入会打印 'corrupt input' 到 stderr）",
-    "RedisJSON / TimeSeries / Vector / Array 视图需要服务端安装对应 Redis 模块",
+    "Brotli viewer 需要系统 brotli CLI；缺失时返回错误提示而非崩溃（本轮已把 CLI 的 stderr 重定向到空设备）",
+    "RedisJSON / TimeSeries / Vector / Array 视图需要服务端安装对应 Redis 模块；HTTL / HEXPIRE 需要 Redis >= 7.4",
     "TLS 双向证书需要用户提供 PKCS#12 或 PEM 客户端身份文件",
-    "自动更新需要网络可达 api.github.com",
+    "自动更新需要网络可达 api.github.com，且本原生仓库已发布带 macOS 资产的 Release",
     "macOS Developer ID 签名与公证需要开发者账号；当前为 ad-hoc 签名，可直接本机运行"
   ],
   "architectural_substitutions": [
@@ -358,18 +380,18 @@
     "monaco-editor -> SwiftUI TextEditor + AttributedString 语法高亮 + JsonEditorSheet",
     "vue-easy-tree / vxe-table -> SwiftUI List(children:) 懒加载树",
     "sortablejs -> SwiftUI draggable / dropDestination",
-    "ioredis -> CFStream RESP 客户端",
+    "ioredis -> CFStream RESP 客户端（含 MULTI/EXEC 事务）",
     "tunnel-ssh -> /usr/bin/ssh -L",
-    "electron-updater -> NSURLSession + GitHub Releases API",
+    "electron-updater -> NSURLSession + GitHub Releases API（检查 + 下载，不含自动安装）",
     "font-list -> NSFontManager",
     "electron store / localStorage -> NSUserDefaults + JSON 文件"
   ],
   "remaining_gaps": [
-    "A. 完全缺失（39 条域内缺口，归纳约 24 类能力，按域见各 domain.gaps）：流式 SCAN、字段级 TTL、PTTL、事务、DUMP/RESTORE 导入、行级 DUMP 命令、viewer 编码写回、Protobuf schema、完整 Java/Pickle 反序列化、BigInt、Vector 相似度与浏览、TimeSeries 详情与反向查询、Array 扫描/检索、Stream 消费者展开、Hex 二进制输入、树状态持久化、PING 保活、键导入、12 语言界面、更新下载安装、Monaco IDE 特性、表格排序筛选、父子勾选联动、全局 keymaster 快捷键",
-    "B. 降级实现：10 种类型的读取为单次全量而非流式；Stream/Vector/TimeSeries/Array 只保留最小读写命令；JavaSerialize/Pickle/Protobuf 为结构标记级展示；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱",
-    "C. 失效或错误：fontFamily 存而不用、zoom 仅局部生效、更新检查指向上游 Electron 仓库、RESP3 声称未实际协商、非中文 12 语言几乎未翻译",
-    "D. 条件依赖：RedisJSON/TimeSeries/Vector/Array 需服务端模块；Developer ID 签名需开发者账号",
-    "E. 不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻"
+    "A. 仍缺失（28 条域内缺口，按域见各 domain.gaps）：多显示器窗口校验、全局 keymaster 快捷键、掉线状态 UI、加密口令存储、逐字节 Hex 网格编辑器、表格列排序、父子勾选联动、虚拟滚动窗口复用、Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组折叠、Zset 批量编辑、4 个 viewer 的写回、完整 Java/Pickle 反序列化、.proto 文件解析、Json 展示侧 BigInt 保精度、外部 shell 脚本 viewer、Monaco IDE 特性、KEYSPACE 分区统计、慢日志阈值展示、pipeline 缓冲、SSH 交互式二次认证、自动安装更新、Developer ID 签名与公证",
+    "B. 降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf schema 为 JSON 字段映射而非 .proto 解析；JavaSerialize/Pickle/Protobuf 为结构标记级展示；Json 仅写回保大整数精度；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用",
+    "C. 文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）",
+    "D. 条件依赖：RedisJSON/TimeSeries/Vector/Array 需服务端模块；HTTL/HEXPIRE 需 Redis >= 7.4；mTLS 需用户证书；更新需网络与已发布 Release；签名公证需开发者账号",
+    "E. 不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻；electron-updater 的静默安装被显式的人手安装替代"
   ],
   "volume_strategy": {
     "removed": [
@@ -399,30 +421,39 @@
   },
   "audit": {
     "date": "2026-11-13",
-    "verdict": "NOT 100% FEATURE PARITY",
-    "method": "逐文件比对原版 58 个 Vue 组件 / 23 个 JS 模块（16,731 行）与原生版实际编译的 11 个 Swift 文件 + 3 个 ObjC .m（约 5,300 行），按『代码中是否存在可执行实现』而非『矩阵是否提及』判定",
+    "round": 2,
+    "verdict": "IMPROVED BUT STILL NOT 100% FEATURE PARITY",
+    "method": "在第一轮逐文件比对（原版 58 个 Vue 组件 / 23 个 JS 模块 / 16,731 行）基础上，对本轮改动的 15 个文件与 3 个新增 Swift 文件逐项核查『是否存在可执行代码』，并把回归探针从 32 条扩充到 49 条断言；结合启动截图复核界面",
+    "round1_gaps": 39,
+    "round2_remaining_gap_descriptions": 28,
+    "gap_count_note": "39 → 28 不是简单相减：本轮消除/合并了多条原缺口，同时新增了若干更细的诚实降级说明（近似翻译、JSON schema、展示侧 BigInt、下载而非安装等）；所有 28 条均可在各 domain.gaps 中找到对应描述",
     "domain_skeleton_coverage": "11/11 个功能域均有对应实现入口",
     "vue_components_mentioned_in_matrix": "58/58",
-    "fine_grained_gaps": 39,
-    "degraded_or_ineffective_items": 6,
+    "closed_or_fixed_in_this_round": [
+      "失效项：fontFamily / zoom+fontSize 全局生效、更新检查改指本原生仓库、12 语言界面不再是英文、32/32 被误用作功能验收的表述已修正",
+      "读取链路：Hash/Set/Zset 流式 SCAN、HTTL 字段 TTL 查询、HEXPIRE/HPERSIST 设置、PTTL/PEXPIRE、结果内 MATCH 过滤",
+      "写回链路：11 个 viewer 的 encode:as:、PHP serialize 双向解析、Hex/Binary dump 反解、Protobuf 字段命名、Json 写回保大整数",
+      "命令面：MULTI/EXEC/DISCARD 事务、DUMP 快照 RESTORE 导入、每行 Copy write command、29 条模块高级命令",
+      "基础设施：PING 保活、Hex 输入、树展开状态持久化、Release 资产下载、13 语言探针、Brotli stderr 静默"
+    ],
     "verified_working": [
       "RESP2 编解码 / TCP / TLS / mTLS / SSH 隧道 / Sentinel / Cluster MOVED+ASK+NAT 拓扑",
       "Pub/Sub、PSUBSCRIBE、MONITOR 独立长连接流、只读写命令拦截、二进制参数、指数退避重连",
-      "10 种数据类型的基本读取 + 单行/单字段增删改、分页、RedisJSON 路径、Stream 消费组 5 个粗粒度动作",
-      "15 个 viewer 的解码展示 + 自定义 JavaScriptCore viewer + 自动嗅探",
-      "CLI 历史 / 补全 / 229 条命令参考 / 命令日志、INFO / 慢日志 / 内存 / 集群拓扑",
-      "多连接标签、键收藏与持久化、批量删除、拖拽、右键菜单、简体中文界面、主题",
-      "32/32 RESP 协议回归、0 Swift 类型错误、应用可启动并渲染"
+      "10 种数据类型读取 + 单行/单字段增删改；Hash/Set/Zset 游标分批；HTTL/HEXPIRE 字段 TTL",
+      "15 个 viewer 的解码展示 + 11 个 viewer 的编码写回 + JavaScriptCore 自定义 viewer + 自动嗅探",
+      "CLI 历史 / 补全 / 事务队列 / 229 条命令参考 / 命令日志、INFO / 慢日志 / 内存 / 集群拓扑",
+      "多连接标签、键收藏、批量删除、拖拽、右键菜单、DUMP 导入、简体中文界面、主题与字体缩放",
+      "0 Swift 类型错误、0 编译警告、49/49 协议与能力回归、应用启动并渲染中文三栏界面"
     ],
-    "important_caveat": "32/32 是自建假 Redis 的协议往返测试，不是功能验收；它无法覆盖 UI 深度、命令覆盖面与设置生效性",
-    "corrected_claim": "此前『100% 功能保留』应更正为：功能域与主要操作路径全覆盖，细粒度能力未逐项等价",
-    "gap_count_note": "39 条为按功能域逐条列出的缺口描述，归纳后约 24 类独立能力"
+    "important_caveat": "49/49 仍是自建假 Redis 的协议往返 + ObjC 内核断言，不是完整功能验收；它无法覆盖 UI 深度、真实 Redis 模块命令语义、设置生效性的逐屏体验与 12 语言翻译质量",
+    "corrected_claim": "本轮补齐了第一轮审计指出的 5 个失效项与多数细粒度缺口，但仍有 28 条降级 / 缺失；应表述为『功能域与主要操作路径全覆盖，且已补齐主要细粒度能力，仍未达 100% 等价』"
   },
   "parity_summary": {
     "fully_equivalent_domains": 0,
     "partial_domains": 11,
-    "missing_fine_grained_features": 39,
-    "degraded_or_ineffective_items": 6,
-    "verdict": "功能域骨架齐备，但细粒度功能未达 100% 等价；不能宣称『所有功能都保留』"
+    "missing_fine_grained_features": 28,
+    "degraded_or_ineffective_items": 1,
+    "degraded_item_note": "第一轮 6 项失效/虚标中已修复 5 项，剩余 1 项为 RESP3 HELLO 未协商（属文档表述夸大，原版亦未启用）",
+    "verdict": "功能骨架与主要操作路径全覆盖，第二轮已补齐流式扫描、字段 TTL、viewer 写回、事务、DUMP 导入、模块命令面与 13 语言链路；仍不能宣称『所有功能都 100% 保留』"
   }
 }

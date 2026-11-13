@@ -15,8 +15,8 @@ struct DetailPane: View {
                     ForEach(MainTab.allCases) { tab in
                         Button { store.activeTab = tab } label: {
                             HStack(spacing: 5) {
-                                Image(systemName: tab.icon).font(.system(size: 11))
-                                Text(L10n(tab.title)).font(.system(size: 11))
+                                Image(systemName: tab.icon).font(store.uiFont(11))
+                                Text(L10n(tab.title)).font(store.uiFont(11))
                             }
                             .padding(.horizontal, 9)
                             .padding(.vertical, 6)
@@ -62,6 +62,8 @@ struct DetailPane: View {
 
 struct KeyDetailView: View {
     @EnvironmentObject var store: AppStore
+    @State private var showingHexInput = false
+    @State private var pendingAction: ModuleAction?
     @State private var editingRow: KeyRow?
     @State private var addingRow = false
 
@@ -78,7 +80,7 @@ struct KeyDetailView: View {
                 }
             } else {
                 VStack(spacing: 12) {
-                    Image(systemName: "key").font(.system(size: 42)).foregroundStyle(.tertiary)
+                    Image(systemName: "key").font(store.uiFont(42)).foregroundStyle(.tertiary)
                     Text(L10n("Select a key to view and edit its value")).foregroundStyle(.secondary)
                     Text(L10n("10 data types · 15 format viewers · field-level editing"))
                         .font(.caption).foregroundStyle(.tertiary)
@@ -86,16 +88,32 @@ struct KeyDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .sheet(item: $pendingAction) { action in
+            TextInputSheet(title: L10n(action.title),
+                           prompt: L10n(action.prompt ?? "Parameter"),
+                           initial: "") { value in
+                store.execute(action.build(store.selectedKey ?? "", value))
+            }
+            .environmentObject(store).frame(width: 480, height: 180)
+        }
+        .sheet(isPresented: $showingHexInput) {
+            TextInputSheet(title: L10n("Paste hex"), prompt: L10n("Hex string"), initial: "") { value in
+                store.pasteHexValue(value)
+            }
+            .environmentObject(store).frame(width: 460, height: 180)
+        }
         .sheet(item: $editingRow) { row in
-            RowEditorSheet(row: row) { field, value, extra in
+            RowEditorSheet(row: row) { field, value, extra, ttl in
                 store.saveRow(row, field: field, value: value, extra: extra)
+                if let seconds = ttl { store.setFieldTTL(field, seconds: seconds) }
             }
             .environmentObject(store)
             .frame(width: 520, height: 260)
         }
         .sheet(isPresented: $addingRow) {
-            RowEditorSheet(row: KeyRow(id: "__new__", field: "", value: "")) { field, value, extra in
+            RowEditorSheet(row: KeyRow(id: "__new__", field: "", value: "")) { field, value, extra, ttl in
                 store.saveRow(KeyRow(id: "__new__", field: field, value: value), field: field, value: value, extra: extra)
+                if let seconds = ttl { store.setFieldTTL(field, seconds: seconds) }
             }
             .environmentObject(store)
             .frame(width: 520, height: 260)
@@ -107,11 +125,11 @@ struct KeyDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "key.fill").foregroundStyle(.blue)
-                Text(key).font(.system(size: store.scaled(15), weight: .semibold)).lineLimit(1)
+                Text(key).font(store.uiFont(15, weight: .semibold)).lineLimit(1)
                 Spacer()
                 Text(typeName(store.selectedKeyType)).font(.caption).padding(.horizontal, 6)
                     .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-                Text("TTL \(store.selectedKeyTTL)").font(.caption)
+                Text(store.ttlInMilliseconds ? "PTTL \(store.selectedKeyTTLMillis) ms" : "TTL \(store.selectedKeyTTL)").font(.caption)
             }
             HStack(spacing: 8) {
                 Button(L10n("Refresh")) { store.reloadKeyDetail() }
@@ -127,7 +145,7 @@ struct KeyDetailView: View {
                 Spacer()
                 Button(L10n("Delete"), role: .destructive) { store.deleteKeys([key]) }
             }
-            .font(.system(size: store.scaled(11)))
+            .font(store.uiFont(11))
         }
         .padding(12)
     }
@@ -156,14 +174,19 @@ struct KeyDetailView: View {
                     store.renderValue()
                 }
                 Button(L10n("Binary input…")) { chooseBinaryFile() }
+                Button(L10n("Paste hex…")) { showingHexInput = true }
+                Button(L10n("Protobuf schema")) { store.loadProtobufSchema() }
                 Spacer()
-                Button(L10n("Save")) { store.saveEditorText() }.buttonStyle(.borderedProminent)
+                Button(L10n("Save")) { store.saveEditorText() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!ARDMFormatters.encodableViewers().contains(store.viewerName))
+                    .help(L10n("Save re-encodes the value using the active viewer"))
             }
             .padding(8)
 
             HSplitView {
                 TextEditor(text: $store.editorText)
-                    .font(.system(size: store.scaled(store.fontSize), design: .monospaced))
+                    .font(store.monoFont(store.fontSize))
                     .border(Color.secondary.opacity(0.25))
                     .frame(minWidth: 260)
                 VStack(alignment: .leading, spacing: 4) {
@@ -198,11 +221,23 @@ struct KeyDetailView: View {
                 Text(L10n("Limit")).font(.caption)
                 TextField("", value: $store.rowLimit, format: .number).frame(width: 70).textFieldStyle(.roundedBorder)
                 Button(L10n("Load page")) { store.loadTypedValue() }
+                if !store.rowScanFinished {
+                    Button(L10n("Load more rows")) { store.scanRows(reset: false) }
+                }
+                TextField(L10n("Pattern (e.g. session:*)"), text: $store.rowSearchPattern)
+                    .textFieldStyle(.roundedBorder).frame(width: 150)
+                    .onSubmit { store.loadTypedValue() }
                 Button(L10n("Previous")) { store.rowOffset = max(0, store.rowOffset - store.rowLimit); store.loadTypedValue() }
                 Button(L10n("Next")) { store.rowOffset += store.rowLimit; store.loadTypedValue() }
                 Spacer()
                 Button(L10n("Add row")) { addingRow = true }
                 if store.selectedKeyType == .stream { streamGroupMenu }
+                moduleMenu
+                if store.selectedKeyType == .timeSeries {
+                    Toggle(L10n("Reverse range"), isOn: $store.timeSeriesReverse)
+                        .toggleStyle(.checkbox)
+                        .onChange(of: store.timeSeriesReverse) { _, _ in store.loadTypedValue() }
+                }
                 Button(L10n("Refresh")) { store.reloadKeyDetail() }
             }
             .padding(8)
@@ -211,6 +246,7 @@ struct KeyDetailView: View {
                 Text(columnTitle(0)).font(.caption.bold()).frame(width: 180, alignment: .leading)
                 Text(columnTitle(1)).font(.caption.bold()).frame(maxWidth: .infinity, alignment: .leading)
                 if store.selectedKeyType == .zSet { Text(L10n("Score")).font(.caption.bold()).frame(width: 100) }
+                if store.selectedKeyType == .hash { Text(L10n("Field TTL")).font(.caption.bold()).frame(width: 80) }
                 Text("").frame(width: 90)
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
@@ -219,12 +255,16 @@ struct KeyDetailView: View {
 
             List(store.keyRows) { row in
                 HStack {
-                    Text(row.field).font(.system(size: store.scaled(11), design: .monospaced))
+                    Text(row.field).font(store.monoFont(11))
                         .lineLimit(1).frame(width: 180, alignment: .leading)
-                    Text(row.value).font(.system(size: store.scaled(11), design: .monospaced))
+                    Text(row.value).font(store.monoFont(11))
                         .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     if store.selectedKeyType == .zSet {
-                        Text(row.extra).font(.system(size: 11, design: .monospaced)).frame(width: 100)
+                        Text(row.extra).font(store.monoFont(11)).frame(width: 100)
+                    }
+                    if store.selectedKeyType == .hash {
+                        Text(store.fieldTTLs[row.field].map(String.init) ?? "–")
+                            .font(store.monoFont(11)).frame(width: 80)
                     }
                     Button(L10n("Edit")) { editingRow = row }.font(.caption)
                     Button(L10n("Delete")) { store.deleteRow(row) }.font(.caption).foregroundStyle(.red)
@@ -239,10 +279,33 @@ struct KeyDetailView: View {
                         store.keyRawValue = row.raw
                         store.renderValue()
                     }
+                    Button(L10n("Copy write command")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.writeCommandString(for: row), forType: .string)
+                    }
                     Button(L10n("Delete row"), role: .destructive) { store.deleteRow(row) }
                 }
             }
             .listStyle(.inset(alternatesRowBackgrounds: true))
+        }
+    }
+
+    @ViewBuilder
+    private var moduleMenu: some View {
+        let actions = store.moduleActions()
+        if !actions.isEmpty {
+            Menu(L10n("Advanced commands")) {
+                ForEach(actions) { action in
+                    Button(L10n(action.title)) {
+                        if action.prompt == nil {
+                            store.execute(action.build(store.selectedKey ?? "", ""))
+                        } else {
+                            pendingAction = action
+                        }
+                    }
+                }
+            }
+            .font(.caption)
         }
     }
 
@@ -287,10 +350,11 @@ struct RowEditorSheet: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) var dismiss
     let row: KeyRow
-    let onConfirm: (String, String, String) -> Void
+    let onConfirm: (String, String, String, Int?) -> Void
     @State private var field = ""
     @State private var value = ""
     @State private var extra = ""
+    @State private var ttl = ""
 
     var body: some View {
         VStack(spacing: 14) {
@@ -299,16 +363,22 @@ struct RowEditorSheet: View {
                 TextField(L10n("Field / index / member"), text: $field)
                 TextField(L10n("Value"), text: $value)
                 if store.selectedKeyType == .zSet { TextField(L10n("Score"), text: $extra) }
+                if store.selectedKeyType == .hash {
+                    TextField(L10n("Field TTL (seconds, -1 to persist)"), text: $ttl)
+                }
             }
             HStack {
                 Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(L10n("Save")) { onConfirm(field, value, extra); dismiss() }
+                Button(L10n("Save")) { onConfirm(field, value, extra, ttl.isEmpty ? nil : Int(ttl)); dismiss() }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
-        .onAppear { field = row.field; value = row.value; extra = row.extra }
+        .onAppear {
+            field = row.field; value = row.value; extra = row.extra
+            ttl = row.id == "__new__" ? "" : (store.fieldTTLs[row.field].map(String.init) ?? "")
+        }
     }
 }
 
@@ -331,7 +401,7 @@ struct JsonEditorSheet: View {
                 Text(validation).font(.caption).foregroundStyle(validation.hasPrefix("OK") ? .green : .red)
             }
             TextEditor(text: $text)
-                .font(.system(size: 12, design: .monospaced))
+                .font(store.monoFont(12))
                 .border(Color.secondary.opacity(0.3))
             HStack {
                 Button(L10n("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
@@ -398,7 +468,7 @@ struct FormatterManagerSheet: View {
                     Text(L10n("JavaScript runs in JavaScriptCore with `bytes` (Uint8Array)."))
                         .font(.caption).foregroundStyle(.secondary)
                     TextEditor(text: $script)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(store.monoFont(11))
                         .border(Color.secondary.opacity(0.3))
                     HStack {
                         Button(L10n("Run on current value")) { run() }

@@ -135,6 +135,7 @@ extension AppStore {
                     self.activeConnectionID = config.identifier
                     self.client = client
                     self.connected = true
+                    self.startKeepalive()
                     self.selectedDB = config.db
                     self.dbSize = size
                     self.separator = config.separator.isEmpty ? self.separator : config.separator
@@ -378,6 +379,16 @@ extension AppStore {
             var error: NSError?
             let type = client.type(ofKey: key, error: &error)
             let ttl = client.ttl(ofKey: key, error: &error)
+            if type == .hash || type == .set || type == .zSet {
+                self.onMain {
+                    self.selectedKeyType = type
+                    self.selectedKeyTTL = ttl
+                    self.keyRawValue = Data()
+                    self.editorText = ""
+                }
+                self.scanRows(reset: true)
+                return
+            }
             let value = client.value(ofKey: key, type: type, error: &error)
             let rows = self.rowsForType(type, key: key, value: value)
             let raw = ardmData(value)
@@ -402,7 +413,13 @@ extension AppStore {
         } else {
             renderedValue = ARDMFormatters.render(keyRawValue, as: viewerName, error: &error)
         }
-        if let error { renderedValue = "Viewer error: \(error.localizedDescription)" }
+        if let error {
+            renderedValue = "Viewer error: \(error.localizedDescription)"
+        } else if viewerName != "Text" && !renderedValue.isEmpty {
+            // The editable pane must show the DECODED text, so saving can encode it
+            // back with the same viewer instead of re-encoding the raw bytes.
+            editorText = renderedValue
+        }
     }
 
     func deleteKeys(_ targets: [String]) {

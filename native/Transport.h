@@ -19,8 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *)exportConnectionsJSON;
 + (BOOL)importConnectionsJSON:(NSData *)data error:(NSError **)error;
 
-/** UpdateCheck.vue / electron-updater replacement (GitHub Releases API). */
-+ (void)checkForUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable downloadURL))completion;
+/** UpdateCheck.vue / electron-updater replacement (this native repo's Releases API). */
++ (void)checkForUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable releasePage))completion;
+/** Downloads the latest macOS release asset into ~/Downloads and returns its file URL. */
++ (void)downloadUpdateWithCompletion:(void (^)(NSString *status, NSURL * _Nullable localFile))completion;
 
 /** FileInput.vue security-scoped bookmarks for TLS / SSH key files. */
 + (NSData * _Nullable)bookmarkForURL:(NSURL *)url;

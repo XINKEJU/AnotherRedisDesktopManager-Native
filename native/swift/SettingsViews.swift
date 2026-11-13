@@ -58,7 +58,7 @@ struct SettingsView: View {
             HStack {
                 Stepper("Font size: \(Int(store.fontSize))", value: $store.fontSize, in: 9...24)
                 Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1) { Text(L10n("Zoom")) }
-                Text(String(format: "%.1f×", store.zoom)).font(.system(size: 11, design: .monospaced))
+                Text(String(format: "%.1f×", store.zoom)).font(store.monoFont(11))
             }
             Text("\(store.fonts.count) system font families enumerated (font-list replacement).")
                 .font(.caption).foregroundStyle(.secondary)
@@ -99,7 +99,7 @@ struct SettingsView: View {
             Text(L10n("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):"))
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $store.customViewerScript)
-                .font(.system(size: 11, design: .monospaced))
+                .font(store.monoFont(11))
                 .frame(height: 110)
                 .border(Color.secondary.opacity(0.3))
             HStack {
@@ -119,7 +119,7 @@ struct SettingsView: View {
             LabeledContent("Application", value: "Another Redis Desktop Manager (Native)")
             LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.4")
             LabeledContent("UI", value: "SwiftUI + AppKit (system frameworks, zero bundled runtime)")
-            LabeledContent("Redis protocol", value: "RESP2 / RESP3 over CFStream")
+            LabeledContent("Redis protocol", value: "RESP2 (RESP3 reply types parsed) over CFStream")
             LabeledContent("Localization", value: "\(store.languages.count) languages via JavaScriptCore")
             Divider()
             HStack {
@@ -131,6 +131,15 @@ struct SettingsView: View {
                         if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
                             NSWorkspace.shared.open(url)
                         }
+                    }
+                }
+                .disabled(checkingUpdate)
+                Button(L10n("Download update")) {
+                    checkingUpdate = true
+                    ARDMAppServices.downloadUpdate { status, file in
+                        checkingUpdate = false
+                        store.updateStatus = status
+                        if let file { NSWorkspace.shared.open(file) }
                     }
                 }
                 .disabled(checkingUpdate)

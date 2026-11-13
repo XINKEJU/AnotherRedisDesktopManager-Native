@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import SwiftUI
 
 // MARK: - Domain models
 
@@ -98,12 +99,9 @@ func L(_ key: String, _ fallback: String? = nil) -> String {
     return value
 }
 
-/// Localise a UI label. The explicit Chinese table wins so the whole SwiftUI
-/// layer is translated; other languages fall back to the upstream 13 tables.
-func L10n(_ english: String) -> String {
-    if uiIsChinese(), let zh = uiChinese[english] { return zh }
-    return ARDMLocalization.shared().tText(english)
-}
+/// Localise a UI label. Chinese uses the explicit table; the other 12 languages
+/// resolve upstream message keys, then exact phrases, then word-wise translation.
+func L10n(_ english: String) -> String { uiLocalized(english) }
 
 /// A fresh install starts in Chinese on Chinese-language macOS installations.
 func uiDefaultLanguage() -> String {
@@ -144,6 +142,7 @@ final class AppStore: ObservableObject {
     @Published var dbSize = 0
     @Published var selectedKeyType: ARDMKeyType = .unknown
     @Published var selectedKeyTTL: Int = -1
+    @Published var selectedKeyTTLMillis: Int = -1
     @Published var keyRows: [KeyRow] = []
     @Published var keyRawValue = Data()
     @Published var viewerName = "Text"
@@ -152,14 +151,27 @@ final class AppStore: ObservableObject {
     @Published var jsonPath = "$"
     @Published var rowOffset = 0
     @Published var rowLimit = 100
+    /// Cursor for HSCAN/SSCAN/ZSCAN streaming reads of large collections.
+    @Published var rowScanCursor = "0"
+    @Published var rowScanFinished = true
+    /// Field-level TTLs (Redis >= 7.4 HTTL / HEXPIRE), keyed by hash field.
+    @Published var fieldTTLs: [String: Int] = [:]
+    @Published var ttlInMilliseconds = false
+    @Published var rowSearchPattern = "*"
+    @Published var timeSeriesReverse = false
     @Published var checkedKeys: Set<String> = []
     @Published var favoriteKeys: [String] = []
+    /// Persisted tree expansion state (KeyListVirtualTree.vue).
+    @Published var expandedNodeIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ARDMExpandedNodes") ?? [])
+    var keepaliveTimer: Timer?
 
     // CLI & logs
     @Published var cliInput = ""
     @Published var cliOutput = ""
     @Published var cliHistory: [String] = []
     @Published var cliHistoryIndex = 0
+    /// CliTab.vue transaction queue: nil = outside MULTI, [] = inside MULTI.
+    @Published var multiQueue: [[String]]?
     @Published var logs: [LogEntry] = []
     @Published var commandReference: [String: Any] = [:]
 
@@ -276,7 +288,28 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func scaled(_ base: CGFloat) -> CGFloat { base * CGFloat(zoom) }
+    /// Base size is scaled by both the user font size and the zoom factor.
+    func scaled(_ base: CGFloat) -> CGFloat { base * CGFloat(fontSize / 13.0) * CGFloat(zoom) }
+
+    /// The user-selected font family is now actually applied to every editor/list font.
+    func monoFont(_ base: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.custom(fontFamily, size: scaled(base)).weight(weight)
+    }
+    func uiFont(_ base: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.custom(fontFamily, size: scaled(base)).weight(weight)
+    }
+
+    /// Semantic fonts (.headline/.caption) follow the zoom setting via Dynamic Type.
+    var dynamicTypeSize: DynamicTypeSize {
+        switch zoom {
+        case ..<0.8: return .xSmall
+        case 0.8..<0.95: return .small
+        case 0.95..<1.1: return .medium
+        case 1.1..<1.3: return .large
+        case 1.3..<1.5: return .xLarge
+        default: return .xxLarge
+        }
+    }
 }
 
 private extension Double {

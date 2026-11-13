@@ -102,9 +102,9 @@ struct ConnectionSidebar: View {
                                 Circle()
                                     .fill(id == store.activeConnectionID ? Color.green : Color.gray)
                                     .frame(width: 6, height: 6)
-                                Text(config?.name ?? id).font(.system(size: 10)).lineLimit(1)
+                                Text(config?.name ?? id).font(store.uiFont(10)).lineLimit(1)
                                 Button { store.closeConnection(id) } label: {
-                                    Image(systemName: "xmark").font(.system(size: 8))
+                                    Image(systemName: "xmark").font(store.uiFont(8))
                                 }.buttonStyle(.plain)
                             }
                             .padding(.horizontal, 6).padding(.vertical, 4)
@@ -164,7 +164,7 @@ struct ConnectionSidebar: View {
                     Section(L10n("Favorites")) {
                         ForEach(store.favoriteKeys, id: \.self) { key in
                             Label(key, systemImage: "star.fill")
-                                .font(.system(size: store.scaled(12)))
+                                .font(store.uiFont(12))
                                 .onTapGesture { store.selectKey(key) }
                                 .draggable(key)
                         }
@@ -230,14 +230,14 @@ struct ConnectionRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(config.name).lineLimit(1)
                 Text("\(config.host):\(config.port) · DB\(config.db)")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(store.uiFont(10)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 2)
-            if config.readOnly { Image(systemName: "lock").font(.system(size: 9)) }
-            if config.tlsEnabled { Image(systemName: "lock.shield").font(.system(size: 9)) }
-            if config.sshEnabled { Image(systemName: "network").font(.system(size: 9)) }
+            if config.readOnly { Image(systemName: "lock").font(store.uiFont(9)) }
+            if config.tlsEnabled { Image(systemName: "lock.shield").font(store.uiFont(9)) }
+            if config.sshEnabled { Image(systemName: "network").font(store.uiFont(9)) }
         }
-        .font(.system(size: store.scaled(12)))
+        .font(store.uiFont(12))
         .onTapGesture(count: 2) { store.connect(to: config) }
         .contextMenu {
             Button(L10n("Connect")) { store.connect(to: config) }
@@ -371,7 +371,7 @@ struct ConnectionEditorView: View {
             Text(L10n("Cluster NAT map — one `internal:port=public:port` per line"))
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $draft.natMapText)
-                .font(.system(size: 11, design: .monospaced))
+                .font(store.monoFont(11))
                 .frame(height: 90)
                 .border(Color.secondary.opacity(0.3))
             Toggle(L10n("Auto reconnect with backoff"), isOn: $draft.autoReconnect)
@@ -445,7 +445,7 @@ struct ImportExportSheet: View {
             }
             .pickerStyle(.segmented)
             TextEditor(text: selection == 0 ? $connectionJSON : $keyJSON)
-                .font(.system(size: 11, design: .monospaced))
+                .font(store.monoFont(11))
                 .border(Color.secondary.opacity(0.3))
             HStack {
                 Button(L10n("Copy")) {
@@ -454,6 +454,7 @@ struct ImportExportSheet: View {
                 }
                 Button(L10n("Save to File…")) { saveToFile() }
                 Button(L10n("Load from File…")) { loadFromFile() }
+                Button(L10n("Import DUMP snapshot…")) { store.importDumpSnapshot() }
                 Spacer()
                 Button(L10n("Import / Apply")) { apply() }.buttonStyle(.borderedProminent)
                 Button(L10n("Close")) { dismiss() }

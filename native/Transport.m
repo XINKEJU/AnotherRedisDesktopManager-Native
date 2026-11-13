@@ -101,15 +101,20 @@ static NSString *ARDMSourceCommandPath(void) {
 
 #pragma mark - Auto update (UpdateCheck.vue / electron-updater)
 
+// This is the native rewrite's own repository, not the upstream Electron project.
+static NSString *const kARDMUpdateAPI =
+    @"https://api.github.com/repos/XINKEJU/AnotherRedisDesktopManager-Native/releases/latest";
+static NSURL *sARDMUpdateAssetURL;
+
 + (void)checkForUpdateWithCompletion:(void (^)(NSString *, NSURL * _Nullable))completion {
-    NSURL *url = [NSURL URLWithString:@"https://api.github.com/repos/qishibo/AnotherRedisDesktopManager/releases/latest"];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kARDMUpdateAPI]];
     [request setValue:@"ARDM-Native" forHTTPHeaderField:@"User-Agent"];
     [request setTimeoutInterval:10];
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
         completionHandler:^(NSData *data, NSURLResponse *response, NSError *networkError) {
             NSString *status;
-            NSURL *download = nil;
+            NSURL *page = nil;
+            sARDMUpdateAssetURL = nil;
             if (networkError) {
                 status = [NSString stringWithFormat:@"Update check unavailable: %@", networkError.localizedDescription];
             } else {
@@ -117,16 +122,56 @@ static NSString *ARDMSourceCommandPath(void) {
                 NSString *tag = [release isKindOfClass:NSDictionary.class] ? release[@"tag_name"] : nil;
                 NSString *current = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"0";
                 if (!tag) {
-                    status = @"Update check returned no release information";
+                    status = @"No release published for this native build yet.";
                 } else if ([tag isEqualToString:current] || [tag isEqualToString:[@"v" stringByAppendingString:current]]) {
                     status = [NSString stringWithFormat:@"You are up to date (%@)", current];
                 } else {
-                    status = [NSString stringWithFormat:@"New release available: %@ (current %@)", tag, current];
-                    NSString *page = release[@"html_url"];
-                    if (page) download = [NSURL URLWithString:page];
+                    NSString *assetName = nil;
+                    for (NSDictionary *asset in release[@"assets"]) {
+                        NSString *name = [asset[@"name"] lowercaseString];
+                        if ([name hasSuffix:@".dmg"] || [name hasSuffix:@".zip"]) {
+                            sARDMUpdateAssetURL = [NSURL URLWithString:asset[@"browser_download_url"]];
+                            assetName = asset[@"name"];
+                            break;
+                        }
+                    }
+                    status = [NSString stringWithFormat:@"New release %@ (current %@)%@", tag, current,
+                              assetName ? [@" — " stringByAppendingString:assetName] : @" — no macOS asset"];
+                    NSString *html = release[@"html_url"];
+                    if (html) page = [NSURL URLWithString:html];
                 }
             }
-            dispatch_async(dispatch_get_main_queue(), ^{ completion(status, download); });
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(status, page); });
+        }];
+    [task resume];
+}
+
++ (void)downloadUpdateWithCompletion:(void (^)(NSString *, NSURL * _Nullable))completion {
+    NSURL *asset = sARDMUpdateAssetURL;
+    if (!asset) {
+        completion(@"Run 'Check for Updates' first; no downloadable macOS asset was found.", nil);
+        return;
+    }
+    NSURLSessionDownloadTask *task = [[NSURLSession sharedSession] downloadTaskWithURL:asset
+        completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
+            NSString *status; NSURL *local = nil;
+            if (!location || error) {
+                status = [NSString stringWithFormat:@"Download failed: %@", error.localizedDescription ?: @"unknown error"];
+            } else {
+                NSFileManager *fm = [NSFileManager defaultManager];
+                NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@"Downloads"];
+                [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+                NSString *dest = [dir stringByAppendingPathComponent:asset.lastPathComponent ?: @"ARDM-Native-Update.dmg"];
+                [fm removeItemAtPath:dest error:nil];
+                NSError *moveError = nil;
+                if ([fm moveItemAtPath:location.path toPath:dest error:&moveError]) {
+                    status = [NSString stringWithFormat:@"Downloaded to %@", dest];
+                    local = [NSURL fileURLWithPath:dest];
+                } else {
+                    status = [NSString stringWithFormat:@"Could not save update: %@", moveError.localizedDescription];
+                }
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{ completion(status, local); });
         }];
     [task resume];
 }

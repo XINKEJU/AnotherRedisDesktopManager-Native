@@ -22,7 +22,7 @@ struct CLIView: View {
             HStack(spacing: 8) {
                 TextField(L10n("Enter a Redis command, e.g. HGETALL myhash"), text: $store.cliInput)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: store.scaled(store.fontSize), design: .monospaced))
+                    .font(store.monoFont(store.fontSize))
                     .onSubmit { store.runCLI() }
                 Button(L10n("Run")) { store.runCLI() }.buttonStyle(.borderedProminent)
                 Button(L10n("↑")) { store.previousCLICommand() }.help(L10n("Previous command"))
@@ -36,7 +36,7 @@ struct CLIView: View {
                     HStack {
                         ForEach(store.completions(for: store.cliInput), id: \.self) { candidate in
                             Button(candidate) { store.cliInput = candidate + " " }
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(store.monoFont(11))
                                 .buttonStyle(.bordered)
                         }
                     }
@@ -61,9 +61,9 @@ struct CLIView: View {
                             .textFieldStyle(.roundedBorder).padding(6)
                         List(filteredCommands, id: \.self) { name in
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(name).font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                Text(name).font(store.monoFont(11, weight: .semibold))
                                 Text(store.commandSignature(name).replacingOccurrences(of: "\n", with: " · "))
-                                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+                                    .font(store.uiFont(9)).foregroundStyle(.secondary).lineLimit(2)
                             }
                             .onTapGesture { store.cliInput = name + " " }
                         }
@@ -111,8 +111,8 @@ struct StatusView: View {
                     Section(section.name) {
                         ForEach(section.fields, id: \.0) { key, value in
                             HStack {
-                                Text(key).font(.system(size: 11, design: .monospaced)).frame(width: 240, alignment: .leading)
-                                Text(value).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                Text(key).font(store.monoFont(11)).frame(width: 240, alignment: .leading)
+                                Text(value).font(store.monoFont(11)).textSelection(.enabled)
                                 Spacer()
                             }
                         }
@@ -166,9 +166,9 @@ struct SlowLogView: View {
                 let row = store.slowLogRows[index]
                 VStack(alignment: .leading, spacing: 2) {
                     Text("#\(index) · \(row.first ?? "") · \(row.count > 1 ? row[1] : "") µs")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(store.monoFont(11, weight: .semibold))
                     Text(row.dropFirst(2).joined(separator: " "))
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                        .font(store.monoFont(10)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -192,12 +192,12 @@ struct MemoryView: View {
             List(store.memoryStats.indices, id: \.self) { index in
                 let item = store.memoryStats[index]
                 HStack {
-                    Text(item.0).font(.system(size: 11, design: .monospaced)).frame(width: 260, alignment: .leading)
+                    Text(item.0).font(store.monoFont(11)).frame(width: 260, alignment: .leading)
                     GeometryReader { geo in
                         Rectangle().fill(Color.accentColor)
                             .frame(width: max(2, geo.size.width * item.1 / maximum), height: 8)
                     }
-                    Text(String(format: "%.0f", item.1)).font(.system(size: 10, design: .monospaced)).frame(width: 100, alignment: .trailing)
+                    Text(String(format: "%.0f", item.1)).font(store.monoFont(10)).frame(width: 100, alignment: .trailing)
                 }
             }
         }
@@ -219,7 +219,7 @@ struct ClusterView: View {
             }.padding(10)
             if !store.connected {
                 VStack(spacing: 10) {
-                    Image(systemName: "square.grid.3x3").font(.system(size: 36)).foregroundStyle(.tertiary)
+                    Image(systemName: "square.grid.3x3").font(store.uiFont(36)).foregroundStyle(.tertiary)
                     Text(L10n("Not connected")).font(.headline)
                     Text(L10n("Connect to a Redis Cluster to inspect its topology."))
                         .font(.caption).foregroundStyle(.secondary)
@@ -232,8 +232,8 @@ struct ClusterView: View {
                             let slot = store.clusterSlots[index]
                             HStack {
                                 Text("\(ardmString(slot["start"])) – \(ardmString(slot["end"]))")
-                                    .font(.system(size: 11, design: .monospaced)).frame(width: 140, alignment: .leading)
-                                Text(ardmString(slot["master"])).font(.system(size: 11, design: .monospaced))
+                                    .font(store.monoFont(11)).frame(width: 140, alignment: .leading)
+                                Text(ardmString(slot["master"])).font(store.monoFont(11))
                                 Spacer()
                             }
                         }
@@ -242,9 +242,9 @@ struct ClusterView: View {
                         ForEach(store.clusterNodes.indices, id: \.self) { index in
                             let node = store.clusterNodes[index]
                             HStack {
-                                Text(ardmString(node["id"])).font(.system(size: 10, design: .monospaced)).frame(width: 200, alignment: .leading)
-                                Text(ardmString(node["address"])).font(.system(size: 10, design: .monospaced)).frame(width: 160, alignment: .leading)
-                                Text(ardmString(node["flags"])).font(.system(size: 10, design: .monospaced))
+                                Text(ardmString(node["id"])).font(store.monoFont(10)).frame(width: 200, alignment: .leading)
+                                Text(ardmString(node["address"])).font(store.monoFont(10)).frame(width: 160, alignment: .leading)
+                                Text(ardmString(node["flags"])).font(store.monoFont(10))
                                 Spacer()
                             }
                         }
@@ -306,8 +306,8 @@ struct LiveEventList: View {
     var body: some View {
         List(store.liveEvents) { event in
             HStack(alignment: .top) {
-                Text(event.time, style: .time).font(.system(size: 9, design: .monospaced)).frame(width: 70, alignment: .leading)
-                Text(event.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                Text(event.time, style: .time).font(store.monoFont(9)).frame(width: 70, alignment: .leading)
+                Text(event.text).font(store.monoFont(11)).textSelection(.enabled)
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -334,11 +334,11 @@ struct CommandLogView: View {
             }.padding(10)
             List(filtered) { entry in
                 HStack {
-                    Text(entry.time, style: .time).font(.system(size: 10, design: .monospaced)).frame(width: 90, alignment: .leading)
-                    Text(entry.connection).font(.system(size: 10)).frame(width: 120, alignment: .leading)
-                    Text(entry.command).font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                    Text(entry.time, style: .time).font(store.monoFont(10)).frame(width: 90, alignment: .leading)
+                    Text(entry.connection).font(store.uiFont(10)).frame(width: 120, alignment: .leading)
+                    Text(entry.command).font(store.monoFont(11)).lineLimit(1)
                     Spacer()
-                    Text(String(format: "%.1f ms", entry.cost)).font(.system(size: 10, design: .monospaced))
+                    Text(String(format: "%.1f ms", entry.cost)).font(store.monoFont(10))
                 }
             }
         }

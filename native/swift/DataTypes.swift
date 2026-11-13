@@ -44,8 +44,10 @@ extension AppStore {
                         i += 2
                     }
                 }
-                rows.append(KeyRow(id: ardmString(id), field: ardmString(id),
-                                   value: fields.joined(separator: ", "),
+                let entryID = ardmString(id)
+                let suffix = formattedStreamDate(entryID).map { " · \($0)" } ?? ""
+                rows.append(KeyRow(id: entryID, field: entryID,
+                                   value: fields.joined(separator: ", ") + suffix,
                                    raw: ardmData(entry)))
             }
 
@@ -69,6 +71,11 @@ extension AppStore {
         let limit = rowLimit
         let path = jsonPath
         let type = selectedKeyType
+        // Hash / Set / ZSet use cursor-based streaming scans (ioredis scan streams upstream).
+        if type == .hash || type == .set || type == .zSet {
+            scanRows(reset: true)
+            return
+        }
         onBackground {
             do {
                 let command = self.readCommand(for: type, key: key, offset: offset, limit: limit, path: path)
@@ -101,7 +108,9 @@ extension AppStore {
         case .hash: return ["HGETALL", key]
         case .stream: return ["XRANGE", key, "-", "+", "COUNT", "\(limit)"]
         case .reJSON: return ["JSON.GET", key, path]
-        case .timeSeries: return ["TS.RANGE", key, "-", "+", "COUNT", "\(limit)"]
+        case .timeSeries: return timeSeriesReverse
+            ? ["TS.REVRANGE", key, "-", "+", "COUNT", "\(limit)"]
+            : ["TS.RANGE", key, "-", "+", "COUNT", "\(limit)"]
         case .vector: return ["VGETATTR", key, "0"]
         case .array: return ["ARGET", key, start, stop]
         case .unknown: return ["GET", key]
@@ -186,21 +195,158 @@ extension AppStore {
         execute(args)
     }
 
+
+    // MARK: - Cursor-based streaming reads (HSCAN / SSCAN / ZSCAN)
+
+    func scanCommand(for type: ARDMKeyType, key: String, cursor: String, count: Int) -> [String] {
+        let name: String
+        switch type {
+        case .hash: name = "HSCAN"
+        case .set: name = "SSCAN"
+        case .zSet: name = "ZSCAN"
+        default: name = "SCAN"
+        }
+        var args: [String] = [name, key, cursor]
+        if rowSearchPattern != "*" { args += ["MATCH", rowSearchPattern] }
+        args += ["COUNT", "\(count)"]
+        return args
+    }
+
+    /// Reads one cursor batch; append mode implements the "load more" path for huge keys.
+    func scanRows(reset: Bool) {
+        guard let key = selectedKey, connected else { return }
+        let type = selectedKeyType
+        guard type == .hash || type == .set || type == .zSet else { return }
+        if !reset && rowScanFinished { return }
+        let cursor = reset ? "0" : rowScanCursor
+        let count = rowLimit
+        let pattern = rowSearchPattern
+        onBackground {
+            do {
+                var args: [String] = []
+                switch type {
+                case .hash: args = ["HSCAN", key, cursor]
+                case .set: args = ["SSCAN", key, cursor]
+                default: args = ["ZSCAN", key, cursor]
+                }
+                if pattern != "*" { args += ["MATCH", pattern] }
+                args += ["COUNT", "\(count)"]
+                let reply = try self.sendSync(args)
+                let parts = ardmArray(reply)
+                let next = parts.first.map { ardmString($0) } ?? "0"
+                let flat = parts.count > 1 ? parts[1] : []
+                let rows = self.rowsForType(type, key: key, value: flat)
+                var ttls: [String: Int] = [:]
+                if type == .hash && !rows.isEmpty {
+                    var ttlArgs: [String] = ["HTTL", key, "FIELDS", "\(rows.count)"]
+                    ttlArgs += rows.map { $0.field }
+                    // Redis < 7.4 has no HTTL: silently degrade to "no field TTL info".
+                    if let ttlReply = try? self.sendSync(ttlArgs) {
+                        let values = ardmArray(ttlReply)
+                        for (index, row) in rows.enumerated() where index < values.count {
+                            if let seconds = Int(ardmString(values[index])) { ttls[row.field] = seconds }
+                        }
+                    }
+                }
+                self.onMain {
+                    if reset {
+                        self.keyRows = rows
+                        self.fieldTTLs = ttls
+                    } else {
+                        self.keyRows.append(contentsOf: rows)
+                        self.fieldTTLs.merge(ttls) { _, new in new }
+                    }
+                    self.rowScanCursor = next
+                    self.rowScanFinished = next == "0" || next.isEmpty
+                    self.statusText = "\(self.keyRows.count) " + L10n("rows")
+                        + (self.rowScanFinished ? "" : " · " + L10n("Load more rows"))
+                }
+            } catch {
+                self.onMain { self.fail(error.localizedDescription) }
+            }
+        }
+    }
+
+    /// Field-level expiry (Redis >= 7.4). -1 removes the field TTL.
+    func setFieldTTL(_ field: String, seconds: Int) {
+        guard let key = selectedKey, selectedKeyType == .hash else { return }
+        let command = seconds < 0
+            ? ["HPERSIST", key, "FIELDS", "1", field]
+            : ["HEXPIRE", key, "\(seconds)", "FIELDS", "1", field]
+        send(command) { result in
+            if case .success = result {
+                self.notify("Field TTL updated")
+                self.scanRows(reset: true)
+            }
+        }
+    }
+
+    /// Millisecond TTL (PTTL / PEXPIRE), matching KeyList.vue's PTTL support.
+    func setTTLMillis(_ millis: Int) {
+        guard let key = selectedKey else { return }
+        let command = millis < 0 ? ["PERSIST", key] : ["PEXPIRE", key, "\(millis)"]
+        send(command) { result in
+            if case .success = result { self.notify("TTL (ms) updated"); self.reloadKeyDetail() }
+        }
+    }
+
+    func refreshPTTL() {
+        guard let key = selectedKey else { return }
+        send(["PTTL", key]) { result in
+            if case .success(let reply) = result { self.selectedKeyTTLMillis = Int(ardmString(reply)) ?? -1 }
+        }
+    }
+
+    /// Per-row "copy as command" (dumpCommand in every upstream KeyContent*.vue).
+    func writeCommandString(for row: KeyRow) -> String {
+        let commands = writeCommands(for: selectedKeyType, key: selectedKey ?? "", row: row,
+                                     field: row.field, value: row.value, extra: row.extra, remove: false)
+        return commands.map { $0.joined(separator: " ") }.joined(separator: "\n")
+    }
+
     /// Save the whole string/JSON value from the editor (ViewerText / JsonEditor).
+    /// The active viewer now encodes the edited text back to its original binary format.
     func saveEditorText() {
         guard let key = selectedKey else { return }
-        let text = editorText
+        let viewer = viewerName
+        guard ARDMFormatters.encodableViewers().contains(viewer) else {
+            fail("Viewer \(viewer) is decode-only; switch to Text / Hex / Json to write back.")
+            return
+        }
+        var error: NSError?
+        let payload = ARDMFormatters.encode(editorText, as: viewer, error: &error)
+        if let error { fail(error.localizedDescription); return }
         let type = selectedKeyType
         let path = jsonPath
-        let args: [String]
-        switch type {
-        case .reJSON: args = ["JSON.SET", key, path, text]
-        case .hash, .list, .set, .zSet, .stream, .timeSeries, .vector, .array:
-            args = ["SET", key, text]
-        default: args = ["SET", key, text]
+        onBackground {
+            do {
+                if type == .reJSON {
+                    try self.sendRawSync(["JSON.SET", key, path, self.editorText])
+                } else {
+                    try self.sendRawSync(["SET", key, payload])
+                }
+                self.onMain { self.reloadKeyDetail(); self.notify("Value saved") }
+            } catch { self.onMain { self.fail(error.localizedDescription) } }
         }
-        send(args) { result in
-            if case .success = result { self.reloadKeyDetail(); self.notify("Value saved") }
+    }
+
+    /// Load a {fieldNumber: fieldName} JSON map for the Protobuf viewer.
+    func loadProtobufSchema() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            fail("Protobuf schema must be a JSON object of {\"fieldNumber\": \"fieldName\"}.")
+            return
         }
+        var schema: [NSNumber: String] = [:]
+        for (number, name) in raw {
+            if let n = Int(number) { schema[NSNumber(value: n)] = name }
+        }
+        ARDMFormatters.setProtobufSchema(schema)
+        notify("Protobuf schema loaded: \(schema.count) fields")
+        renderValue()
     }
 }

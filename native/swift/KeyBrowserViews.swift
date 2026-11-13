@@ -62,24 +62,9 @@ struct KeyBrowserView: View {
             ScrollViewReader { proxy in
             Group {
             if store.showTree {
-                List(store.keyNodes, children: \.children, selection: $treeSelection) { node in
-                    HStack {
-                        Image(systemName: node.isLeaf ? "key" : "folder")
-                            .foregroundStyle(node.isLeaf ? .blue : .orange)
-                        Text(node.name).lineLimit(1)
-                        Spacer()
-                        if store.checkedKeys.contains(node.fullPath) { Image(systemName: "checkmark.circle.fill") }
-                    }
-                    .font(.system(size: store.scaled(12)))
-                    .draggable(node.fullPath)
-                    .contextMenu {
-                        if node.isLeaf { keyMenu(node.fullPath) }
-                        else {
-                            Button(L10n("Select all in group")) {
-                                store.checkedKeys.formUnion(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
-                            }
-                            Button(L10n("Delete group")) { store.deleteKeys(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) }) }
-                        }
+                List(selection: $treeSelection) {
+                    ForEach(store.keyNodes) { node in
+                        treeRow(node)
                     }
                 }
                 .listStyle(.sidebar)
@@ -97,7 +82,7 @@ struct KeyBrowserView: View {
                             Image(systemName: store.checkedKeys.contains(key) ? "checkmark.square" : "square")
                         }.buttonStyle(.plain)
                     }
-                    .font(.system(size: store.scaled(12)))
+                    .font(store.uiFont(12))
                     .draggable(key)
                     .contextMenu { keyMenu(key) }
                     .onTapGesture(count: 2) { store.selectKey(key) }
@@ -110,6 +95,46 @@ struct KeyBrowserView: View {
             .onAppear { scrollProxy = proxy }
             }
         }
+    }
+
+    /// Explicit DisclosureGroup tree so expansion state is observable and persistable
+    /// (List(children:) keeps its state inside SwiftUI with no way to save it).
+    private func treeRow(_ node: KeyNode) -> AnyView {
+        if node.isLeaf {
+            return AnyView(
+                HStack {
+                    Image(systemName: "key").foregroundStyle(.blue)
+                    Text(node.name).lineLimit(1)
+                    Spacer()
+                    if store.checkedKeys.contains(node.fullPath) { Image(systemName: "checkmark.circle.fill") }
+                }
+                .font(store.uiFont(12))
+                .tag(node.fullPath)
+                .draggable(node.fullPath)
+                .contextMenu { keyMenu(node.fullPath) }
+            )
+        }
+        return AnyView(
+            DisclosureGroup(isExpanded: store.expansionBinding(node.fullPath)) {
+                ForEach(node.children ?? []) { child in
+                    treeRow(child)
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "folder").foregroundStyle(.orange)
+                    Text(node.name).lineLimit(1)
+                }
+                .font(store.uiFont(12))
+                .contextMenu {
+                    Button(L10n("Select all in group")) {
+                        store.checkedKeys.formUnion(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
+                    }
+                    Button(L10n("Delete group")) {
+                        store.deleteKeys(store.keys.filter { $0.hasPrefix(node.fullPath + store.separator) })
+                    }
+                }
+            }
+        )
     }
 
     private func scrollToTop() {
@@ -272,8 +297,8 @@ struct HotKeysSheet: View {
             Text(L10n("Keyboard Shortcuts")).font(.headline).padding()
             List(Array(rows.indices), id: \.self) { index in
                 HStack {
-                    Text(rows[index].0).font(.system(size: 12, design: .monospaced)).frame(width: 110, alignment: .leading)
-                    Text(rows[index].1).font(.system(size: 12))
+                    Text(rows[index].0).font(store.monoFont(12)).frame(width: 110, alignment: .leading)
+                    Text(rows[index].1).font(store.uiFont(12))
                     Spacer()
                 }
             }

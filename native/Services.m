@@ -52,6 +52,154 @@ static NSData *ARDMInflate(NSData *data, int windowBits) {
     return result;
 }
 
+
+#pragma mark - Encoders (write-back path, mirrors the Vue viewers' encode())
+
+static void ARDMAppendBE(NSMutableData *out, uint64_t value, int bytes) {
+    for (int i = bytes - 1; i >= 0; i--) [out appendBytes:(const uint8_t[]){ (uint8_t)(value >> (8 * i)) } length:1];
+}
+
+static NSData *ARDMDeflate(NSData *data, int windowBits) {
+    z_stream st; memset(&st, 0, sizeof(st));
+    if (deflateInit2(&st, Z_DEFAULT_COMPRESSION, Z_DEFLATED, windowBits, 8, Z_DEFAULT_STRATEGY) != Z_OK) return nil;
+    st.next_in = (Bytef *)data.bytes;
+    st.avail_in = (uInt)data.length;
+    NSMutableData *result = [NSMutableData dataWithCapacity:data.length + 128];
+    uint8_t buffer[65536];
+    int status;
+    do {
+        st.next_out = buffer; st.avail_out = sizeof(buffer);
+        status = deflate(&st, Z_FINISH);
+        [result appendBytes:buffer length:sizeof(buffer) - st.avail_out];
+    } while (status == Z_OK);
+    deflateEnd(&st);
+    return status == Z_STREAM_END ? result : nil;
+}
+
+static NSData *ARDMMsgpackEncode(id value);
+static void ARDMMsgpackAppend(NSMutableData *out, id value) {
+    if (!value || value == NSNull.null) { [out appendBytes:(const uint8_t[]){0xc0} length:1]; return; }
+    if ([value isKindOfClass:NSString.class]) {
+        NSData *utf8 = [(NSString *)value dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+        NSUInteger n = utf8.length;
+        if (n <= 31) { [out appendBytes:(const uint8_t[]){(uint8_t)(0xa0 | n)} length:1]; }
+        else if (n <= 255) { [out appendBytes:(const uint8_t[]){0xd9, (uint8_t)n} length:2]; }
+        else if (n <= 65535) { [out appendBytes:(const uint8_t[]){0xda} length:1]; ARDMAppendBE(out, n, 2); }
+        else { [out appendBytes:(const uint8_t[]){0xdb} length:1]; ARDMAppendBE(out, n, 4); }
+        [out appendData:utf8];
+        return;
+    }
+    if ([value isKindOfClass:NSNumber.class]) {
+        NSNumber *n = value;
+        if (CFGetTypeID((__bridge CFTypeRef)n) == CFBooleanGetTypeID()) {
+            [out appendBytes:(const uint8_t[]){[n boolValue] ? 0xc3 : 0xc2} length:1]; return;
+        }
+        double d = [n doubleValue];
+        if (d != (double)[n longLongValue]) {
+            [out appendBytes:(const uint8_t[]){0xcb} length:1];
+            uint64_t bits; memcpy(&bits, &d, 8); ARDMAppendBE(out, bits, 8); return;
+        }
+        long long i = [n longLongValue];
+        if (i >= 0 && i <= 127) { [out appendBytes:(const uint8_t[]){(uint8_t)i} length:1]; return; }
+        if (i < 0 && i >= -32) { [out appendBytes:(const uint8_t[]){(uint8_t)i} length:1]; return; }
+        [out appendBytes:(const uint8_t[]){0xd3} length:1];
+        ARDMAppendBE(out, (uint64_t)i, 8);
+        return;
+    }
+    if ([value isKindOfClass:NSArray.class]) {
+        NSArray *a = value; NSUInteger n = a.count;
+        if (n <= 15) { [out appendBytes:(const uint8_t[]){(uint8_t)(0x90 | n)} length:1]; }
+        else if (n <= 65535) { [out appendBytes:(const uint8_t[]){0xdc} length:1]; ARDMAppendBE(out, n, 2); }
+        else { [out appendBytes:(const uint8_t[]){0xdd} length:1]; ARDMAppendBE(out, n, 4); }
+        for (id item in a) ARDMMsgpackAppend(out, item);
+        return;
+    }
+    if ([value isKindOfClass:NSDictionary.class]) {
+        NSDictionary *d = value; NSUInteger n = d.count;
+        if (n <= 15) { [out appendBytes:(const uint8_t[]){(uint8_t)(0x80 | n)} length:1]; }
+        else if (n <= 65535) { [out appendBytes:(const uint8_t[]){0xde} length:1]; ARDMAppendBE(out, n, 2); }
+        else { [out appendBytes:(const uint8_t[]){0xdf} length:1]; ARDMAppendBE(out, n, 4); }
+        for (id key in d) { ARDMMsgpackAppend(out, [key description]); ARDMMsgpackAppend(out, d[key]); }
+        return;
+    }
+    [out appendBytes:(const uint8_t[]){0xc0} length:1];
+}
+static NSData *ARDMMsgpackEncode(id value) {
+    NSMutableData *out = [NSMutableData data];
+    ARDMMsgpackAppend(out, value);
+    return out;
+}
+
+static void ARDMPHPAppend(NSMutableString *out, id value) {
+    if (!value || value == NSNull.null) { [out appendString:@"N;"]; return; }
+    if ([value isKindOfClass:NSString.class]) {
+        NSString *s = value;
+        NSUInteger bytes = [s lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        [out appendFormat:@"s:%lu:\"%@\";", (unsigned long)bytes, s]; return;
+    }
+    if ([value isKindOfClass:NSNumber.class]) {
+        NSNumber *n = value;
+        if (CFGetTypeID((__bridge CFTypeRef)n) == CFBooleanGetTypeID()) { [out appendFormat:@"b:%d;", [n boolValue] ? 1 : 0]; }
+        else if ([n doubleValue] != (double)[n longLongValue]) { [out appendFormat:@"d:%@;", n]; }
+        else { [out appendFormat:@"i:%lld;", [n longLongValue]]; }
+        return;
+    }
+    if ([value isKindOfClass:NSArray.class]) {
+        NSArray *a = value;
+        [out appendFormat:@"a:%lu:{", (unsigned long)a.count];
+        for (NSUInteger i = 0; i < a.count; i++) { [out appendFormat:@"i:%lu;", (unsigned long)i]; ARDMPHPAppend(out, a[i]); }
+        [out appendString:@"}"]; return;
+    }
+    if ([value isKindOfClass:NSDictionary.class]) {
+        NSDictionary *d = value;
+        [out appendFormat:@"a:%lu:{", (unsigned long)d.count];
+        for (id key in d) { ARDMPHPAppend(out, [key description]); ARDMPHPAppend(out, d[key]); }
+        [out appendString:@"}"]; return;
+    }
+    [out appendString:@"N;"];
+}
+
+/** Reverse of ARDMHexDump: "00000000  48 65 ...  |Hello|" -> bytes. */
+static NSData *ARDMDataFromHexDump(NSString *text) {
+    NSMutableData *out = [NSMutableData data];
+    for (NSString *rawLine in [text componentsSeparatedByString:@"\n"]) {
+        NSRange bar = [rawLine rangeOfString:@" |"];
+        NSString *line = bar.location == NSNotFound ? rawLine : [rawLine substringToIndex:bar.location];
+        NSArray *tokens = [[line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]
+                           componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        BOOL first = YES;
+        for (NSString *token in tokens) {
+            if (token.length == 0) continue;
+            if (first) { first = NO; continue; }   // offset column
+            if (token.length != 2) continue;
+            unsigned value = 0;
+            if ([[NSScanner scannerWithString:token] scanHexInt:&value]) {
+                uint8_t byte = (uint8_t)value; [out appendBytes:&byte length:1];
+            }
+        }
+    }
+    return out;
+}
+
+/** Reverse of ARDMBinaryDump: groups of eight 0/1 characters -> bytes. */
+static NSData *ARDMDataFromBinaryDump(NSString *text) {
+    NSMutableData *out = [NSMutableData data];
+    NSArray *tokens = [text componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    for (NSString *token in tokens) {
+        if (token.length != 8) continue;
+        BOOL valid = YES; uint8_t byte = 0;
+        for (NSUInteger i = 0; i < 8; i++) {
+            unichar c = [token characterAtIndex:i];
+            if (c != '0' && c != '1') { valid = NO; break; }
+            if (c == '1') byte |= (uint8_t)(1 << (7 - i));
+        }
+        if (valid) [out appendBytes:&byte length:1];
+    }
+    return out;
+}
+
+static NSDictionary<NSNumber *, NSString *> *sARDMProtobufSchema;
+
 #pragma mark Msgpack
 
 static id ARDMMsgpackValue(const unsigned char *p, NSUInteger len, NSUInteger *offset) {
@@ -114,33 +262,47 @@ static id ARDMMsgpackValue(const unsigned char *p, NSUInteger len, NSUInteger *o
 
 #pragma mark PHP serialize
 
+/** Consume up to (and including) the given delimiter, returning the text before it. */
+static NSString *ARDMPHPReadUntil(const char *p, NSUInteger len, NSUInteger *off, char delimiter) {
+    NSUInteger start = *off, end = start;
+    while (end < len && p[end] != delimiter) end++;
+    NSString *text = [[NSString alloc] initWithBytes:p + start length:end - start encoding:NSUTF8StringEncoding] ?: @"";
+    *off = (end < len) ? end + 1 : end;
+    return text;
+}
+
+/**
+ * Decode PHP serialize() payloads: N; / b:1; / i:42; / d:1.5; /
+ * s:4:"name"; / a:2:{key;value;}. Byte lengths in s: are honoured so
+ * quotes and semicolons inside a string value are safe.
+ */
 static id ARDMPHPValue(const char *p, NSUInteger len, NSUInteger *off) {
     if (*off >= len) return NSNull.null;
-    char t = p[*off]; (*off)++;
-    NSUInteger colon = *off;
-    while (colon < len && p[colon] != ':') colon++;
-    if (t == 'N') return NSNull.null;
-    if (t == 'b') { *off = colon + 2; return @(colon < len && p[colon+1] == '1'); }
-    if (t == 'i') {
-        NSUInteger end = colon + 1; while (end < len && p[end] != ';') end++;
-        NSString *s = [[NSString alloc] initWithBytes:p + colon + 1 length:end - colon - 1 encoding:NSUTF8StringEncoding];
-        *off = end + 1; return @([s integerValue]);
+    char t = p[(*off)++];
+    if (t == 'N') {
+        if (*off < len && p[*off] == ';') (*off)++;
+        return NSNull.null;
     }
-    if (t == 'd') {
-        NSUInteger end = colon + 1; while (end < len && p[end] != ';') end++;
-        NSString *s = [[NSString alloc] initWithBytes:p + colon + 1 length:end - colon - 1 encoding:NSUTF8StringEncoding];
-        *off = end + 1; return @([s doubleValue]);
+    if (*off < len && p[*off] == ':') (*off)++;
+    if (t == 'b' || t == 'i' || t == 'd') {
+        NSString *num = ARDMPHPReadUntil(p, len, off, ';');
+        if (t == 'b') return @([num integerValue] != 0);
+        if (t == 'd') return @([num doubleValue]);
+        return @([num longLongValue]);
     }
     if (t == 's' || t == 'S') {
-        NSUInteger n = (NSUInteger)[[NSString alloc] initWithBytes:p + *off length:colon - *off encoding:NSUTF8StringEncoding].integerValue;
-        NSUInteger start = colon + 2;
-        if (start + n + 2 > len) return NSNull.null;
-        NSString *s = [[NSString alloc] initWithBytes:p + start length:n encoding:NSUTF8StringEncoding] ?: @"<binary>";
-        *off = start + n + 2; return s;
+        NSUInteger n = (NSUInteger)[ARDMPHPReadUntil(p, len, off, ':') integerValue];
+        if (*off < len && p[*off] == '"') (*off)++;
+        if (*off + n > len) return NSNull.null;
+        NSString *s = [[NSString alloc] initWithBytes:p + *off length:n encoding:NSUTF8StringEncoding] ?: @"<binary>";
+        *off += n;
+        if (*off < len && p[*off] == '"') (*off)++;
+        if (*off < len && p[*off] == ';') (*off)++;
+        return s;
     }
     if (t == 'a') {
-        NSUInteger n = (NSUInteger)[[NSString alloc] initWithBytes:p + *off length:colon - *off encoding:NSUTF8StringEncoding].integerValue;
-        *off = colon + 2;
+        NSUInteger n = (NSUInteger)[ARDMPHPReadUntil(p, len, off, ':') integerValue];
+        if (*off < len && p[*off] == '{') (*off)++;
         NSMutableDictionary *d = [NSMutableDictionary dictionary];
         for (NSUInteger k = 0; k < n; k++) {
             id key = ARDMPHPValue(p, len, off);
@@ -155,32 +317,34 @@ static id ARDMPHPValue(const char *p, NSUInteger len, NSUInteger *off) {
 
 #pragma mark Protobuf wire
 
-static NSString *ARDMProtobufDump(NSData *data) {
+static NSString *ARDMProtobufDump(NSData *data, NSDictionary<NSNumber *, NSString *> *schema) {
     const unsigned char *p = data.bytes; NSUInteger i = 0, len = data.length;
     NSMutableString *out = [NSMutableString string];
     while (i < len) {
         uint64_t tag = 0; int shift = 0;
         while (i < len && shift < 64) { uint8_t b = p[i++]; tag |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
         NSUInteger field = tag >> 3, wire = tag & 7;
+        // A user-supplied .proto schema labels every wire type, not just fixed32/64.
+        NSString *label = schema[@(field)] ?: [NSString stringWithFormat:@"%lu", (unsigned long)field];
         if (wire == 0) {
             uint64_t v = 0; shift = 0;
             while (i < len && shift < 64) { uint8_t b = p[i++]; v |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
-            [out appendFormat:@"field %lu (varint): %llu\n", (unsigned long)field, v];
+            [out appendFormat:@"field %@ (varint): %llu\n", label, v];
         } else if (wire == 2) {
             uint64_t n = 0; shift = 0;
             while (i < len && shift < 64) { uint8_t b = p[i++]; n |= (uint64_t)(b & 0x7f) << shift; if (!(b & 0x80)) break; shift += 7; }
             if (i + n > len) break;
             NSData *chunk = [NSData dataWithBytes:p + i length:(NSUInteger)n]; i += (NSUInteger)n;
             NSString *s = [[NSString alloc] initWithData:chunk encoding:NSUTF8StringEncoding];
-            [out appendFormat:@"field %lu (bytes, %llu): %@\n", (unsigned long)field, n,
+            [out appendFormat:@"field %@ (bytes, %llu): %@\n", label, n,
                 (s && [[NSCharacterSet controlCharacterSet] isSupersetOfSet:[NSCharacterSet characterSetWithCharactersInString:s]] == NO) ? s : ARDMHexDump(chunk)];
         } else if (wire == 5) {
             if (i + 4 > len) break;
-            [out appendFormat:@"field %lu (fixed32): %@\n", (unsigned long)field, ARDMHexDump([NSData dataWithBytes:p + i length:4])];
+            [out appendFormat:@"field %@ (fixed32): %@\n", label, ARDMHexDump([NSData dataWithBytes:p + i length:4])];
             i += 4;
         } else if (wire == 1) {
             if (i + 8 > len) break;
-            [out appendFormat:@"field %lu (fixed64): %@\n", (unsigned long)field, ARDMHexDump([NSData dataWithBytes:p + i length:8])];
+            [out appendFormat:@"field %@ (fixed64): %@\n", label, ARDMHexDump([NSData dataWithBytes:p + i length:8])];
             i += 8;
         } else break;
     }
@@ -284,19 +448,92 @@ static NSString *ARDMJSONString(id obj) {
         t.executableURL = [NSURL fileURLWithPath:@"/usr/bin/env"];
         t.arguments = @[@"brotli", @"-d", @"-c", tmpIn];
         NSPipe *pipe = [NSPipe pipe]; t.standardOutput = pipe;
+        // Brotli writes "corrupt input" to stderr for non-brotli payloads; keep
+        // that noise out of the app's console instead of inheriting the handle.
+        t.standardError = [NSFileHandle fileHandleWithNullDevice];
         @try { [t launch]; } @catch (NSException *e) { return @"Brotli: system decoder unavailable (install brotli CLI for this viewer)"; }
         NSData *outData = [pipe.fileHandleForReading readDataToEndOfFile];
         [t waitUntilExit];
         if (outData.length) return [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding] ?: ARDMHexDump(outData);
         return @"Brotli: system decoder unavailable (install brotli CLI for this viewer)";
     }
-    if ([viewer isEqualToString:@"Protobuf"]) return ARDMProtobufDump(data);
+    if ([viewer isEqualToString:@"Protobuf"]) return ARDMProtobufDump(data, sARDMProtobufSchema);
     if ([viewer isEqualToString:@"OverSize"]) {
         return [NSString stringWithFormat:@"Value too large to display inline (%lu bytes).\nFirst 4 KB (hex):\n%@",
                 (unsigned long)data.length, ARDMHexDump([data subdataWithRange:NSMakeRange(0, MIN(data.length, 4096))])];
     }
     if ([viewer isEqualToString:@"Custom"]) return @"Supply a JavaScript formatter in Settings > Custom Viewer.";
     return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: ARDMHexDump(data);
+}
+
+
++ (NSArray<NSString *> *)encodableViewers {
+    return @[@"Text", @"Hex", @"Binary", @"Json", @"Msgpack", @"PHPSerialize",
+             @"Gzip", @"Deflate", @"DeflateRaw", @"Brotli", @"Custom"];
+}
+
++ (void)setProtobufSchema:(NSDictionary<NSNumber *, NSString *> * _Nullable)schema {
+    sARDMProtobufSchema = [schema copy];
+}
++ (NSDictionary<NSNumber *, NSString *> * _Nullable)protobufSchema { return sARDMProtobufSchema; }
+
+/** Reverse of render:as:. Returns the exact bytes to write back with SET. */
++ (NSData *)encode:(NSString *)text as:(NSString *)viewer error:(NSError **)error {
+    NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
+    if ([viewer isEqualToString:@"Text"] || [viewer isEqualToString:@"Json"] || [viewer isEqualToString:@"Custom"]) {
+        // Json is passed through verbatim: NSJSONSerialization would round large integers
+        // through Double and lose precision, so no re-serialisation happens here.
+        return utf8;
+    }
+    if ([viewer isEqualToString:@"Hex"]) return ARDMDataFromHexDump(text);
+    if ([viewer isEqualToString:@"Binary"]) return ARDMDataFromBinaryDump(text);
+    if ([viewer isEqualToString:@"Msgpack"] || [viewer isEqualToString:@"PHPSerialize"]) {
+        id value = [NSJSONSerialization JSONObjectWithData:utf8 options:NSJSONReadingAllowFragments error:nil];
+        if (!value) {
+            if (error) *error = [NSError errorWithDomain:@"me.qii404.ardm.native" code:30
+                userInfo:@{NSLocalizedDescriptionKey: @"Edited value is not valid JSON"}];
+            return [NSData data];
+        }
+        if ([viewer isEqualToString:@"Msgpack"]) return ARDMMsgpackEncode(value);
+        NSMutableString *php = [NSMutableString string];
+        ARDMPHPAppend(php, value);
+        return [php dataUsingEncoding:NSUTF8StringEncoding];
+    }
+    if ([viewer isEqualToString:@"Gzip"] || [viewer isEqualToString:@"Deflate"] || [viewer isEqualToString:@"DeflateRaw"]) {
+        int bits = [viewer isEqualToString:@"Gzip"] ? 31 : ([viewer isEqualToString:@"Deflate"] ? 15 : -15);
+        NSData *compressed = ARDMDeflate(utf8, bits);
+        if (!compressed) {
+            if (error) *error = [NSError errorWithDomain:@"me.qii404.ardm.native" code:31
+                userInfo:@{NSLocalizedDescriptionKey: @"Compression failed"}];
+            return [NSData data];
+        }
+        return compressed;
+    }
+    if ([viewer isEqualToString:@"Brotli"]) {
+        NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:@"ardm_br_out"];
+        [utf8 writeToFile:tmp atomically:YES];
+        NSTask *task = [[NSTask alloc] init];
+        task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/env"];
+        task.arguments = @[@"brotli", @"-c", tmp];
+        NSPipe *pipe = [NSPipe pipe]; task.standardOutput = pipe;
+        task.standardError = [NSFileHandle fileHandleWithNullDevice];
+        @try { [task launch]; } @catch (NSException *e) {
+            if (error) *error = [NSError errorWithDomain:@"me.qii404.ardm.native" code:32
+                userInfo:@{NSLocalizedDescriptionKey: @"System brotli CLI is required to encode"}];
+            return [NSData data];
+        }
+        NSData *out = [pipe.fileHandleForReading readDataToEndOfFile];
+        [task waitUntilExit];
+        if (!out.length) {
+            if (error) *error = [NSError errorWithDomain:@"me.qii404.ardm.native" code:32
+                userInfo:@{NSLocalizedDescriptionKey: @"System brotli CLI is required to encode"}];
+            return [NSData data];
+        }
+        return out;
+    }
+    if (error) *error = [NSError errorWithDomain:@"me.qii404.ardm.native" code:33
+        userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Viewer %@ is decode-only", viewer]}];
+    return [NSData data];
 }
 
 + (NSString *)renderCustom:(NSData *)data script:(NSString *)script error:(NSError **)error {

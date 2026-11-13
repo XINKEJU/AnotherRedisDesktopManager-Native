@@ -145,6 +145,33 @@ extension AppStore {
         if cliHistory.last != raw { cliHistory.append(raw); saveCliHistory() }
         cliHistoryIndex = cliHistory.count
         cliInput = ""
+        let head = parts.first?.uppercased() ?? ""
+        switch head {
+        case "MULTI":
+            if multiQueue != nil { cliOutput = "(error) ERR MULTI calls can not be nested" }
+            else { multiQueue = []; cliOutput = "OK" }
+            activeTab = .cli
+            return
+        case "DISCARD":
+            if multiQueue == nil { cliOutput = "(error) ERR DISCARD without MULTI" }
+            else { multiQueue = nil; cliOutput = "OK" }
+            activeTab = .cli
+            return
+        case "EXEC":
+            guard let queued = multiQueue else {
+                cliOutput = "(error) ERR EXEC without MULTI"; activeTab = .cli; return
+            }
+            multiQueue = nil
+            executeTransaction(queued)
+            return
+        default:
+            if multiQueue != nil {
+                multiQueue?.append(parts)
+                cliOutput = "QUEUED"
+                activeTab = .cli
+                return
+            }
+        }
         send(parts) { result in
             switch result {
             case .success(let reply):
