@@ -141,6 +141,7 @@ extension AppStore {
                     self.connectionStates[config.identifier] = .connected
                     self.startKeepalive()
                     self.selectedDB = config.db
+                    self.openDBTabs = [config.db]
                     self.dbSize = size
                     self.separator = config.separator.isEmpty ? self.separator : config.separator
                     self.readOnly = config.readOnly
@@ -257,6 +258,7 @@ extension AppStore {
             connectionStates[id] = target.isConnected ? .connected : .disconnected
         }
         selectedDB = target.selectedDB
+        openDBTabs = [target.selectedDB]
         if let config {
             separator = config.separator.isEmpty ? separator : config.separator
             readOnly = config.readOnly
@@ -309,6 +311,7 @@ extension AppStore {
     }
 
     func changeDatabase(_ db: Int) {
+        if !openDBTabs.contains(db) { openDBTabs.append(db) }
         send(["SELECT", "\(db)"]) { result in
             if case .success = result {
                 self.selectedDB = db
@@ -317,6 +320,15 @@ extension AppStore {
                 self.notify("Switched to DB \(db)")
             }
         }
+    }
+
+    /// Closing a tab is a view concern only: the socket keeps its SELECT state,
+    /// and the last remaining tab is never closed or the column would have no
+    /// database to show.
+    func closeDatabaseTab(_ db: Int) {
+        guard openDBTabs.count > 1, openDBTabs.contains(db) else { return }
+        openDBTabs.removeAll { $0 == db }
+        if db == selectedDB, let next = openDBTabs.last { changeDatabase(next) }
     }
 }
 
@@ -489,18 +501,24 @@ extension AppStore {
             self.onMain {
                 guard generation == self.metaGeneration else { return }
                 self.keyMeta.merge(final) { _, new in new }
+                // The expiry filter can only be truthful once the TTLs are in.
+                if self.onlyNoExpiry {
+                    self.invalidateKeyCaches(scope: .filter)
+                    self.buildTree()
+                }
             }
         }
     }
 
     /// Reproduce KeyListVirtualTree.vue: split each key by the separator into a hierarchy.
-    func buildTree() {
+    func buildTree(source: [String]? = nil) {
+        let sourceKeys = source ?? (onlyNoExpiry ? filteredKeys() : keys)
         let sep = separator.isEmpty ? ":" : separator
         var root: [String: Any] = [:]
         // One pass builds both the tree and the folder → member index used by the
         // tri-state checkboxes, so rows never rescan the key list.
         var membership: [String: [String]] = [:]
-        for key in keys {
+        for key in sourceKeys {
             let parts = key.components(separatedBy: sep)
             insert(&root, parts, full: key)
             guard parts.count > 1 else { continue }
@@ -562,7 +580,7 @@ extension AppStore {
         let base = sortedBaseKeys()
         let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let local = localFilter
-        guard !text.isEmpty || !local.isEmpty else { return base }
+        guard !text.isEmpty || !local.isEmpty || onlyNoExpiry else { return base }
 
         // Hoist everything that used to be recomputed per key: the "*"-stripped
         // needle, the fuzzy word list, the compiled regex, and — the expensive one
@@ -588,6 +606,10 @@ extension AppStore {
         matched.reserveCapacity(base.count)
         for index in base.indices {
             let key = base[index]
+            // "仅无过期" is a view filter, not a rescan: the loaded page already
+            // carries each key's TTL. An unknown TTL stays visible so the list
+            // does not blank out while the metadata sweep is still running.
+            if onlyNoExpiry, let meta = keyMeta[key], meta.ttl >= 0 { continue }
             if !text.isEmpty {
                 let lower = lowered[index]
                 switch matchMode {
@@ -749,7 +771,7 @@ extension AppStore {
                 self.renderValue()
                 self.streamGroups = groups
                 self.streamConsumers = consumers
-                self.statusText = "\(key) · \(typeName(type)) · TTL \(ttl)"
+                self.statusText = "\(key) · \(typeName(type)) · TTL \(ARDMFormat.ttlLong(ttl))"
                 self.refreshPTTL()
                 if type == .timeSeries { self.loadTimeSeriesInfo() }
             }

@@ -211,27 +211,27 @@ struct KeyDetailView: View {
 
     @ViewBuilder
     private func keyHeader(_ key: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 7) {
-                // Type moves from a text capsule into the same glyph + chip
-                // vocabulary the key list uses, so the two panes agree on what a
-                // hash looks like.
-                Image(systemName: store.selectedKeyType.symbol)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(store.selectedKeyType.tint)
-                    .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                // The name is the one string in the pane that has to be read
+                // character by character, so it is the only one set in mono.
                 Text(key)
-                    .font(.system(size: ARDMFont.title, weight: .semibold))
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 Spacer(minLength: 8)
+
                 ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
                     store.reloadKeyDetail()
                 }
+                headerDivider
                 ARDMIconButton(systemName: "doc.on.doc", help: L10n("Copy")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(store.editorText, forType: .string)
+                }
+                ARDMIconButton(systemName: "square.and.pencil", help: L10n("JSON Editor")) {
+                    store.showingJsonEditor = true
                 }
                 ARDMIconMenu(help: L10n("More actions")) {
                     Button { store.showingRename = true } label: {
@@ -246,172 +246,267 @@ struct KeyDetailView: View {
                     Button { store.dumpKey(key) } label: {
                         Label(L10n("DUMP"), systemImage: "arrow.down.doc")
                     }
-                    Button { store.showingJsonEditor = true } label: {
-                        Label(L10n("JSON Editor"), systemImage: "curlybraces")
-                    }
                     Divider()
                     Button(role: .destructive) { store.deleteKeys([key]) } label: {
                         Label(L10n("Delete"), systemImage: "trash")
                     }
                 }
                 .accessibilityIdentifier("detail.key.more")
+                headerDivider
+                ARDMIconButton(systemName: "trash", help: L10n("Delete")) {
+                    store.deleteKeys([key])
+                }
             }
 
-            // Second line: the metadata strip. Type, size and expiry are the
-            // three facts every reference client shows under the key name.
-            HStack(spacing: 8) {
-                ARDMTypeBadge(type: store.selectedKeyType)
-                ARDMMetaChip(label: L10n("Size"), value: valueSizeText, icon: "internaldrive")
-                ARDMMetaChip(label: "TTL", value: ARDMFormat.ttl(store.selectedKeyTTL), icon: "clock")
+            // Type, size and expiry as one plain meta line, the way the
+            // reference header prints them ("STRING · 大小: 496 B · TTL: 23小时").
+            // The type word carries the colour; no chip is needed here.
+            HStack(spacing: 6) {
+                Text(typeName(store.selectedKeyType).uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(store.selectedKeyType.tint)
+                Text("·").foregroundStyle(.quaternary)
+                Text("\(L10n("Size")): \(valueSizeText)")
+                    .foregroundStyle(.secondary)
+                Text("·").foregroundStyle(.quaternary)
+                Text("TTL: \(ARDMFormat.ttlLong(store.selectedKeyTTL))")
+                    .foregroundStyle(ttlHeaderTint(store.selectedKeyTTL))
                 Spacer(minLength: 4)
             }
+            .font(.system(size: 10.5))
+            .monospacedDigit()
+            .lineLimit(1)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
     }
 
-    // MARK: String / ReJSON / Vector / unknown -> large editor + viewers
+    private var headerDivider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.18))
+            .frame(width: 1, height: 14)
+            .accessibilityHidden(true)
+    }
+
+    private func ttlHeaderTint(_ ttl: Int) -> Color {
+        switch ttl {
+        case -1: return .secondary
+        case 0..<300: return Color(red: 0.85, green: 0.30, blue: 0.26)
+        case 300..<3600: return Color(red: 0.86, green: 0.55, blue: 0.16)
+        default: return .secondary
+        }
+    }
+
+    // MARK: String / ReJSON / Vector / unknown -> format bars + code surface
+
+    /// Decode transforms and render views. The reference client splits these
+    /// into two rows because they answer different questions ("is this gzipped?"
+    /// and "show it as JSON"), and a single 15-item picker answered neither.
+    private let decodeFormats: [ViewerChip] = [
+        ViewerChip(id: "Gzip", title: "Gzip"), ViewerChip(id: "Deflate", title: "Deflate"),
+        ViewerChip(id: "Brotli", title: "Brotli"), ViewerChip(id: "Msgpack", title: "Msgpack"),
+        ViewerChip(id: "Pickle", title: "Pickle"), ViewerChip(id: "PHPSerialize", title: "PHP"),
+        ViewerChip(id: "JavaSerialize", title: "Java"), ViewerChip(id: "Protobuf", title: "Proto")
+    ]
+
+    private let viewFormats: [ViewerChip] = [
+        ViewerChip(id: "Text", title: "Text"), ViewerChip(id: "Json", title: "JSON"),
+        ViewerChip(id: "Hex", title: "Hex"), ViewerChip(id: "Binary", title: "Binary"),
+        ViewerChip(id: "OverSize", title: "OverSize")
+    ]
 
     private var scalarEditor: some View {
         VStack(spacing: 0) {
             if store.selectedKeyType == .reJSON {
-                HStack {
-                    Text(L10n("JSON path")).font(.caption)
-                    TextField(L10n("$"), text: $store.jsonPath).textFieldStyle(.roundedBorder).frame(width: 200)
+                HStack(spacing: 6) {
+                    Text(L10n("JSON path")).font(.system(size: ARDMFont.micro)).foregroundStyle(.secondary)
+                    TextField(L10n("$"), text: $store.jsonPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: ARDMFont.small))
+                        .frame(width: 200)
                         .accessibilityLabel(L10n("JSON path field"))
                     Button(L10n("Load path")) { store.loadTypedValue() }
+                        .controlSize(.small)
                     Spacer()
-                }.padding(8)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
             }
-            // Viewer picker + the two actions used every day; the byte-level
-            // tools live in the overflow menu so no label has to truncate itself
-            // to "二进制…" / "Paste he…" like the earlier flat row did.
-            HStack(spacing: 6) {
-                Picker(L10n("Viewer"), selection: $store.viewerName) {
-                    ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
-                }
-                .frame(width: 150)
-                .labelsHidden()
-                .accessibilityLabel(L10n("Viewer"))
-                .onChange(of: store.viewerName) { _, _ in store.renderValue() }
-                Button(L10n("Auto detect")) {
-                    store.viewerName = ARDMFormatters.detectViewer(for: store.keyRawValue)
-                    store.renderValue()
-                }
-                Spacer(minLength: 6)
-                ARDMIconButton(systemName: showPreview ? "eye.fill" : "eye",
-                               help: L10n("Preview"),
-                               tint: showPreview ? .accentColor : .secondary) {
-                    showPreview.toggle()
-                }
-                .disabled(!canEditValue)
-                .accessibilityValue(showPreview ? L10n("On") : L10n("Off"))
-                ARDMIconMenu(help: L10n("More actions")) {
-                    Button { chooseBinaryFile() } label: {
-                        Label(L10n("Binary input…"), systemImage: "square.and.arrow.down")
-                    }
-                    Button { showingHexInput = true } label: {
-                        Label(L10n("Paste hex…"), systemImage: "doc.on.clipboard")
-                    }
-                    Button { store.openHexEditor() } label: {
-                        Label(L10n("Hex grid…"), systemImage: "square.grid.3x3")
-                    }
-                    Button { store.loadProtobufSchema() } label: {
-                        Label(L10n("Protobuf schema"), systemImage: "curlybraces.square")
-                    }
-                }
-                .accessibilityIdentifier("detail.viewer.more")
-                Button(L10n("Save")) { store.saveEditorText() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!ARDMFormatters.encodableViewers().contains(store.viewerName))
-                    .help(L10n("Save re-encodes the value using the active viewer"))
-            }
-            .padding(8)
+
+            formatBar
+            Divider()
 
             if store.viewerName == "OverSize" {
-                HStack(spacing: 8) {
-                    Text(L10n("Chunk")).font(.caption)
-                    Button("◀") {
-                        store.oversizeOffset = max(0, store.oversizeOffset - store.oversizeChunkSize)
-                        store.renderValue()
-                    }
-                    .disabled(store.oversizeOffset == 0)
-                    .accessibilityLabel(L10n("Previous chunk"))
-                    TextField("", value: $store.oversizeOffset, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                        .accessibilityLabel(L10n("Chunk offset"))
-                        .onSubmit { store.renderValue() }
-                    Button("▶") {
-                        store.oversizeOffset += store.oversizeChunkSize
-                        store.renderValue()
-                    }
-                    .disabled(store.oversizeOffset + store.oversizeChunkSize >= store.keyRawValue.count)
-                    .accessibilityLabel(L10n("Next chunk"))
-                    Text("\(store.keyRawValue.count) " + L10n("bytes"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+                oversizeBar
             }
 
             if store.selectedKeyType == .vector {
-                HStack(spacing: 8) {
-                    Text(L10n("Quantization")).font(.caption)
-                    Picker("", selection: $store.vectorQuantization) {
-                        ForEach(["NOQUANT", "Q8", "BIN"], id: \.self) { Text($0).tag($0) }
-                    }
-                    .frame(width: 120).labelsHidden()
-                    .accessibilityLabel(L10n("Quantization"))
-                    Text(store.redisMajor < 8
-                         ? L10n("Vector type requires Redis 8.0+")
-                         : L10n("Applied when adding vectors with VADD"))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
+                vectorBar
             }
 
-            // One pane instead of two. The side-by-side split printed the same
-            // JSON twice — raw on the left, highlighted on the right — and halved
-            // the width of both. The eye button swaps to the rendered view when the
-            // active viewer can be re-encoded; binary viewers only have a render.
-            if showsRenderedPane {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(L10n("Rendered") + " (\(store.viewerName))")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Button(L10n("Copy")) {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(store.renderedValue, forType: .string)
-                        }.font(.caption)
-                    }
-                    ScrollView {
-                        Text(highlighted(store.renderedValue, size: store.scaled(store.fontSize)))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                    }
-                    .background(Color(nsColor: .textBackgroundColor))
-                }
-                .padding(8)
-            } else {
-                // No more 1px rectangle around the value: the editor already sits
-                // on the text background, and the border made it read like a 2008
-                // form field.
-                TextEditor(text: $store.editorText)
-                    .font(store.monoFont(store.fontSize))
-                    .scrollContentBackground(.hidden)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .padding(.horizontal, 10)
-                    .padding(.top, 4)
-                    .accessibilityLabel(L10n("Value editor"))
-                    .accessibilityIdentifier("detail.editor")
+            codeSurface
+
+            if canEditValue && !showsRenderedPane {
+                editorFooter
             }
+        }
+    }
+
+    private var formatBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Text(L10n("Decode"))
+                    .font(.system(size: ARDMFont.micro))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 30, alignment: .leading)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 1) {
+                        ForEach(decodeFormats) { chip in
+                            ARDMChip(title: chip.title, selected: store.viewerName == chip.id) {
+                                selectViewer(chip.id)
+                            }
+                        }
+                    }
+                }
+                Button(L10n("Auto")) {
+                    selectViewer(ARDMFormatters.detectViewer(for: store.keyRawValue))
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: ARDMFont.micro))
+                .foregroundStyle(.secondary)
+                .help(L10n("Auto detect"))
+                Button(L10n("Run")) { store.renderValue() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .help(L10n("Re-render with the selected decoder"))
+            }
+            .frame(height: 26)
+            .padding(.horizontal, 10)
+
+            HStack(spacing: 4) {
+                Text(L10n("View"))
+                    .font(.system(size: ARDMFont.micro))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 30, alignment: .leading)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 1) {
+                        ForEach(viewFormats) { chip in
+                            ARDMChip(title: chip.title, selected: store.viewerName == chip.id) {
+                                selectViewer(chip.id)
+                            }
+                        }
+                    }
+                }
+                // "原文 / 渲染": the same bytes read two ways. The eye button that
+                // used to live in the overflow row did this invisibly.
+                Picker("", selection: $showPreview) {
+                    Text(L10n("Raw")).tag(false)
+                    Text(L10n("Rendered")).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.mini)
+                .frame(width: 108)
+                .labelsHidden()
+                .disabled(canEditValue == false)
+                .accessibilityLabel(L10n("Rendered"))
+            }
+            .frame(height: 26)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 4)
+        }
+    }
+
+    private func selectViewer(_ viewer: String) {
+        store.viewerName = viewer
+        store.renderValue()
+    }
+
+    private var oversizeBar: some View {
+        HStack(spacing: 8) {
+            Text(L10n("Chunk")).font(.system(size: ARDMFont.micro)).foregroundStyle(.secondary)
+            Button("◀") {
+                store.oversizeOffset = max(0, store.oversizeOffset - store.oversizeChunkSize)
+                store.renderValue()
+            }
+            .disabled(store.oversizeOffset == 0)
+            .accessibilityLabel(L10n("Previous chunk"))
+            TextField("", value: $store.oversizeOffset, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 90)
+                .accessibilityLabel(L10n("Chunk offset"))
+                .onSubmit { store.renderValue() }
+            Button("▶") {
+                store.oversizeOffset += store.oversizeChunkSize
+                store.renderValue()
+            }
+            .disabled(store.oversizeOffset + store.oversizeChunkSize >= store.keyRawValue.count)
+            .accessibilityLabel(L10n("Next chunk"))
+            Text("\(store.keyRawValue.count) " + L10n("bytes"))
+                .font(.system(size: ARDMFont.micro))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 4)
+    }
+
+    private var vectorBar: some View {
+        HStack(spacing: 8) {
+            Text(L10n("Quantization")).font(.system(size: ARDMFont.micro)).foregroundStyle(.secondary)
+            Picker("", selection: $store.vectorQuantization) {
+                ForEach(["NOQUANT", "Q8", "BIN"], id: \.self) { Text($0).tag($0) }
+            }
+            .frame(width: 110).labelsHidden()
+            .accessibilityLabel(L10n("Quantization"))
+            Text(store.redisMajor < 8
+                 ? L10n("Vector type requires Redis 8.0+")
+                 : L10n("Applied when adding vectors with VADD"))
+                .font(.system(size: ARDMFont.micro))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 4)
+    }
+
+    /// One surface for both modes: the editable buffer or the rendered view of
+    /// it. Both get the line-number gutter and JSON colouring, which is the
+    /// single most recognisable part of the reference layout.
+    private var codeSurface: some View {
+        let shown = showsRenderedPane ? store.renderedValue : store.editorText
+        return ARDMCodeView(
+            text: showsRenderedPane ? $store.renderedValue : $store.editorText,
+            isEditable: !showsRenderedPane,
+            fontSize: store.scaled(13),
+            fontName: store.fontFamily,
+            language: ARDMCodeLanguage.detect(shown, viewer: store.viewerName),
+            identifier: "detail.editor"
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    /// Discard / save, bottom right, exactly where the reference puts them. The
+    /// save button used to sit in the format row, mixed in with the viewers.
+    private var editorFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                Text("\(store.keyRawValue.count) " + L10n("bytes"))
+                    .font(.system(size: ARDMFont.micro))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                Spacer()
+                Button(L10n("Revert")) { store.reloadKeyDetail() }
+                    .controlSize(.small)
+                Button(L10n("Save")) { store.saveEditorText() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(!canEditValue)
+                    .help(L10n("Save re-encodes the value using the active viewer"))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
         }
     }
 
@@ -1074,4 +1169,11 @@ struct HexEditorSheet: View {
             (byte >= 0x20 && byte < 0x7F) ? String(UnicodeScalar(byte)) : "."
         }.joined()
     }
+}
+
+/// One format chip. A tuple would be shorter, but `ForEach` needs an `Identifiable`
+/// element and key paths into tuple members are not supported in Swift.
+struct ViewerChip: Identifiable {
+    let id: String
+    let title: String
 }

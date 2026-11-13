@@ -209,24 +209,27 @@ struct ConnectionSidebar: View {
 
     private func databaseRow(_ db: Int, config: ARDMConnectionConfig, counts: [Int: Int]) -> some View {
         let current = store.databaseIndex(for: config.identifier) == db
-        return HStack(spacing: 4) {
+        return HStack(spacing: 5) {
             // No cylinder glyph per row: sixteen identical icons stacked under
             // one connection read as decoration, not information. Indentation
-            // already says "child of the connection"; the count is the payload.
+            // already says "child of the connection"; the count badge is the
+            // payload, and an open database keeps an accent bar on its left edge
+            // so the tree and the tab strip above the key list agree.
+            RoundedRectangle(cornerRadius: 1)
+                .fill(current ? Color.accentColor : Color.clear)
+                .frame(width: 2, height: 11)
             Text("db\(db)")
-                .font(.system(size: ARDMFont.small))
-                .fontWeight(current ? .semibold : .regular)
+                .font(.system(size: ARDMFont.small, weight: current ? .medium : .regular))
                 .foregroundStyle(current ? Color.accentColor : Color.primary)
+                .monospacedDigit()
             if let count = counts[db], count > 0 {
-                Text("(\(ARDMFormat.count(count)))")
-                    .font(.system(size: 9.5))
-                    .monospacedDigit()
-                    .foregroundStyle(current ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.75))
+                ARDMCountBadge(count: count,
+                               tint: current ? Color.accentColor : Color.secondary)
             }
             Spacer(minLength: 2)
         }
-        .frame(minHeight: 18)
-        .padding(.leading, 14)
+        .frame(minHeight: 19)
+        .padding(.leading, 10)
         .padding(.trailing, 4)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)

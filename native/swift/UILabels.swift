@@ -4,6 +4,19 @@ import Foundation
 // The upstream en.js reverse lookup only matches ~27 of our labels, so an
 // explicit table is required for a genuinely Chinese interface.
 let uiChinese: [String: String] = [
+    "Auto": "自动",
+    "Collapse all groups": "全部折叠",
+    "Custom grouping": "自定义分组",
+    "Decode": "解码",
+    "Grouping rules": "分组规则",
+    "Load all": "获取全部",
+    "Load more": "获取更多",
+    "Loaded": "已加载",
+    "Match pattern (e.g. user:*)": "匹配模式 (如 user:*)",
+    "Only without expiry": "仅无过期",
+    "Open database": "打开数据库",
+    "Revert": "放弃",
+    "total": "共",
     "10 data types · 15 format viewers · field-level editing": "10 种数据类型 · 15 种格式视图 · 字段级编辑",
     "ACK 0-0": "确认消息",
     "About & Updates": "关于与更新",
@@ -349,7 +362,6 @@ let uiChinese: [String: String] = [
     "TTL updated": "TTL 已更新",
     "Renamed": "已重命名",
     "Invalid import JSON": "导入的 JSON 无效",
-    "total": "共",
     "Workspace": "工作区",
     "Read-only is enforced in the RESP client before any command is written.": "只读模式在 RESP 客户端写入命令之前就会拦截写操作。",
     "Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):": "自定义视图脚本（JavaScriptCore；`bytes` 为 Uint8Array）：",

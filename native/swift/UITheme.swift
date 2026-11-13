@@ -31,10 +31,13 @@ enum ARDMMetrics {
     static let corner: CGFloat = 6
     /// Compact search field height; matches the 24pt control next to it.
     static let fieldHeight: CGFloat = 24
-    /// Dense list row. The reference clients pack key rows into ~22pt; anything
-    /// taller turns a 3000-key page into a scrolling exercise.
-    static let rowHeight: CGFloat = 22
+    /// Dense list row. The reference clients pack key rows into 24pt, which is
+    /// also the smallest height that fits a 13pt checkbox beside a type chip;
+    /// anything taller turns a 3000-key page into a scrolling exercise.
+    static let rowHeight: CGFloat = 24
     static let listInset: CGFloat = 10
+    /// Height shared by the database tab strip and the filter strips above it.
+    static let stripHeight: CGFloat = 28
 }
 
 /// Type scale. Every view used to pass its own number to `uiFont`, so the key
@@ -216,20 +219,21 @@ extension ARDMKeyType {
         }
     }
 
-    /// `typeName` is spelled the way Redis spells it, but the badge needs the
-    /// short uppercase form the reference UIs use.
+    /// `typeName` is spelled the way Redis spells it. The reference clients
+    /// print the lowercase word in the type pill (`string`, `zset`), which reads
+    /// as a word rather than an acronym and costs four more points of width.
     var badgeText: String {
         switch self {
-        case .string: return "STR"
-        case .list: return "LIST"
-        case .set: return "SET"
-        case .zSet: return "ZSET"
-        case .hash: return "HASH"
-        case .stream: return "STRM"
-        case .reJSON: return "JSON"
-        case .timeSeries: return "TS"
-        case .vector: return "VEC"
-        case .array: return "ARR"
+        case .string: return "string"
+        case .list: return "list"
+        case .set: return "set"
+        case .zSet: return "zset"
+        case .hash: return "hash"
+        case .stream: return "stream"
+        case .reJSON: return "json"
+        case .timeSeries: return "ts"
+        case .vector: return "vector"
+        case .array: return "array"
         default: return "—"
         }
     }
@@ -249,23 +253,87 @@ extension ARDMKeyType {
     }
 }
 
-/// Fixed-width type chip: `STR` / `HASH` / `ZSET`. Sized so the column of chips
-/// in a key list forms a clean vertical edge instead of a ragged line.
+/// Type pill: `string` / `hash` / `zset`, outlined in the type colour with a
+/// 10% wash. The outline is what makes a column of pills read as one column
+/// instead of a row of coloured words.
 struct ARDMTypeBadge: View {
     let type: ARDMKeyType
     var dimmed: Bool = false
 
     var body: some View {
         Text(type.badgeText)
-            .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+            .font(.system(size: 9, weight: .medium))
             .foregroundStyle(dimmed ? Color.secondary : type.tint)
-            .padding(.horizontal, 4)
-            .frame(height: 13)
+            .padding(.horizontal, 5)
+            .frame(height: 15)
             .background(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(type.tint.opacity(dimmed ? 0.06 : 0.11))
+                    .fill(type.tint.opacity(dimmed ? 0.04 : 0.10))
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .strokeBorder(type.tint.opacity(dimmed ? 0.18 : 0.45), lineWidth: 0.8)
+            )
+            .fixedSize()
             .accessibilityLabel(typeName(type))
+    }
+}
+
+/// One filter chip in the detail pane's format bars ("Gzip", "JSON", …).
+/// Selected chips take the accent wash; the rest stay flat text so a row of
+/// twelve formats does not turn into twelve buttons.
+struct ARDMChip: View {
+    let title: String
+    var selected: Bool = false
+    var tint: Color = .accentColor
+    var help: String = ""
+    var action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: ARDMFont.small))
+                .foregroundStyle(selected ? tint : Color.secondary)
+                .padding(.horizontal, 6)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(selected ? tint.opacity(0.12)
+                                       : (hovering ? Color.secondary.opacity(0.10) : Color.clear))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(selected ? tint.opacity(0.38) : Color.clear, lineWidth: 0.8)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(help.isEmpty ? title : help)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// Small right-aligned count used by the sidebar's database rows.
+struct ARDMCountBadge: View {
+    let count: Int
+    var tint: Color = .secondary
+
+    var body: some View {
+        Text(ARDMFormat.count(count))
+            .font(.system(size: 9, weight: .medium))
+            .monospacedDigit()
+            .foregroundStyle(tint.opacity(0.9))
+            .padding(.horizontal, 4)
+            .frame(minWidth: 18, minHeight: 13)
+            .background(
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(tint.opacity(0.10))
+            )
+            .fixedSize()
+            .accessibilityLabel("\(count)")
     }
 }
 
@@ -307,6 +375,27 @@ enum ARDMFormat {
         case 3600..<86400: return "\(seconds / 3600)h"
         case 86400..<(86400 * 100): return "\(seconds / 86400)d"
         default: return "\(seconds / 86400)d"
+        }
+    }
+
+    /// Spelled-out expiry, the way the reference key lists print it:
+    /// `23小时21分`, `6天`, `永久`. Zero remainders are dropped so a week-long
+    /// TTL does not read as `7天0小时`. Used where the row can afford ~62pt.
+    static func ttlLong(_ seconds: Int) -> String {
+        switch seconds {
+        case -1: return "永久"
+        case -2: return "已过期"
+        case ..<0: return "—"
+        case 0..<60: return "\(seconds)秒"
+        case 60..<3600:
+            let minutes = seconds / 60, rest = seconds % 60
+            return rest == 0 ? "\(minutes)分" : "\(minutes)分\(rest)秒"
+        case 3600..<86400:
+            let hours = seconds / 3600, minutes = (seconds % 3600) / 60
+            return minutes == 0 ? "\(hours)小时" : "\(hours)小时\(minutes)分"
+        default:
+            let days = seconds / 86400, hours = (seconds % 86400) / 3600
+            return hours == 0 ? "\(days)天" : "\(days)天\(hours)小时"
         }
     }
 

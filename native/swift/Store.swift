@@ -255,6 +255,19 @@ final class AppStore: ObservableObject {
     }
 
     @Published var selectedDB = 0
+    /// Databases open as tabs above the key list. The reference client keeps a
+    /// handful of them side by side, which is much faster than walking back to
+    /// the sidebar every time a value lives in db2 instead of db0.
+    @Published var openDBTabs: [Int] = [0]
+    /// Hides every key that carries an expiry. Applied when the tree is rebuilt,
+    /// so the folder counts stay truthful instead of counting hidden keys.
+    @Published var onlyNoExpiry = false {
+        didSet {
+            guard oldValue != onlyNoExpiry else { return }
+            invalidateKeyCaches(scope: .filter)
+            if showTree { buildTree() }
+        }
+    }
     @Published var dbSize = 0
     @Published var selectedKeyType: ARDMKeyType = .unknown
     @Published var selectedKeyTTL: Int = -1
