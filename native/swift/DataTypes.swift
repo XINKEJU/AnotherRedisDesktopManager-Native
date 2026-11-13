@@ -71,9 +71,29 @@ extension AppStore {
         let limit = rowLimit
         let path = jsonPath
         let type = selectedKeyType
-        // Hash / Set / ZSet use cursor-based streaming scans (ioredis scan streams upstream).
-        if type == .hash || type == .set || type == .zSet {
+        // Hash / Set use cursor-based streaming scans (ioredis scan streams upstream).
+        // ZSet uses ordered ZRANGE WITHSCORES for the plain view; ZSCAN is only used
+        // when a search pattern is active (matches upstream ZSetContent behaviour).
+        if type == .hash || type == .set {
             scanRows(reset: true)
+            return
+        }
+        if type == .zSet {
+            if rowSearchPattern != "*" && !rowSearchPattern.isEmpty {
+                scanRows(reset: true)
+            } else {
+                onBackground { [self] in
+                    do {
+                        let command = self.readCommand(for: type, key: key, offset: offset, limit: limit, path: path)
+                        let reply = try self.sendSync(command)
+                        let rows = self.rowsForType(type, key: key, value: reply)
+                        self.onMain {
+                            self.keyRows = rows
+                            self.statusText = "\(key) · \(typeName(type)) · \(rows.count) row(s) from \(offset)"
+                        }
+                    } catch { self.onMain { self.fail(error.localizedDescription) } }
+                }
+            }
             return
         }
         onBackground {
@@ -198,20 +218,6 @@ extension AppStore {
 
     // MARK: - Cursor-based streaming reads (HSCAN / SSCAN / ZSCAN)
 
-    func scanCommand(for type: ARDMKeyType, key: String, cursor: String, count: Int) -> [String] {
-        let name: String
-        switch type {
-        case .hash: name = "HSCAN"
-        case .set: name = "SSCAN"
-        case .zSet: name = "ZSCAN"
-        default: name = "SCAN"
-        }
-        var args: [String] = [name, key, cursor]
-        if rowSearchPattern != "*" { args += ["MATCH", rowSearchPattern] }
-        args += ["COUNT", "\(count)"]
-        return args
-    }
-
     /// Reads one cursor batch; append mode implements the "load more" path for huge keys.
     func scanRows(reset: Bool) {
         guard let key = selectedKey, connected else { return }
@@ -318,12 +324,20 @@ extension AppStore {
         if let error { fail(error.localizedDescription); return }
         let type = selectedKeyType
         let path = jsonPath
+        let ttl = selectedKeyTTL
         onBackground {
             do {
                 if type == .reJSON {
                     try self.sendRawSync(["JSON.SET", key, path, self.editorText])
                 } else {
                     try self.sendRawSync(["SET", key, payload])
+                }
+                // Restore the key's TTL after an overwrite so expiration is preserved
+                // (upstream KeyContentString.vue keeps the existing ttl on save).
+                if ttl > 0 {
+                    _ = try? self.sendRawSync(["EXPIRE", key, "\(ttl)"])
+                } else if ttl == -1 {
+                    _ = try? self.sendRawSync(["PERSIST", key])
                 }
                 self.onMain { self.reloadKeyDetail(); self.notify("Value saved") }
             } catch { self.onMain { self.fail(error.localizedDescription) } }

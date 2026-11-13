@@ -34,6 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *tlsCert;
 @property (nonatomic, copy) NSString *tlsKey;
 @property (nonatomic, copy) NSString *tlsSNI;
+@property (nonatomic, assign) BOOL tlsInsecure;
 
 @property (nonatomic, assign) BOOL sentinelEnabled;
 @property (nonatomic, copy) NSString *sentinelMaster;

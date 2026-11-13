@@ -182,6 +182,8 @@ final class AppStore: ObservableObject {
     @Published var clusterSlots: [[String: Any]] = []
     @Published var clusterNodes: [[String: Any]] = []
     @Published var statusRefreshSeconds = 5
+    @Published var statusAutoRefresh = false
+    var statusTimer: Timer?
     @Published var liveEvents: [LiveEvent] = []
     @Published var liveRunning = false
     @Published var pubsubChannel = ""

@@ -94,6 +94,27 @@ static NSArray *ARDMNormalizeArray(id reply) {
     return @[reply];
 }
 
+/** Build the command-line string recorded in the command log.
+    Masks AUTH secrets, drops keepalive PINGs, and truncates over-long args so
+    credentials never leak into the on-screen / persisted log (upstream CommandLog.vue). */
+static NSString *ARDMCommandLogString(NSArray<NSString *> *args) {
+    if (args.count == 0) return @"";
+    NSString *verb = [[args.firstObject uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
+    if ([verb isEqualToString:@"PING"]) return nil; // keepalive pings must not flood the command log
+    NSMutableArray *redacted = [args mutableCopy];
+    if ([verb isEqualToString:@"AUTH"] && redacted.count >= 2) {
+        [redacted replaceObjectsInRange:NSMakeRange(1, redacted.count - 1)
+                    withObjectsFromArray:@[@"***"]];
+    } else if ([verb isEqualToString:@"AUTH"]) {
+        redacted[0] = @"AUTH ***";
+    }
+    for (NSUInteger i = 0; i < redacted.count; i++) {
+        NSString *s = redacted[i];
+        if (s.length > 200) redacted[i] = [[s substringToIndex:200] stringByAppendingString:@"…(truncated)"];
+    }
+    return [redacted componentsJoinedByString:@" "];
+}
+
 #pragma mark - Connection config
 
 @implementation ARDMConnectionConfig
@@ -121,6 +142,7 @@ static NSArray *ARDMNormalizeArray(id reply) {
         _tlsCert = @"";
         _tlsKey = @"";
         _tlsSNI = @"";
+        _tlsInsecure = NO;
         _sentinelMaster = @"";
         _sentinelNodePassword = @"";
         _natMap = @{};
@@ -142,7 +164,7 @@ static NSArray *ARDMNormalizeArray(id reply) {
     c.sshUser = self.sshUser; c.sshPassword = self.sshPassword;
     c.sshPrivateKey = self.sshPrivateKey; c.sshPassphrase = self.sshPassphrase; c.sshTimeout = self.sshTimeout;
     c.tlsEnabled = self.tlsEnabled; c.tlsCA = self.tlsCA; c.tlsCert = self.tlsCert;
-    c.tlsKey = self.tlsKey; c.tlsSNI = self.tlsSNI;
+    c.tlsKey = self.tlsKey; c.tlsSNI = self.tlsSNI; c.tlsInsecure = self.tlsInsecure;
     c.sentinelEnabled = self.sentinelEnabled; c.sentinelMaster = self.sentinelMaster;
     c.sentinelNodePassword = self.sentinelNodePassword;
     c.natMap = self.natMap; c.tlsIdentityPath = self.tlsIdentityPath;
@@ -185,7 +207,7 @@ static NSArray *ARDMNormalizeArray(id reply) {
     STR(group); STR(separator); BOOLV(readOnly); BOOLV(cluster); STR(connectionName);
     BOOLV(sshEnabled); STR(sshHost); NUM(sshPort); STR(sshUser); STR(sshPassword);
     STR(sshPrivateKey); STR(sshPassphrase); NUM(sshTimeout);
-    BOOLV(tlsEnabled); STR(tlsCA); STR(tlsCert); STR(tlsKey); STR(tlsSNI);
+    BOOLV(tlsEnabled); STR(tlsCA); STR(tlsCert); STR(tlsKey); STR(tlsSNI); BOOLV(tlsInsecure);
     BOOLV(sentinelEnabled); STR(sentinelMaster); STR(sentinelNodePassword);
     STR(tlsIdentityPath); BOOLV(autoReconnect);
     if ([d[@"natMap"] isKindOfClass:NSDictionary.class]) c.natMap = d[@"natMap"];
@@ -204,7 +226,7 @@ static NSArray *ARDMNormalizeArray(id reply) {
         @"sshPrivateKey": self.sshPrivateKey ?: @"", @"sshPassphrase": self.sshPassphrase ?: @"",
         @"sshTimeout": @(self.sshTimeout),
         @"tlsEnabled": @(self.tlsEnabled), @"tlsCA": self.tlsCA ?: @"", @"tlsCert": self.tlsCert ?: @"",
-        @"tlsKey": self.tlsKey ?: @"", @"tlsSNI": self.tlsSNI ?: @"",
+        @"tlsKey": self.tlsKey ?: @"", @"tlsSNI": self.tlsSNI ?: @"", @"tlsInsecure": @(self.tlsInsecure),
         @"sentinelEnabled": @(self.sentinelEnabled), @"sentinelMaster": self.sentinelMaster ?: @"",
         @"sentinelNodePassword": self.sentinelNodePassword ?: @"",
         @"natMap": self.natMap ?: @{}, @"tlsIdentityPath": self.tlsIdentityPath ?: @"",
@@ -345,14 +367,32 @@ static NSSet<NSString *> *ARDMWriteCommands(void) {
     static NSSet *s = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        s = [NSSet setWithArray:@[@"SET",@"SETNX",@"SETEX",@"PSETEX",@"MSET",@"APPEND",@"INCR",@"DECR",@"INCRBY",@"DECRBY",
-            @"DEL",@"UNLINK",@"EXPIRE",@"PEXPIRE",@"EXPIREAT",@"PERSIST",@"RENAME",@"RENAMENX",@"FLUSHDB",@"FLUSHALL",
-            @"HSET",@"HSETNX",@"HMSET",@"HDEL",@"HINCRBY",@"LPUSH",@"RPUSH",@"LPOP",@"RPOP",@"LSET",@"LREM",@"LTRIM",
-            @"SADD",@"SREM",@"SPOP",@"ZADD",@"ZREM",@"ZINCRBY",@"XADD",@"XDEL",@"XTRIM",@"XGROUP",@"XACK",
-            @"JSON.SET",@"JSON.DEL",@"TS.ADD",@"TS.CREATE",@"CONFIG SET",@"CLIENT KILL",@"SAVE",@"BGSAVE",@"SHUTDOWN",
-            @"HEXPIRE",@"HPEXPIRE",@"HEXPIREAT",@"HPEXPIREAT",@"HPERSIST",@"RESTORE",@"MULTI",@"EXEC",
-            @"DISCARD",@"WATCH",@"UNWATCH",@"VADD",@"VREM",@"VSETATTR",@"SETATTR",@"ARSET",@"ARDEL",
-            @"TS.DEL",@"TS.ALTER",@"TS.INCRBY",@"TS.DECRBY",@"XREADGROUP",@"XGROUP DESTROY"]];
+        // Covers single-token verbs plus two-token administrative commands
+        // (the send: check tests both the first token and the first two tokens
+        // joined, so "CONFIG SET" / "CLIENT KILL" / "XGROUP DESTROY" are caught).
+        s = [NSSet setWithArray:@[
+            @"SET",@"SETNX",@"SETEX",@"PSETEX",@"MSET",@"MSETNX",@"GETSET",@"APPEND",@"INCR",@"DECR",@"INCRBY",@"DECRBY",
+            @"INCRBYFLOAT",@"DECRBYFLOAT",@"COPY",@"DEL",@"UNLINK",@"EXPIRE",@"PEXPIRE",@"EXPIREAT",@"PEXPIREAT",@"PERSIST",
+            @"EXPIRETIME",@"PEXPIRETIME",@"RENAME",@"RENAMENX",@"MOVE",@"SWAPDB",@"RESTORE",@"RESTORE-ASKING",@"DUMP",
+            @"MIGRATE",@"OBJECT",@"SORT",@"LMOVE",@"BLMOVE",@"RPOPLPUSH",
+            @"HSET",@"HSETNX",@"HMSET",@"HDEL",@"HINCRBY",@"HINCRBYFLOAT",@"HPEXPIRE",@"HPEXPIREAT",@"HEXPIRE",@"HEXPIREAT",
+            @"HPERSIST",@"HRANDFIELD",
+            @"LPUSH",@"RPUSH",@"LPUSHX",@"RPUSHX",@"LPOP",@"RPOP",@"LSET",@"LREM",@"LTRIM",@"LINSERT",
+            @"SADD",@"SREM",@"SPOP",@"SMOVE",@"SINTERSTORE",@"SUNIONSTORE",@"SDIFFSTORE",
+            @"ZADD",@"ZREM",@"ZINCRBY",@"ZINTERSTORE",@"ZUNIONSTORE",@"ZDIFFSTORE",@"ZPOPMIN",@"ZPOPMAX",@"BZPOPMIN",
+            @"BZPOPMAX",@"ZRANGESTORE",
+            @"XADD",@"XDEL",@"XTRIM",@"XGROUP",@"XACK",@"XCLAIM",@"XAUTOCLAIM",@"XGROUP DESTROY",@"XGROUP CREATE",
+            @"JSON.SET",@"JSON.DEL",@"JSON.MSET",@"JSON.MERGE",@"JSON.NUMINCRBY",@"JSON.STRAPPEND",@"JSON.ARRAPPEND",
+            @"JSON.ARRPOP",@"JSON.ARRINSERT",@"JSON.ARRTRIM",@"JSON.CLEAR",@"JSON.FORGET",
+            @"TS.ADD",@"TS.CREATE",@"TS.DEL",@"TS.ALTER",@"TS.INCRBY",@"TS.DECRBY",@"TS.CREATERULE",@"TS.DELETERULE",
+            @"VADD",@"VREM",@"VSETATTR",@"SETATTR",@"ARSET",@"ARDEL",@"ARINSERT",@"ARAPPEND",@"ARPOP",@"ARTRIM",
+            @"SETBIT",@"SETRANGE",@"BITFIELD",@"GEOADD",@"GEOSEARCHSTORE",@"PFADD",@"PFMERGE",
+            @"EVAL",@"EVALSHA",@"SCRIPT",@"FUNCTION",@"DEBUG",@"MODULE",@"REPLICAOF",@"SLAVEOF",@"ACL",
+            @"CONFIG SET",@"CONFIG REWRITE",@"CONFIG RESETSTAT",@"SHUTDOWN",@"FLUSHDB",@"FLUSHALL",@"SAVE",@"BGSAVE",
+            @"CLIENT KILL",@"CLIENT SETNAME",@"CLIENT SETINFO",@"CLIENT PAUSE",@"CLIENT UNPAUSE",@"CLIENT UNBLOCK",@"SCRIPT FLUSH",
+            @"PUBLISH",@"SPUBLISH",@"MULTI",@"EXEC",@"DISCARD",@"WATCH",@"UNWATCH",
+            @"FT.CREATE",@"FT.ADD",@"FT.ALTER",@"FT.DROPINDEX",@"FT.ALIASADD",@"FT.ALIASDEL",@"FT.ALIASUPDATE",
+            @"FT.DICTADD",@"FT.DICTDEL",@"FT.SYNUPDATE",@"FT.SYNDFUPDATE"]];
     });
     return s;
 }
@@ -382,7 +422,7 @@ static NSSet<NSString *> *ARDMWriteCommands(void) {
         _config = config;
         _logs = [NSMutableArray array];
         _queue = dispatch_queue_create("me.qii404.ardm.redis", DISPATCH_QUEUE_SERIAL);
-        _logLimit = 500;
+        _logLimit = 5000;
     }
     return self;
 }
@@ -404,9 +444,11 @@ static uint16_t ARDMFreeLocalPort(void) {
 - (BOOL)openSSHtunnel:(NSError **)error {
     uint16_t local = ARDMFreeLocalPort();
     if (!local) { if (error) *error = ARDMError(@"Cannot allocate a local SSH tunnel port", 5); return NO; }
+    NSInteger sshTimeout = _config.sshTimeout > 0 ? _config.sshTimeout : 10;
     NSMutableArray *args = [NSMutableArray arrayWithArray:@[@"-N", @"-o", @"StrictHostKeyChecking=accept-new",
-        @"-o", @"ExitOnForwardFailure=yes", @"-o", @"ConnectTimeout=10",
-        @"-L", [NSString stringWithFormat:@"%d:127.0.0.1:%ld", local, (long)_config.port],
+        @"-o", @"ExitOnForwardFailure=yes", @"-o",
+        [NSString stringWithFormat:@"ConnectTimeout=%ld", (long)sshTimeout],
+        @"-L", [NSString stringWithFormat:@"%d:%@:%ld", local, _config.host, (long)_config.port],
         @"-p", [NSString stringWithFormat:@"%ld", (long)(_config.sshPort ?: 22)]]];
     if (_config.sshPrivateKey.length) [args addObjectsFromArray:@[@"-i", _config.sshPrivateKey]];
     [args addObject:[NSString stringWithFormat:@"%@@%@", _config.sshUser ?: @"root", _config.sshHost]];
@@ -444,12 +486,26 @@ static uint16_t ARDMFreeLocalPort(void) {
     return NO;
 }
 
-/** Apply TLS settings, including a client identity chain for mutual TLS. */
+/** Apply TLS settings, including a client identity chain for mutual TLS.
+    By default the certificate chain is validated. Only when the connection is
+    explicitly marked insecure (rejectUnauthorized=false) is validation relaxed. */
 - (void)configureTLSForRead:(CFReadStreamRef)read write:(CFWriteStreamRef)write {
+    BOOL insecure = _config.tlsInsecure;
     NSMutableDictionary *ssl = [@{@"kCFStreamSSLLevel": @"kCFStreamSocketSecurityLevelNegotiatedSSL",
-                                  @"kCFStreamSSLValidatesCertificateChain": @NO} mutableCopy];
+                                  @"kCFStreamSSLValidatesCertificateChain": @(!insecure)} mutableCopy];
     if (_config.tlsSNI.length) ssl[@"kCFStreamSSLPeerName"] = _config.tlsSNI;
-    NSArray *chain = ARDMMutualTLSChain(_config);
+    if (insecure) {
+        ssl[@"kCFStreamSSLAllowsAnyRoot"] = @YES;
+    }
+    // Build the certificate chain: mutual-TLS identity (if any) plus an optional CA.
+    NSMutableArray *chain = [ARDMMutualTLSChain(_config) mutableCopy] ?: [NSMutableArray array];
+    if (_config.tlsCA.length) {
+        NSData *ca = [NSData dataWithContentsOfFile:_config.tlsCA];
+        if (ca) {
+            SecCertificateRef cert = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)ca);
+            if (cert) { [chain addObject:(__bridge id)cert]; CFRelease(cert); }
+        }
+    }
     if (chain.count) ssl[@"kCFStreamSSLCertificates"] = chain;
     CFReadStreamSetProperty(read, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
     CFWriteStreamSetProperty(write, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
@@ -616,8 +672,9 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
 
 - (id)send:(NSArray<NSString *> *)args error:(NSError **)error {
     if (!_stream) { if (error) *error = ARDMError(@"Not connected", 10); return nil; }
-    NSString *name = [args.firstObject uppercaseString] ?: @"";
-    if (_config.readOnly && [ARDMWriteCommands() containsObject:name]) {
+    NSString *verb = [[args.firstObject uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
+    NSString *two = args.count >= 2 ? [[NSString stringWithFormat:@"%@ %@", args[0], args[1]] uppercaseString] : verb;
+    if (_config.readOnly && ([ARDMWriteCommands() containsObject:verb] || [ARDMWriteCommands() containsObject:two])) {
         if (error) *error = ARDMError(@"You are in readonly mode! Unable to execute write command!", 11);
         return nil;
     }
@@ -635,16 +692,46 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
             if ([msg hasPrefix:@"MOVED "] || [msg hasPrefix:@"ASK "]) {
                 NSArray *parts = [msg componentsSeparatedByString:@" "];
                 NSString *addr = parts.count > 2 ? parts[2] : nil;
-                NSArray *hp = [addr componentsSeparatedByString:@":"];
-                if (hp.count == 2) {
-                    // MOVED / ASK: honour the NAT map, re-authenticate, then retry once.
-                    NSString *mapped = [self mappedAddress:hp[0] port:[hp[1] integerValue]];
-                    NSRange colon = [mapped rangeOfString:@":" options:NSBackwardsSearch];
-                    NSString *targetHost = colon.location == NSNotFound ? mapped : [mapped substringToIndex:colon.location];
-                    NSInteger targetPort = colon.location == NSNotFound ? _connectPort
-                        : [[mapped substringFromIndex:colon.location + 1] integerValue];
+                if (addr.length) {
+                    // Strip an IPv6 bracket wrapper ([]host]:port) if present, then split on the
+                    // LAST colon so IPv6 literals (which contain colons) parse correctly.
+                    NSString *clean = addr;
+                    if ([clean hasPrefix:@"["]) {
+                        NSRange close = [clean rangeOfString:@"]"];
+                        if (close.location != NSNotFound)
+                            clean = [clean substringWithRange:NSMakeRange(1, close.location - 1)];
+                    }
+                    NSRange colon = [clean rangeOfString:@":" options:NSBackwardsSearch];
+                    NSString *hpHost = colon.location != NSNotFound ? [clean substringToIndex:colon.location] : clean;
+                    NSInteger hpPort = colon.location != NSNotFound ? [[clean substringFromIndex:colon.location + 1] integerValue] : _connectPort;
+                    NSString *mapped = [self mappedAddress:hpHost port:hpPort];
+                    NSRange mcolon = [mapped rangeOfString:@":" options:NSBackwardsSearch];
+                    NSString *targetHost = mcolon.location == NSNotFound ? mapped : [mapped substringToIndex:mcolon.location];
+                    NSInteger targetPort = mcolon.location == NSNotFound ? hpPort
+                        : [[mapped substringFromIndex:mcolon.location + 1] integerValue];
                     BOOL asking = [msg hasPrefix:@"ASK "];
-                    NSString *oldHost = _connectHost; NSInteger oldPort = _connectPort;
+                    if (asking) {
+                        // ASK: one-shot redirect. Open a temporary stream, answer ASKING, then
+                        // restore the original connection (ASK must not permanently repoint us).
+                        CFReadStreamRef r = NULL; CFWriteStreamRef w = NULL;
+                        CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)targetHost, (UInt32)targetPort, &r, &w);
+                        if (_config.tlsEnabled) [self configureTLSForRead:r write:w];
+                        CFReadStreamOpen(r); CFWriteStreamOpen(w);
+                        ARDMRESPStream *temp = [[ARDMRESPStream alloc] initWithRead:r write:w];
+                        ARDMRESPStream *restore = _stream;
+                        _stream = temp;
+                        if (_effectiveAuth.length) {
+                            NSArray *auth = _config.username.length
+                                ? @[@"AUTH", _config.username, _effectiveAuth] : @[@"AUTH", _effectiveAuth];
+                            [self send:auth error:nil];
+                        }
+                        [self send:@[@"ASKING"] error:nil];
+                        id retry = [self send:args error:error];
+                        _stream = restore;
+                        [temp close];
+                        return retry;
+                    }
+                    // MOVED: the slot has migrated; permanently repoint the connection.
                     _connectHost = targetHost; _connectPort = targetPort;
                     CFReadStreamRef r = NULL; CFWriteStreamRef w = NULL;
                     CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)targetHost, (UInt32)targetPort, &r, &w);
@@ -654,13 +741,10 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
                     _stream = [[ARDMRESPStream alloc] initWithRead:r write:w];
                     if (_effectiveAuth.length) {
                         NSArray *auth = _config.username.length
-                            ? @[@"AUTH", _config.username, _effectiveAuth]
-                            : @[@"AUTH", _effectiveAuth];
+                            ? @[@"AUTH", _config.username, _effectiveAuth] : @[@"AUTH", _effectiveAuth];
                         [self send:auth error:nil];
                     }
-                    if (asking) [self send:@[@"ASKING"] error:nil];
                     id retry = [self send:args error:error];
-                    if (!retry) { _connectHost = oldHost; _connectPort = oldPort; }
                     return retry;
                 }
             }
@@ -678,14 +762,17 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
             if (error) *error = readErr;
             return nil;
         }
-        ARDMCommandLog *log = [[ARDMCommandLog alloc] init];
-        log.time = [NSDate date];
-        log.connectionName = _config.name;
-        log.command = [args componentsJoinedByString:@" "];
-        log.cost = [[NSDate date] timeIntervalSinceDate:start] * 1000.0;
-        [self.logs addObject:log];
-        if (self.logs.count > self.logLimit) [self.logs removeObjectsInRange:NSMakeRange(0, self.logs.count - self.logLimit)];
-        if (self.onLog) self.onLog(log);
+        NSString *logged = ARDMCommandLogString(args);
+        if (logged) {
+            ARDMCommandLog *log = [[ARDMCommandLog alloc] init];
+            log.time = [NSDate date];
+            log.connectionName = _config.name;
+            log.command = logged;
+            log.cost = [[NSDate date] timeIntervalSinceDate:start] * 1000.0;
+            [self.logs addObject:log];
+            if (self.logs.count > self.logLimit) [self.logs removeObjectsInRange:NSMakeRange(0, self.logs.count - self.logLimit)];
+            if (self.onLog) self.onLog(log);
+        }
         return reply ?: NSNull.null;
     }
 }
@@ -719,6 +806,17 @@ static NSData *ARDMEncodeCommand(NSArray *args) {
     dispatch_async(_liveQueue, ^{
         ARDMRedisClient *strongSelf = weakSelf;
         if (!strongSelf || !strongSelf->_liveRunning) return;
+        // Honour read-only mode on the live stream too: refuse any write verb so the
+        // dedicated MONITOR/SUBSCRIBE channel cannot be used to bypass the write lock.
+        NSString *liveVerb = [[args.firstObject uppercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
+        NSString *liveTwo = args.count >= 2 ? [[NSString stringWithFormat:@"%@ %@", args[0], args[1]] uppercaseString] : liveVerb;
+        if (strongSelf->_config.readOnly &&
+            ([ARDMWriteCommands() containsObject:liveVerb] || [ARDMWriteCommands() containsObject:liveTwo])) {
+            strongSelf->_liveRunning = NO;
+            NSString *message = @"You are in readonly mode! Unable to execute write command!";
+            dispatch_async(dispatch_get_main_queue(), ^{ onError(message); });
+            return;
+        }
         ARDMRedisClient *live = [[ARDMRedisClient alloc] initWithConfig:strongSelf->_config];
         NSError *connectError = nil;
         if (![live connect:&connectError]) {

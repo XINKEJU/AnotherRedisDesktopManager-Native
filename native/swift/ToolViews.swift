@@ -86,7 +86,6 @@ struct CLIView: View {
 
 struct StatusView: View {
     @EnvironmentObject var store: AppStore
-    @State private var autoRefresh = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -95,7 +94,14 @@ struct StatusView: View {
                 Spacer()
                 Text("every \(store.statusRefreshSeconds)s").font(.caption)
                 Stepper("", value: $store.statusRefreshSeconds, in: 1...60).labelsHidden()
-                Toggle(L10n("Auto refresh"), isOn: $autoRefresh).toggleStyle(.switch)
+                    .onChange(of: store.statusRefreshSeconds) {
+                        if store.statusAutoRefresh { store.startStatusTimer() }
+                    }
+                Toggle(L10n("Auto refresh"), isOn: $store.statusAutoRefresh)
+                    .toggleStyle(.switch)
+                    .onChange(of: store.statusAutoRefresh) {
+                        if store.statusAutoRefresh { store.startStatusTimer() } else { store.stopStatusTimer() }
+                    }
                 Button(L10n("Refresh")) { store.loadStatus() }
                 Button(L10n("DBSIZE")) { store.execute(["DBSIZE"]) }
             }

@@ -65,7 +65,6 @@ extension AppStore {
         var error: NSError?
         let reply = client.send(args, error: &error)
         if let error { throw error }
-        recordLog(args)
         return reply
     }
 
@@ -75,14 +74,7 @@ extension AppStore {
         var error: NSError?
         let reply = client.sendArguments(args, error: &error)
         if let error { throw error }
-        recordLog(args.map { ardmString($0) })
         return reply
-    }
-
-    func recordLog(_ args: [String]) {
-        let entry = LogEntry(time: Date(), connection: selectedConnection?.name ?? "-",
-                             command: args.joined(separator: " "), cost: 0)
-        onMain { self.logs.insert(entry, at: 0); if self.logs.count > 500 { self.logs.removeLast() } }
     }
 
     /// Async command whose reply is delivered back on the main thread.
@@ -101,6 +93,7 @@ extension AppStore {
         send(args) { result in
             if case .success(let reply) = result {
                 self.cliOutput = ardmString(reply)
+                self.activeTab = .cli
                 self.notify("\(args.first ?? "") OK")
             }
         }
@@ -122,7 +115,7 @@ extension AppStore {
             client.onLog = { log in
                 let entry = LogEntry(time: log.time, connection: log.connectionName,
                                      command: log.command, cost: log.cost)
-                self.onMain { self.logs.insert(entry, at: 0); if self.logs.count > 500 { self.logs.removeLast() } }
+                self.onMain { self.logs.insert(entry, at: 0); if self.logs.count > 5000 { self.logs.removeLast() } }
             }
             do {
                 try client.connect()
@@ -217,6 +210,8 @@ extension AppStore {
     }
 
     private func clearActiveState() {
+        stopKeepalive()
+        stopStatusTimer()
         client = nil
         connected = false
         activeConnectionID = nil
@@ -238,6 +233,23 @@ extension AppStore {
                 self.notify("Switched to DB \(db)")
             }
         }
+    }
+}
+
+// MARK: - Status auto refresh
+
+extension AppStore {
+    func startStatusTimer() {
+        stopStatusTimer()
+        let interval = TimeInterval(max(1, statusRefreshSeconds))
+        statusTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.onBackground { self?.loadStatus() }
+        }
+    }
+
+    func stopStatusTimer() {
+        statusTimer?.invalidate()
+        statusTimer = nil
     }
 }
 
@@ -379,7 +391,7 @@ extension AppStore {
             var error: NSError?
             let type = client.type(ofKey: key, error: &error)
             let ttl = client.ttl(ofKey: key, error: &error)
-            if type == .hash || type == .set || type == .zSet {
+            if type == .hash || type == .set {
                 self.onMain {
                     self.selectedKeyType = type
                     self.selectedKeyTTL = ttl
@@ -387,6 +399,20 @@ extension AppStore {
                     self.editorText = ""
                 }
                 self.scanRows(reset: true)
+                self.refreshPTTL()
+                return
+            }
+            // ZSet with an active pattern uses ZSCAN; otherwise fall through to the
+            // ordered ZRANGE WITHSCORES read so scores stay sorted (matches upstream).
+            if type == .zSet && self.rowSearchPattern != "*" && !self.rowSearchPattern.isEmpty {
+                self.onMain {
+                    self.selectedKeyType = type
+                    self.selectedKeyTTL = ttl
+                    self.keyRawValue = Data()
+                    self.editorText = ""
+                }
+                self.scanRows(reset: true)
+                self.refreshPTTL()
                 return
             }
             let value = client.value(ofKey: key, type: type, error: &error)
@@ -402,6 +428,7 @@ extension AppStore {
                 self.viewerName = detected.isEmpty ? "Text" : detected
                 self.renderValue()
                 self.statusText = "\(key) · \(typeName(type)) · TTL \(ttl)"
+                self.refreshPTTL()
             }
         }
     }

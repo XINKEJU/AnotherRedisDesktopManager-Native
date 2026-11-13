@@ -31,6 +31,7 @@ struct ConnectionDraft {
     var tlsKey = ""
     var tlsSNI = ""
     var tlsIdentityPath = ""
+    var tlsInsecure = false
     var sentinelEnabled = false
     var sentinelMaster = "mymaster"
     var sentinelNodePassword = ""
@@ -49,6 +50,7 @@ struct ConnectionDraft {
         sshPassphrase = c.sshPassphrase; sshTimeout = "\(c.sshTimeout)"
         tlsEnabled = c.tlsEnabled; tlsCA = c.tlsCA; tlsCert = c.tlsCert
         tlsKey = c.tlsKey; tlsSNI = c.tlsSNI; tlsIdentityPath = c.tlsIdentityPath
+        tlsInsecure = c.tlsInsecure
         sentinelEnabled = c.sentinelEnabled; sentinelMaster = c.sentinelMaster
         sentinelNodePassword = c.sentinelNodePassword; autoReconnect = c.autoReconnect
         natMapText = c.natMap.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "\n")
@@ -65,6 +67,7 @@ struct ConnectionDraft {
         c.sshPassphrase = sshPassphrase; c.sshTimeout = Int(sshTimeout) ?? 30
         c.tlsEnabled = tlsEnabled; c.tlsCA = tlsCA; c.tlsCert = tlsCert
         c.tlsKey = tlsKey; c.tlsSNI = tlsSNI; c.tlsIdentityPath = tlsIdentityPath
+        c.tlsInsecure = tlsInsecure
         c.sentinelEnabled = sentinelEnabled; c.sentinelMaster = sentinelMaster
         c.sentinelNodePassword = sentinelNodePassword; c.autoReconnect = autoReconnect
         var map: [String: String] = [:]
@@ -356,6 +359,7 @@ struct ConnectionEditorView: View {
             fileRow("Client certificate (PEM)", $draft.tlsCert)
             fileRow("Private key (PEM)", $draft.tlsKey)
             fileRow("PKCS#12 identity (.p12)", $draft.tlsIdentityPath)
+            Toggle(L10n("Allow insecure TLS (skip certificate validation)"), isOn: $draft.tlsInsecure)
             Text(L10n("Mutual TLS loads the client identity via Security.framework (SecPKCS12Import / SecItemImport)."))
                 .font(.caption).foregroundStyle(.secondary)
         }

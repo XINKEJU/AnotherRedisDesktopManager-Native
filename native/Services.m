@@ -357,6 +357,53 @@ static NSString *ARDMJSONString(id obj) {
     return [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] ?: @"<invalid json>";
 }
 
+static NSString *ARDMSpaces(NSInteger depth) {
+    NSInteger n = depth * 2;
+    if (n <= 0) return @"";
+    NSMutableString *s = [NSMutableString stringWithCapacity:n];
+    for (NSInteger k = 0; k < n; k++) [s appendString:@" "];
+    return s;
+}
+
+/** Re-indent a JSON document while preserving every token verbatim. Unlike
+    NSJSONSerialization, this never re-encodes numbers, so 64-bit-and-beyond
+    integers (e.g. 123456789012345678901) survive exactly as stored, matching
+    the upstream JSON editor's verbatim behaviour. Returns nil for non-object JSON. */
+static NSString *ARDMPrettyJSON(NSData *data) {
+    const char *p = data.bytes;
+    NSUInteger n = data.length, i = 0;
+    while (i < n && (p[i] == ' ' || p[i] == '\n' || p[i] == '\r' || p[i] == '\t')) i++;
+    if (i >= n || (p[i] != '{' && p[i] != '[')) return nil;
+    NSMutableString *out = [NSMutableString string];
+    NSInteger depth = 0;
+    BOOL inString = NO, escape = NO;
+    for (; i < n; i++) {
+        char c = p[i];
+        if (inString) {
+            [out appendFormat:@"%c", c];
+            if (escape) escape = NO;
+            else if (c == '\\') escape = YES;
+            else if (c == '"') inString = NO;
+            continue;
+        }
+        switch (c) {
+            case '"': inString = YES; [out appendFormat:@"%c", c]; break;
+            case '{': case '[':
+                [out appendFormat:@"%c", c]; depth++;
+                [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)]; break;
+            case '}': case ']':
+                depth--; [out appendString:@"\n"]; [out appendString:ARDMSpaces(depth)];
+                [out appendFormat:@"%c", c]; break;
+            case ',':
+                [out appendString:@",\n"]; [out appendString:ARDMSpaces(depth)]; break;
+            case ':': [out appendString:@": "]; break;
+            case ' ': case '\n': case '\r': case '\t': break; // drop original whitespace
+            default: [out appendFormat:@"%c", c]; break;
+        }
+    }
+    return out;
+}
+
 @implementation ARDMFormatters
 
 + (NSArray<NSString *> *)viewerNames {
@@ -384,6 +431,8 @@ static NSString *ARDMJSONString(id obj) {
     if ([viewer isEqualToString:@"Hex"]) return ARDMHexDump(data);
     if ([viewer isEqualToString:@"Binary"]) return ARDMBinaryDump(data);
     if ([viewer isEqualToString:@"Json"]) {
+        NSString *pretty = ARDMPrettyJSON(data);
+        if (pretty) return pretty;
         id obj = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
         return obj ? ARDMJSONString(obj) : ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"<invalid json>");
     }

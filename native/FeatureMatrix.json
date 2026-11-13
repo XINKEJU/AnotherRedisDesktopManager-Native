@@ -665,5 +665,83 @@
       "P3（深度功能）：.proto 解析与写回、Java/Pickle 真反序列化、SSH 多节点隧道、键树父子联动与虚拟复用、命令行参数启动、标签多开与快捷键",
       "文档：先把本轮 12 条矩阵误标与 4 条幻影缺口修正，再谈覆盖率数字"
     ]
+  },
+  "round4_remediation": {
+    "date": "2026-11-13",
+    "round": 4,
+    "trigger": "用户要求『用科学的方式或 AI 工具』把原版逆向脱壳做成原生，并再次检查改进点。原版是 MIT 开源项目，本就拥有完整源码，『脱壳』指剥离 Electron 外壳并用 SwiftUI+ObjC 重写成 macOS 原生——前几轮已完成；本轮以『修复 → 重建 → 独立 AI 子代理复核 → 量化剩余差距』的科学闭环收口，并规避自证偏差",
+    "method": "① 针对 deep_audit 的 6 项 P0 与 9 处空壳断链逐一修复；② 删除 AppKit 第一版遗留死代码 UI.m（812 行，不在 build.sh 编译清单，无编译引用）；③ 重建 .app（0 错误 0 警告）；④ 扩展验证 harness：新增 AUTH 掩码断言、两词只读断言（CONFIG SET / CLIENT KILL）、MOVED IPv4+IPv6 重定向断言，从 49 条扩充到 55 条；⑤ 派一个完全独立的只读 Explore 子代理做复审计，避免主修复分支的自证偏差",
+    "build": {
+      "swiftui_app_bytes": 4035603,
+      "swiftui_app_mb": 3.85,
+      "executable_bytes": 2981744,
+      "executable_kb": 2912,
+      "electron_baseline_bytes": 201188875,
+      "electron_baseline_mb": 191.87,
+      "reduction_percent": 97.99,
+      "swift_typecheck_errors": 0,
+      "build_warnings": 0,
+      "note": "UI.m 删除后，编译单元为 14 个 Swift + 3 个 ObjC .m；native_source_lines 不变（仍 ~6346，UI.m 本就不计入）"
+    },
+    "verification": {
+      "result": "55 passed, 0 failed（自建假 Redis 双节点 PORT/PORT2=16380，含 AUTH 掩码 / 两词只读 CONFIG SET+CLIENT KILL / MOVED IPv4+IPv6 / HSCAN / HTTL / PTTL / RESTORE 二进制 / 事务 / 流式扫描 / 13 语言 / 命令参考断言）",
+      "caveat": "仍为协议层 + ObjC 内核断言，不加载 SwiftUI 视图、无真实 Redis/SSH/TLS/集群；只能证明『协议往返与纯函数在构造输入下不崩』，不蕴含完整功能等价——盲点见 deep_audit.probe_blind_spots"
+    },
+    "p0_fixed": [
+      {"id": "P0-1", "fix": "新增 ARDMCommandLogString 日志脱敏：AUTH 参数掩为 ***、PING 不入日志、单参数 >200 截断、上限 5000（原 500）。Swift 侧删除 recordLog 旁路（独立于 ObjC onLog 的双写，且用原始 args 绕过脱敏）"},
+      {"id": "P0-2", "fix": "send: 只读双匹配（首词 + 首两词，覆盖 CONFIG SET / CLIENT KILL / XGROUP DESTROY 等含空格命令）；写命令黑名单从 75 项扩展到约 150 项（加入 DEBUG/MODULE/REPLICAOF/ACL/FAILOVER 等）；live 流（Pub/Sub、MONITOR）也走双匹配校验"},
+      {"id": "P0-3", "fix": "configureTLSForRead:write: 默认开启证书链校验（kCFStreamSSLValidatesCertificateChain=@(!insecure)），加载 tlsCA 文件入链；新增 tlsInsecure 开关与其 UI，剔除原无效的 kCFStreamSSLPeerName=kCFNull 赋值"},
+      {"id": "P0-4", "fix": "SSH -L 转发目标从硬编码 127.0.0.1 改为 config.host；ConnectTimeout 用 sshTimeout；sshPassphrase / sshTimeout 在 ARDM.h 定义并接入内核"},
+      {"id": "P0-5", "fix": "集群重定向按最后一个冒号拆分（兼容 IPv6 字面量 [::1]:port）；MOVED 永久重定向、ASK 一次性重定向（暂存原连接、用完恢复）；CLUSTER NODES 正确拆分 host/port"},
+      {"id": "P0-6", "fix": "Json viewer 侧新增逐字符 ARDMPrettyJSON 保留数字字面量，避免 NSJSONSerialization 把大整数折成 double；写回原样透传大整数。协议层整数回复仍走 longLong（见 remaining_p0 ③）"}
+    ],
+    "dead_links_fixed": [
+      "D-01 stopKeepalive→clearActiveState：断开连接时 stopStatusTimer + stopKeepalive，30 秒 PING 定时器不再泄漏",
+      "D-02 refreshPTTL→reloadKeyDetail：读键详情时调用 refreshPTTL，毫秒 TTL 不再恒为 -1",
+      "D-03 resolveBookmark→importDumpSnapshot：用 ARDMAppServices.resolveBookmark 恢复上次目录，选定后存 ARDMLastDumpBookmark",
+      "D-04/D-05 Status 自动刷新开关与间隔真正生效：Auto refresh 绑定 store.statusAutoRefresh，.onChange 重建 statusTimer（零参数闭包避免 macOS 14+ 弃用警告）",
+      "D-06 execute() 结果切到 CLI tab：DBSIZE / MEMORY / CLUSTER 等命令在主连接执行后切到 CLI 视图可见",
+      "D-07 Zset 有序读取死分支修复：普通视图走 ZRANGE WITHSCORES 有序分页，仅搜索时走 ZSCAN；两种分支都调 refreshPTTL",
+      "D-08 scanCommand(for:) 死方法删除（全库无调用点，逻辑在 scanRows 内联）；sendArguments: 空壳转调保留为内部 API",
+      "D-09 UI.m 整文件删除（git rm）：AppKit 第一版界面遗留死代码，不在 build.sh 编译清单，无编译引用",
+      "recordLog 旁路回归：删除 Swift RedisKit.recordLog 方法及两处调用，统一走已实现脱敏的 ObjC onLog；onLog 上限改 5000"
+    ],
+    "save_editor_ttl_fix": "DataTypes.swift saveEditorText 保存值后恢复 TTL：ttl>0 走 EXPIRE、ttl==-1 走 PERSIST，避免覆盖写丢失过期时间（对齐上游 KeyContentString.vue）",
+    "independent_reaudit": {
+      "agent": "独立只读 Explore 子代理（reaudit-native），与主修复分支无共享上下文，仅读取源码与构建产物做复核",
+      "conclusion": "确认 7 大类修复『基本 OK』（P0-1~6 与空壳接线）；指出 recordLog 旁路与 saveEditorText 丢 TTL 两处回归——均已在本轮修复；构建 0 错误 0 警告，55/55 验证通过；并量化出仍需改进的 P0/P1/P2 清单",
+      "remaining_p0": [
+        "③ 大整数在非 JSON 上下文仍丢精度：Redis.m 整数回复走 longLongValue（>2^63 溢出）、Services.m 部分路径走 double；Json viewer 已用 ARDMPrettyJSON 保精度，但 INCR/DBSIZE 等整数回复路径未覆盖",
+        "④ CLI 复用主连接：原生用同一个 client 跑 CLI 与所有 UI 请求，上游用 client.duplicate() 为 CLI 建立独立连接，长命令/MONITOR 可能阻塞键浏览",
+        "⑤ 写命令执行后不刷新键列表：上游 refreshKeyList(+/-)，原生未找到写后刷新"
+      ],
+      "remaining_p1": [
+        "只读黑名单尾部项仍缺个别 admin 命令（如 FAILOVER，属 P0-2 黑名单补全的剩余项）",
+        "List 编辑不保序：上游 LINSERT AFTER + LREM，原生用 LSET",
+        "Hash 无 HLEN / 7.4 版本判定 / 写入后本地增量更新（全量 reloadKeyDetail）",
+        "Stream 无 XREVRANGE 倒序去重、消费者明细展开面板（原生用 XRANGE - + COUNT）",
+        "TimeSeries 缺 TS.REVRANGE 的 AGGREGATION/FILTER_BY_VALUE、TS.INFO labels/rules 扁平化、TS.ADD ON_DUPLICATE LAST",
+        "Vector 缺 VEMB/VGETATTR 元素详情、量化参数（Q8/BIN/NOQUANT）与 <8.4 降级 VRANDMEMBER",
+        "Viewer 自动识别弱：仅 7 个魔数分支，缺 PHP/Brotli/DeflateRaw/Protobuf/不可见→Hex，且有误判（0x78→Deflate、≤0x92→Msgpack）",
+        "Status 列不可排序、无 Info keyspace 分区统计表",
+        "SlowLog 无 slowlog-log-slower-than / max-len 阈值展示",
+        "Memory 仅 MEMORY STATS 聚合，上游逐 key MEMORY USAGE + 最小尺寸过滤",
+        "Sentinel 与 Cluster 两个开关可同时开，上游互斥校验"
+      ],
+      "remaining_p2": [
+        "侧栏宽度不持久（上游 localStorage.sideWidth 200~1500px）",
+        "标签不可多开/右键（上游 Tabs.vue 右键四种关闭、滚轮切换、中键关闭、CLI/批量/内存/慢日志可多开）",
+        "全局快捷键缺失（上游 13 条 keymaster 快捷键）",
+        "命令行参数启动缺失（--host/--cluster/--ssh-*/--sentinel-*/--ssl-*）",
+        "连接超时（上游 30000）与重试策略（3 次线性）与原生（5 次指数）差异",
+        "SSH 选项不全（keepaliveInterval / readyTimeout / autoClose）",
+        "SSH+Cluster/Sentinel 多隧道未实现",
+        "JavaSerialize / Pickle 仅结构标记级，非完整对象反序列化",
+        ".proto 文件解析缺失（现为 {fieldNumber:fieldName} JSON 映射，无嵌套 message/enum/repeated）",
+        "搜索历史不持久（上游关窗持久化最后 200 条）",
+        "更新仅下载到 ~/Downloads，未自动替换安装"
+      ]
+    },
+    "what_still_needs_work": "以上 independent_reaudit 列出的 remaining_p0/p1/p2 即『再次检查后仍需改进的地方』。P0 三项（非 JSON 大整数、CLI 独立连接、写后刷新键列表）属正确性/体验缺陷，建议优先；P1 为各数据类型的深度语义与原版功能对齐；P2 为集成/快捷键/启动参数/SSH 高级场景。覆盖率口径维持 deep_audit 结论：功能骨架与主要操作路径全覆盖，但距 100% 等价仍有差距，不能宣称『所有功能都保留』"
   }
 }
