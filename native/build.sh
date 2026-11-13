@@ -10,7 +10,9 @@ APP="$ROOT/ARDM Native.app"
 
 echo "[0/6] Checking the toolchain..."
 DEVDIR="$(xcode-select -p)"
-if [[ "$DEVDIR" != *"Xcode.app"* ]]; then
+# GitHub runners install Xcode as "Xcode_15.4.app", so match the family rather
+# than the exact "/Applications/Xcode.app" string.
+if [[ "$DEVDIR" != *"Xcode"* ]]; then
     echo "ERROR: SwiftUI needs the full Xcode toolchain. Run:" >&2
     echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
     exit 1

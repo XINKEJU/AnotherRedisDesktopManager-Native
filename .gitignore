@@ -22,3 +22,4 @@ native/.build/
 native/*.app/
 *.o
 native/dist/
+native/tests/.build/

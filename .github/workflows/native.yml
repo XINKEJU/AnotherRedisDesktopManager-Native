@@ -1,0 +1,75 @@
+name: Native app
+
+# CI for the SwiftUI/Objective-C port in native/. The Electron workflows under
+# .github/workflows/build_*.yml do not cover it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "src/i18n/langs/**"
+      - "src/commands.js"
+      - ".github/workflows/native.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "src/i18n/langs/**"
+      - "src/commands.js"
+      - ".github/workflows/native.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Core + updater regression
+    # Apple silicon, macOS 14: the same architecture and minimum OS the app
+    # targets, so the probes exercise what users actually get.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          clang --version | head -1
+          python3 --version
+
+      - name: Run native tests
+        run: bash native/tests/run.sh
+
+  build:
+    name: Build the .app
+    runs-on: macos-14
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and sign (ad-hoc)
+        run: bash native/build.sh
+
+      - name: Assert the deployment target and architecture
+        run: |
+          set -euo pipefail
+          BIN="native/ARDM Native.app/Contents/MacOS/ardm-native"
+          lipo -info "$BIN"
+          vtool -show-build "$BIN" | awk '/minos/ {print "minos =", $2}'
+          test "$(vtool -show-build "$BIN" | awk '/minos/ {print $2; exit}')" = "14.0"
+          codesign --verify --deep --strict "native/ARDM Native.app"
+
+      - name: Package
+        run: bash native/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARDM-Native-arm64
+          path: |
+            native/dist/*.zip
+            native/dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

@@ -36,8 +36,8 @@
   "verification": {
     "swift_typecheck_errors": 0,
     "build_warnings": 0,
-    "runtime_probe": "88 passed, 0 failed (自建假 Redis 的协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考断言)",
-    "probe_harness": "/tmp/ardm_native_verify/verify.py + probe.m；无 bundle 运行时通过 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 目录，以加载 13 语言与 commands.js",
+    "runtime_probe": "103 passed, 0 failed（core 88 + updater 15）。core 覆盖假 Redis 协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考；updater 覆盖 SHA-256、校验和格式、签名校验、原子替换与回滚、外来 bundle 与摘要不符的双重拒绝",
+    "probe_harness": "native/tests/（core/probe.m + core/fake_redis.py、updater/probe.m + updater/fixture.sh、run.sh）；runner 只依赖 clang 与 python3，不需要 redis-server、GUI 或完整 Xcode；无 bundle 运行时用 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 以加载 13 语言与 commands.js；CI 见 .github/workflows/native.yml（macos-14：tests 作业跑 103 条断言，build 作业出 .app 并打包）",
     "gui": "2026-11-13 12:46 实测截图：应用启动、三栏 SwiftUI 窗口、中文菜单栏/工具栏/标签条/空态/状态栏均正常，无 ERR、无控件挤压",
     "localization_probe": "13 张语言表全部可解析；12 张非英语表各自返回 message.new_connection 的本地译文（cn=新建连接 … vi=Kết nối mới）",
     "distinct_ui_labels_wrapped_in_l10n": 238,
@@ -1082,7 +1082,7 @@
       ],
       "p1": [
         "事务非原子：sendTransaction 逐条调用 send:，每次只在自己的 @synchronized 内完成一次写-读往返；后台的保活 PING、键列表刷新、详情加载可插入 MULTI 与 EXEC 之间，命令会被并入事务或在 DISCARD 后使连接状态错位。",
-        "回归断言不在仓库内：probe.m / verify.py 仅存在于 /tmp/ardm_native_verify，git 无测试文件、无 CI（.github/workflows 仍只构建 Electron 产物），任何改动都无法复现验证。",
+        "回归断言不在仓库内：probe.m / verify.py 仅存在于 /tmp/ardm_native_verify，git 无测试文件、无 CI（.github/workflows 仍只构建 Electron 产物），任何改动都无法复现验证。 [已解决：round11_testing]",
         "无障碍标注为 0：全项目无 accessibilityLabel/Identifier/Value，VoiceOver 完全不可用。"
       ],
       "p2": [
@@ -1133,6 +1133,41 @@
       "rollback 为手动：旧版保留为 .previous，需用户自行改回，未做『一键回滚』",
       "仍为 ad-hoc 签名：每次重新构建 CDHash 变化，macOS 会重新询问钥匙串授权（需 Developer ID + 公证才能根治）",
       "Release 必须同时上传 zip 与 SHA256SUMS，否则 ad-hoc 构建会拒绝安装（这是故意的）"
+    ]
+  },
+  "round11_testing": {
+    "date": "2026-11-13",
+    "round": 11,
+    "trigger": "用户『测试收进仓库（native/tests/）并接 CI』",
+    "closes": [
+      "round9_distribution.open_findings.p1[1]（回归断言只在 /tmp，仓库无测试无 CI）"
+    ],
+    "layout": {
+      "native/tests/run.sh": "唯一入口：bash tests/run.sh [all|core|updater]，失败即非零退出；自己算 ROOT/PROJECT，可从任意 cwd 调用",
+      "native/tests/core/probe.m": "88 条：RESP 客户端 + 全部 viewer/本地化/钥匙串/迁移断言；argv[1] 取端口，ARDM_PROJECT_ROOT 取资源目录",
+      "native/tests/core/fake_redis.py": "脚本化 RESP 服务器（127.0.0.1:16379 与 ::1:16380），含 MOVED 重定向、MULTI/EXEC、SUBSCRIBE、MONITOR；不再硬编码绝对路径",
+      "native/tests/updater/probe.m": "15 条：#import Transport.m 直接驱动 SHA-256 / 校验和解析 / ARDMInspectBundle / ARDMInstallBundle / installUpdateAtURL",
+      "native/tests/updater/fixture.sh": "无真实构建时生成一个 ad-hoc 签名的最小 .app（含 sealed commands.js），使签名与篡改断言在干净 runner 上仍然有效",
+      "native/tests/README.md": "覆盖范围 + 刻意未覆盖的部分（SwiftUI 布局与更新确认对话框需 GUI 手测）"
+    },
+    "changes": [
+      "两套探针从 /tmp 迁入仓库，去掉 /Users/... 绝对路径：ROOT 由脚本自身位置推导，临时目录用 NSTemporaryDirectory()",
+      "原 verify.py 同时负责编译与驱动，现拆成 run.sh（编译）与 fake_redis.py（起服务 + 驱动），职责单一",
+      "updater 探针新增 fixture 回退，并在未提供 .app 时打印跳过提示；/Applications 断言从『必须不存在』放宽为『前后一致』，避免已安装该应用的机器误报",
+      "build.sh 的 Xcode 检测从字面 'Xcode.app' 改为匹配 'Xcode'，否则 GitHub runner 的 Xcode_15.4.app 会被误判为缺少完整工具链",
+      ".github/workflows/native.yml：tests 作业（必过）+ build 作业（出 .app、断言 minos=14.0/arm64、打包并上传 artifact）",
+      ".gitignore 增加 native/tests/.build/"
+    ],
+    "verification": {
+      "core": "88 passed, 0 failed（从仓库路径运行，编译零警告）",
+      "updater": "15 passed, 0 failed（真实 .app 与 fixture 两种输入分别跑过）",
+      "cwd_independence": "在 /tmp 下调用 run.sh 全量通过，证明不依赖当前目录",
+      "workflow_yaml": "YAML 解析通过（jobs = tests, build）"
+    },
+    "known_limits": [
+      "CI 尚未在真实 GitHub runner 上跑过：tests 作业只依赖 clang/python3，风险低；build 作业依赖 Xcode 15.x + macOS 14 SDK，若 Swift 代码用到仅新 SDK 才有的符号会在该作业暴露",
+      "GUI 未纳入自动化：SwiftUI 布局、菜单、两步更新确认框仍需发布前手测",
+      "core 探针会向登录钥匙串写入并删除 ardm-verify/auth 条目，并向 UserDefaults 写入自定义格式化器（仅为测试键，退出即失效）"
     ]
   }
 }
