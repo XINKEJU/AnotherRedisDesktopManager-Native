@@ -1,22 +1,23 @@
 # Native test suite
 
-Two self-contained suites that compile the real sources and drive them without a
-GUI, a `redis-server`, or a full Xcode install (clang + python3 only). CI runs
-them via `.github/workflows/native.yml`.
+Two self-contained suites that compile the real Swift sources and drive them
+without a GUI, a `redis-server`, or a full Xcode install (swiftc + python3
+only). CI runs them via `.github/workflows/native.yml`.
 
 ```bash
-bash native/tests/run.sh            # both suites (103 assertions)
-bash native/tests/run.sh core       # 88 assertions
+bash native/tests/run.sh            # both suites (108 assertions)
+bash native/tests/run.sh core       # 93 assertions
 bash native/tests/run.sh updater    # 15 assertions
 ```
 
 Exit status is non-zero if anything fails, so it drops straight into CI.
 
-## core/ — 88 assertions
+## core/ — 93 assertions
 
 `fake_redis.py` starts a scripted RESP server on 127.0.0.1:16379 (plus 16380 on
-`::1` so an IPv6 `MOVED` target resolves), then runs `probe.m` against it. The
-probe links `Redis.m` + `Services.m` + `Transport.m` directly.
+`::1` so an IPv6 `MOVED` target resolves), then runs the Swift probe
+(`core/main.swift`) against it. The probe is compiled together with the Swift
+core under test.
 
 Covers: connect/PING, bulk strings, SCAN cursors, TTL/PTTL, INFO, DBSIZE, binary
 arguments (`NSData`), read-only mode blocking writes and two-token admin commands
@@ -31,9 +32,9 @@ redaction, and the plaintext→Keychain migration counter.
 
 ## updater/ — 15 assertions
 
-`probe.m` `#import`s `Transport.m` so the file-scope helpers (SHA-256, checksum
-parsing, signature inspection, atomic bundle swap) can be called directly; it
-links `Redis.o` + `Services.o`.
+`updater/main.swift` is compiled together with `swift/AppServices.swift` so the
+internal helpers (SHA-256, checksum parsing, signature inspection, atomic bundle
+swap) can be called directly.
 
 Covers: SHA-256 agreeing with `shasum`, four checksum-file layouts, strict
 signature validation of a real bundle, a tampered bundle being rejected

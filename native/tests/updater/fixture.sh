@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a minimal ad-hoc-signed .app used by tests/updater/probe.m when no real
+# Builds a minimal ad-hoc-signed .app used by tests/updater/main.swift when no real
 # build is available (CI, or a checkout that has never run build.sh).
 #
 # It exists so the signature tests stay meaningful without depending on Xcode:

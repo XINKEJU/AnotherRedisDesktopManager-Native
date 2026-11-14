@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the fully native ARDM: SwiftUI interface + Objective-C RESP/services core.
+# Build the fully native ARDM: pure Swift (SwiftUI interface + RESP/services core).
 # Requires the Xcode developer directory (xcode-select -p -> /Applications/Xcode.app/Contents/Developer).
 set -euo pipefail
 
@@ -30,19 +30,16 @@ mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources/langs"
 # in sync with LSMinimumSystemVersion.
 DEPLOY_TARGET="arm64-apple-macos14.0"
 
-echo "[1/6] Compiling the Objective-C core (RESP / TLS / SSH / viewers / services)..."
-for SOURCE in Redis.m Services.m Transport.m; do
-    clang -fobjc-arc -O2 -Wall -Wno-deprecated-declarations \
-        -target "$DEPLOY_TARGET" \
-        -c "$ROOT/$SOURCE" -o "$BUILD/${SOURCE%.m}.o"
-done
+echo "[1/6] Checking that no Objective-C sources remain..."
+if compgen -G "$ROOT/*.m" >/dev/null || [[ -f "$ROOT/Bridge.h" ]]; then
+    echo "ERROR: Objective-C sources are still present; this build is Swift-only." >&2
+    exit 1
+fi
 
 echo "[2/6] Compiling and linking the SwiftUI application..."
 xcrun swiftc -O -parse-as-library \
     -target "$DEPLOY_TARGET" \
-    -import-objc-header "$ROOT/Bridge.h" \
     "$ROOT"/swift/*.swift \
-    "$BUILD/Redis.o" "$BUILD/Services.o" "$BUILD/Transport.o" \
     -framework AppKit -framework SwiftUI -framework JavaScriptCore \
     -framework WebKit -framework Network -framework Security \
     -lz \

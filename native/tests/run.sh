@@ -6,9 +6,9 @@
 #   bash tests/run.sh updater    # SHA-256, checksum parsing, signature, atomic swap
 #
 # Neither suite needs a redis-server, a GUI session, or a full Xcode install —
-# only the Command Line Tools (clang) and python3. That is what makes them usable
-# in CI. The suites compile the real sources (Redis.m, Services.m, Transport.m),
-# so a break in the transport layer fails here before it reaches the .app.
+# only the Command Line Tools and python3. That is what makes them usable in CI.
+# The suites compile the real Swift sources, so a break in the transport layer
+# fails here before it reaches the .app.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -22,8 +22,8 @@ if [[ "$WHICH" != "all" && "$WHICH" != "core" && "$WHICH" != "updater" ]]; then
     exit 2
 fi
 
-if ! command -v clang >/dev/null || ! command -v python3 >/dev/null; then
-    echo "ERROR: clang and python3 are required (xcode-select --install)." >&2
+if ! command -v swiftc >/dev/null || ! command -v python3 >/dev/null; then
+    echo "ERROR: swiftc (Xcode command line tools) and python3 are required." >&2
     exit 1
 fi
 
@@ -31,16 +31,27 @@ mkdir -p "$BUILD"
 CORE_OK=0
 UPDATER_OK=0
 
-compile_core() {
-    echo "=== [core] compiling the probe against Redis.m / Services.m / Transport.m ==="
-    # shellcheck disable=SC2086
-    clang -fobjc-arc -O2 -I "$ROOT" \
-        -Wno-deprecated-declarations -Wno-nullability-completeness \
-        -framework AppKit -framework Foundation -framework JavaScriptCore \
+swift_compile() {
+    local output="$1"
+    shift
+    xcrun swiftc -O \
+        "$@" \
+        -framework AppKit -framework CoreFoundation -framework JavaScriptCore \
         -framework Security -framework Network -framework WebKit -lz \
-        "$ROOT/Redis.m" "$ROOT/Services.m" "$ROOT/Transport.m" \
-        "$HERE/core/probe.m" \
-        -o "$BUILD/core-probe"
+        -o "$output"
+}
+
+compile_core() {
+    echo "=== [core] compiling the probe against the Swift core ==="
+    # The UI label tables ride along so the localization priority chain
+    # (curated table -> upstream text -> word-wise hybrid) is really covered.
+    swift_compile "$BUILD/core-probe" \
+        "$ROOT/swift/AppServices.swift" "$ROOT/swift/Formatters.swift" \
+        "$ROOT/swift/Deserializers.swift" "$ROOT/swift/Localization.swift" \
+        "$ROOT/swift/UILocalization.swift" "$ROOT/swift/UILabels.swift" \
+        "$ROOT/swift/ConnectionConfig.swift" "$ROOT/swift/Keychain.swift" \
+        "$ROOT/swift/RedisClient.swift" \
+        "$HERE/core/main.swift"
 }
 
 run_core() {
@@ -52,17 +63,11 @@ run_core() {
 }
 
 compile_updater() {
-    echo "=== [updater] compiling Redis/Services objects and the updater probe ==="
-    for source in Redis.m Services.m; do
-        clang -fobjc-arc -O2 -I "$ROOT" -Wno-deprecated-declarations \
-            -c "$ROOT/$source" -o "$BUILD/${source%.m}.o" || return 1
-    done
-    clang -fobjc-arc -O1 -I "$ROOT" -Wno-deprecated-declarations \
-        -Wno-nullability-completeness \
-        "$HERE/updater/probe.m" "$BUILD/Redis.o" "$BUILD/Services.o" \
-        -framework AppKit -framework JavaScriptCore -framework Security \
-        -framework Network -framework WebKit -lz \
-        -o "$BUILD/updater-probe"
+    echo "=== [updater] compiling the Swift updater core and probe ==="
+    swift_compile "$BUILD/updater-probe" \
+        "$ROOT/swift/AppServices.swift" \
+        "$ROOT/swift/ConnectionConfig.swift" "$ROOT/swift/Keychain.swift" \
+        "$HERE/updater/main.swift"
 }
 
 run_updater() {

@@ -205,11 +205,19 @@ private let uiLexicon: [String: [String: String]] = {
     return out
 }()
 
-/// Word-wise fallback: keeps punctuation and capitalisation, translates known words.
+/// Compiled once: the fallback below runs per label, and the key list renders
+/// hundreds of labels per pass.
+private let uiWordPattern = try! NSRegularExpression(pattern: "[A-Za-z][A-Za-z0-9]*")
+
+/// Last-resort fallback for labels no curated table carries. A hand-written
+/// upstream translation wins outright; the word-wise hybrid (which keeps
+/// punctuation and capitalisation) only fills what nothing else covers.
 func uiWordwise(_ english: String, _ lang: String) -> String {
-    let pattern = try! NSRegularExpression(pattern: "[A-Za-z][A-Za-z0-9]*")
+    if let official = ARDMLocalization.shared().translation(forEnglishText: english) {
+        return official
+    }
     let ns = english as NSString
-    let matches = pattern.matches(in: english, range: NSRange(location: 0, length: ns.length))
+    let matches = uiWordPattern.matches(in: english, range: NSRange(location: 0, length: ns.length))
     var result = NSString(string: english)
     for m in matches.reversed() {
         let word = ns.substring(with: m.range)
@@ -218,8 +226,7 @@ func uiWordwise(_ english: String, _ lang: String) -> String {
         let replacement = word.first?.isUppercase == true ? translated.capitalized : translated
         result = result.replacingCharacters(in: m.range, with: replacement) as NSString
     }
-    let out = result as String
-    return out == english ? ARDMLocalization.shared().tText(english) : out
+    return result as String
 }
 
 /// Resolve a UI label in the active language, with a strict priority order.
