@@ -17,22 +17,38 @@ permissions:
 jobs:
   artifact:
     name: Build, package, verify
-    runs-on: macos-15
+    # Xcode 26+ SDK required: UITheme.swift's Glass calls are runtime-guarded
+    # (`if #available(macOS 26)`), not compile-time-guarded, so an older SDK
+    # fails the build even though the app still targets macOS 14.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
       - name: Show toolchain
         run: |
           sw_vers
-          swiftc --version | head -1
+          xcrun --sdk macosx --show-sdk-version
+          # sed, not head: an early-exiting reader can SIGPIPE the writer under
+          # Actions' default `-o pipefail`.
+          xcrun swiftc --version 2>&1 | sed -n '1p'
 
       - name: Run native tests
         run: bash native/tests/run.sh
 
       - name: Build and package
         run: |
-          bash native/build.sh
-          bash native/package.sh
+          set -o pipefail
+          { bash native/build.sh && bash native/package.sh; } 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Surface the build error as annotations
+        # Job logs need an authenticated API call; annotations do not. A release
+        # that dies at 23:50 should say why on the Checks page.
+        if: failure()
+        run: |
+          grep -E "error:|ERROR|fatal error|Undefined symbol" "$RUNNER_TEMP/build.log" \
+            | awk 'NR <= 12 { sub(/%/, "%25"); print "::error::" $0 }'
+          grep -qE "error:|ERROR" "$RUNNER_TEMP/build.log" \
+            || echo "::error::build/package failed without printing a recognizable error line; see the job log."
 
       - name: Assert the tag matches the bundle version
         run: |

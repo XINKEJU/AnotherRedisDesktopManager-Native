@@ -165,6 +165,11 @@ Needs the full Xcode toolchain (`xcode-select -s /Applications/Xcode.app/Content
 and nothing else — no `npm install`, since the app links only system frameworks and
 reads its language tables from `src/i18n/langs/`.
 
+**Build** requires Xcode 26 or newer: the interface calls SwiftUI's Glass APIs, and
+`if #available(macOS 26)` guards the runtime only, so those symbols must exist in the
+SDK at compile time. `build.sh` says so up front if it finds an older SDK. The
+**artifact** still runs on macOS 14.0+ — the deployment target is pinned separately.
+
 ```bash
 bash native/build.sh        # compile swift/*.swift → native/ARDM Native.app
 bash native/tests/run.sh    # core + updater regression against the real sources

@@ -18,9 +18,21 @@ if [[ "$DEVDIR" != *"Xcode"* ]]; then
     exit 1
 fi
 echo "  developer dir: $DEVDIR"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+echo "  sdk: macOS $SDK_VERSION"
 # sed, not head: `head -2` exits while the writer still has bytes, and under
 # `set -o pipefail` that SIGPIPE would fail the build on a slower machine.
 xcrun swift --version 2>&1 | sed -n '1,2p'
+
+# UITheme.swift reaches for SwiftUI's Glass APIs inside `if #available(macOS 26)`,
+# which guards the *runtime* only — the symbols still have to exist at compile
+# time, so an older SDK dies with "cannot find 'Glass' in scope" hundreds of
+# lines before that matters. Say so up front instead of letting the compiler.
+if [[ "${SDK_VERSION%%.*}" -lt 26 ]]; then
+    echo "ERROR: compiling the native app needs the macOS 26 SDK or newer (SwiftUI Glass), found $SDK_VERSION." >&2
+    echo "       Pick a newer toolchain, e.g.: sudo xcode-select -s /Applications/Xcode_26.app/Contents/Developer" >&2
+    exit 1
+fi
 
 rm -rf "$BUILD" "$APP"
 mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources/langs"

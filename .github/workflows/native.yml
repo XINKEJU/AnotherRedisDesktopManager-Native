@@ -28,12 +28,10 @@ concurrency:
 jobs:
   tests:
     name: Core + updater regression
-    # Apple silicon. macos-14 used to be the closest match to the 14.0 deployment
-    # target, but GitHub retired that label: jobs on it are cancelled within a
-    # second and never get a runner (which looks like a workflow bug, not a
-    # platform one). macos-15 is the oldest macOS label still served, and a newer
-    # SDK with -target macos14.0 is exactly the configuration we want to prove.
-    runs-on: macos-15
+    # Same image as the build job, so the suite is exercised by the toolchain
+    # that actually produces the shipped binary. See the build job for why the
+    # image has to carry an Xcode 26+ SDK.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -48,7 +46,15 @@ jobs:
 
   build:
     name: Build the .app
-    runs-on: macos-15
+    # The image must carry an Xcode 26+ SDK: UITheme.swift calls SwiftUI's Glass
+    # APIs, and `if #available(macOS 26)` guards the *runtime* only — the symbols
+    # still have to exist at compile time. On macos-15 this job failed with
+    # "cannot find 'Glass' in scope" at UITheme.swift:77 while the tests job
+    # stayed green, because tests/run.sh compiles the core sources and no UI
+    # file. macos-14 was retired by GitHub (jobs there are cancelled before a
+    # runner appears). The deployment target is unaffected: build.sh pins
+    # -target arm64-apple-macos14.0 and asserts minos 14.0 on the result.
+    runs-on: macos-26
     needs: tests
     steps:
       - uses: actions/checkout@v4
