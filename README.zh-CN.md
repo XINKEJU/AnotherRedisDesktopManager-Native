@@ -65,6 +65,10 @@ bash native/package.sh      # → native/dist/RDM-Native-<版本>-arm64.zip + SH
   执行 `sudo xattr -rd com.apple.quarantine "/Applications/RDM Native.app"`。
 - 应用内更新器读取本仓库的 GitHub Release，并用 `SHA256SUMS` 校验下载包。
   **只带 zip 不带 SHA256SUMS 的 Release 会被拒绝安装**——这是刻意设计，两个文件都要传。
+- 从 *ARDM Native* 改名保留了 Bundle ID，所以旧版本仍能自助更新——但会更新进
+  `/Applications/ARDM Native.app`：更新器是原地替换，文件名跟着当前运行的 bundle 走。
+  想要 `RDM Native.app` 这个名字，把本 Release 的 zip 解压到「应用程序」再删掉旧的即可，
+  连接与密码都会原样沿用。
 - 已知边界：仅 arm64（未出 universal）、无 Developer ID 签名与公证、
   值编辑器是原生文本视图而非 IDE 级控件。
 - 发版版本号取自 `native/Info.plist`；`pack/electron/package.json` 的版本属于 Electron 版。

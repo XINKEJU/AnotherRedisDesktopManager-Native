@@ -74,6 +74,11 @@ bash native/package.sh      # → native/dist/RDM-Native-<version>-arm64.zip + S
 - The in-app updater reads this repository's latest GitHub Release and verifies the
   download against `SHA256SUMS`. A release that carries only the `.zip` is
   **refused on purpose** — attach both files.
+- Renaming from *ARDM Native* kept the bundle identifier, so an old install
+  self-updates fine — into `/Applications/ARDM Native.app`, because the updater
+  swaps in place and keeps whatever the running bundle is called. To get the
+  `RDM Native.app` name, unzip this release into `/Applications` and delete the
+  old one; connections and passwords carry over.
 - Known gaps: arm64 only (no universal binary), no Developer ID signature or
   notarization, and the value editor is a native text view rather than a full IDE.
 - The release version comes from `native/Info.plist`; the version in
