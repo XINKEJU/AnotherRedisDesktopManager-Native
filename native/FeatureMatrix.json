@@ -1287,6 +1287,32 @@
       "ad-hoc 签名 → 每次重建 CDHash 变化，钥匙串会重新弹授权；根治需 Developer ID + 公证。",
       "仅 arm64，无 universal 产物。"
     ]
+  },
+  "round14_ci_release": {
+    "date": "2026-11-15",
+    "round": 14,
+    "trigger": "tag v1.7.5 pushed; both Actions runs (native.yml, native-release.yml) failed on the same commit that packaged cleanly from a clean local checkout of that tag",
+    "log_access_problem": "a red job was unreadable from the command line: job logs need an authenticated API call and the gh binary is no longer installed on this machine (its Keychain entry is). check-run annotations are served to unauthenticated callers for a public repo, so native.yml and native-release.yml now tee build.sh into $RUNNER_TEMP/build.log and re-emit the first 12 error lines as ::error:: annotations",
+    "root_cause": "native/swift/UITheme.swift:77-117 calls SwiftUI's Glass API (Glass, glassEffect(_:in:), GlassEffectContainer, buttonStyle(.glass)). `if #available(macOS 26.0, *)` guards the runtime, not the SDK: the symbols must exist at compile time, and the macos-15 image's SDK predates them. Reported by CI as: cannot find type 'Glass' in scope / value of type 'Self' has no member 'glassEffect' / cannot find 'GlassEffectContainer' in scope / reference to member 'glass' cannot be resolved without a contextual type",
+    "why_tests_stayed_green": "tests/run.sh compiles AppServices, Formatters, Deserializers, Localization, UILocalization, UILabels, ConnectionConfig, Keychain, RedisClient (+ updater subset) and never a UI file, so a green tests job says nothing about whether the .app builds",
+    "fixed": [
+      "runs-on: macos-26 for the tests job, the build job and the release artifact job (arm64; macos-14 is retired by GitHub and macos-15 cannot compile the interface layer)",
+      "build.sh step [0/6] now prints the selected SDK and refuses to start below macOS 26, with the xcode-select hint, instead of letting swiftc rediscover Glass 40 times",
+      "deployment-target checks compare normalized major.minor and read the whole vtool report, so 'minos 14' (older toolchain spelling) and 'minos 14.0' both pass, and vtool is resolved through xcrun with a Command Line Tools fallback",
+      "early-exiting readers removed from pipelines under set -o pipefail: `swift --version | head -2`, `swiftc --version | head -1`, `vtool | awk ... exit`, `grep | head -12` became sed -n / awk NR<= / full reads, since a SIGPIPE'd writer fails the step even when the output was correct",
+      "README.md and README.zh-CN.md state the split that was never written down: building needs Xcode 26+, running needs macOS 14.0+"
+    ],
+    "verification": {
+      "sdk_guard": "accepts 26.0, 26.1, 27.2; rejects 15, 15.4",
+      "local_build": "bash native/build.sh exit 0, sdk macOS 27.2, 6894099 bytes (6.57 MB), LC_BUILD_VERSION minos 14.0",
+      "workflow_yaml": "both files parse; every run block passes bash -n",
+      "zip_end_to_end": "shasum -a 256 -c SHA256SUMS OK; ditto -x -k then codesign --verify --deep --strict OK; lipo -archs = arm64; 13 language tables + commands.js present; 6.6 MB unpacked",
+      "artifact": "native/dist/ARDM-Native-1.7.5-arm64.zip sha256 ce5ffcd79890c315bb9dc04b196e6f2379353242769eaf859424d52adc66a9ef (supersedes 2880dae2b2c001458afb9294cd48d88448c0f1b455024c222cd541355cb0df85, which was built before the CI fixes landed)"
+    },
+    "left_open": [
+      "tag v1.7.5 still points at 3156bf7, whose CI is red; moving it means force-pushing a published tag, which is the owner's call",
+      "job logs still require credentials — annotations carry only the first 12 error lines, so a failure with no matching line prints a pointer to the log instead of the cause",
+      "the artifact is built on a macOS 26 host but only asserted to start on 14.0 via LC_BUILD_VERSION; no macOS 14 test machine is in the loop"
+    ]
   }
-  }
-  
+}
