@@ -81,7 +81,7 @@ jobs:
       - name: Assert the deployment target and architecture
         run: |
           set -euo pipefail
-          BIN="native/ARDM Native.app/Contents/MacOS/ardm-native"
+          BIN="native/RDM Native.app/Contents/MacOS/rdm-native"
           lipo -info "$BIN"
           # Read the whole vtool report first: an `awk ... exit` inside a command
           # substitution can SIGPIPE the writer, and `set -o pipefail` would then
@@ -94,14 +94,14 @@ jobs:
             14|14.0) ;;
             *) echo "::error::binary is stamped minos '$MINOS', expected 14.0"; exit 1 ;;
           esac
-          codesign --verify --deep --strict "native/ARDM Native.app"
+          codesign --verify --deep --strict "native/RDM Native.app"
 
       - name: Package
         run: bash native/package.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ARDM-Native-arm64
+          name: RDM-Native-arm64
           path: |
             native/dist/*.zip
             native/dist/SHA256SUMS

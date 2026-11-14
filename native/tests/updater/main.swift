@@ -76,10 +76,10 @@ check("SHA-256 matches shasum", actual == expected, actual ?? "nil")
 
 // ---- 2. Checksum file parsing ----------------------------------------
 let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-let parseCase = "# release checksums\n\(digest)  ARDM-Native-1.8.0.dmg\n"
+let parseCase = "# release checksums\n\(digest)  RDM-Native-1.8.0.dmg\n"
     + "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff  other.zip"
 check("checksum by filename",
-      ARDMAppServices.checksumForAsset(parseCase, "ARDM-Native-1.8.0.dmg") == digest,
+      ARDMAppServices.checksumForAsset(parseCase, "RDM-Native-1.8.0.dmg") == digest,
       "sha256sum layout")
 check("checksum single-entry file",
       ARDMAppServices.checksumForAsset("\(digest)\n", "x.dmg") == digest,
@@ -122,7 +122,7 @@ check("tampered bundle is rejected", tamperInspection.2 != nil,
 // ---- 5. Atomic swap keeps the previous version -----------------------
 let sandbox = (root as NSString).appendingPathComponent("Applications")
 try? fm.createDirectory(atPath: sandbox, withIntermediateDirectories: true)
-let destination = (sandbox as NSString).appendingPathComponent("ARDM Native.app")
+let destination = (sandbox as NSString).appendingPathComponent("RDM Native.app")
 let backup = destination + ".previous"
 let old = (sandbox as NSString).appendingPathComponent(".new-old.app")
 let newOne = (sandbox as NSString).appendingPathComponent(".new-new.app")
@@ -164,7 +164,7 @@ let foreignInfo: [String: Any] = ["CFBundleIdentifier": "com.example.notardm",
 let zip = (root as NSString).appendingPathComponent("foreign.zip")
 runTool("/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", foreign, zip])
 
-let installedBefore = fm.fileExists(atPath: "/Applications/ARDM Native.app")
+let installedBefore = fm.fileExists(atPath: "/Applications/RDM Native.app")
 
 let installStatus = Box<String>()
 ARDMAppServices.updateSHA256 = ARDMAppServices.sha256OfFile(zip)   // digest is fine, bundle identity is not
@@ -185,7 +185,7 @@ check("digest mismatch aborts before install",
       installStatus.value?.contains("no longer matches") == true,
       installStatus.value ?? "nil")
 
-let installedAfter = fm.fileExists(atPath: "/Applications/ARDM Native.app")
+let installedAfter = fm.fileExists(atPath: "/Applications/RDM Native.app")
 check("refusals never wrote to /Applications", installedBefore == installedAfter, "untouched")
 
 try? fm.removeItem(atPath: root)

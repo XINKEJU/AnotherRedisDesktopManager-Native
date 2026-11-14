@@ -1314,5 +1314,50 @@
       "job logs still require credentials — annotations carry only the first 12 error lines, so a failure with no matching line prints a pointer to the log instead of the cause",
       "the artifact is built on a macOS 26 host but only asserted to start on 14.0 via LC_BUILD_VERSION; no macOS 14 test machine is in the loop"
     ]
+  },
+  "round15_rename": {
+    "date": "2026-11-15",
+    "round": 15,
+    "trigger": "改名 RDM Native、红绿灯旁显示软件名、图标换 Redis 官方 SVG、设置面板元素越界重排，然后提交并部署",
+    "renamed": [
+      "bundle directory native/ARDM Native.app → native/RDM Native.app",
+      "CFBundleName / CFBundleDisplayName → RDM Native; CFBundleExecutable ardm-native → rdm-native",
+      "artifact ARDM-Native-<ver>-arm64.zip → RDM-Native-<ver>-arm64.zip, and the CI artifact names in native.yml / native-release.yml",
+      "User-Agent ARDM-Native → RDM-Native; the About pane's Application row and the window title both read ARDMAppNames.product",
+      "docs: README.md, README.zh-CN.md, native/SWIFT-MIGRATION.md, native/tests/README.md, native/tests/run.sh, native/tests/updater/main.swift"
+    ],
+    "deliberately_unchanged": [
+      "CFBundleIdentifier me.qii404.ardm.native — AppServices.installUpdate refuses an archive whose bundle id differs from the running bundle, and the keychain service name is derived from it",
+      "keychain service me.qii404.ardm.native.credentials and ~/.config/ardm-native/connections.json, so an existing install keeps its connections and passwords across the rename",
+      "the historical 1.7.4 / 1.7.5 package and artifact records above, which describe what actually shipped"
+    ],
+    "title_bar": "ARDMAppDelegate.applicationDidFinishLaunching used to hide every window title (hideWindowTitle); it now sets the main window's title to ARDMAppNames.product with titleVisibility .visible, so the name sits immediately right of the traffic lights. Sheets are not titled — the settings pane draws its own header.",
+    "icon": {
+      "source": "the official Redis mark (256×256 viewBox, #091A23 rounded square + #FF4438 Redis glyph), kept as native/icons/redis.svg",
+      "build": "native/icons/make-icns.sh rasterizes it through AppKit's SVG reader (native/icons/svg2png.swift) into a 10-size iconset and runs iconutil; no rsvg/inkscape/brew and no sudo",
+      "committed": "native/icons/icon.icns is committed so build.sh stays a plain copy and CI needs no rasterizer",
+      "guard": "build.sh now fails when icons/icon.icns is missing or empty instead of silently shipping a generic document icon, and native-release.yml asserts the .icns inside the shipped zip"
+    },
+    "settings_sheet": {
+      "root_cause": "the sheet wrapper asked minWidth 640 while SettingsView's content asked 720; AppKit sized the sheet to the smaller number, so the value column of every row ran past the right edge",
+      "fix": "one size owned by the pane — .frame(width: 700, height: 520) on the view, no competing minWidth on the sheet wrapper in App.swift",
+      "grid": "label column 132, row gutter 12, row inset 12, row minHeight 28, card radius ARDMRadius.card, hairline ARDMStroke.hairline, footer 44 — all through the shared tokens instead of per-row literals",
+      "budget": "at the default scale the control column gets 700 − 180 sidebar − 1 divider − 40 scroll padding − 24 row inset − 132 label − 12 gutter = 311pt against a 240pt picker cap",
+      "large_font": "at 字号16 every ardmScaled token grows together, so the ratio holds; the pickers use maxWidth rather than fixedSize and shrink instead of running off"
+    },
+    "verification": {
+      "build": "bash native/build.sh exit 0 — 6179504 bytes (5.89 MB), reduction 96.93%, minos 14.0, arm64, Info.plist lints",
+      "bundle": "CFBundleDisplayName/Name = RDM Native, CFBundleExecutable = rdm-native, version 1.7.6, icon.icns 144698 bytes present, codesign --verify --deep --strict OK",
+      "runtime": "the renamed binary launches and connects to the fixture; CGWindowListCopyWindowInfo reports the 1470×923 window with title='RDM Native'",
+      "tests": "updater 15/15 PASS against the real renamed bundle; core 110 passed / 1 failed, and the one failure is the keychain round-trip under ARDM_SKIP_KEYCHAIN=1"
+    },
+    "blocked": [
+      "no on-screen verification of the settings redesign: the machine is at the login screen and the user is asleep, so screencapture returns the lock screen and AX returns an AXApplication element with no geometry for every window. Both the pixel path and the accessibility path need someone to unlock it.",
+      "the GitHub Release itself cannot be published from here: gh is not installed and there is no API token, so this round pushes the tag and lets native-release.yml build and verify the artifact; attaching the zip + SHA256SUMS to the release stays manual."
+    ],
+    "left_open": [
+      "UI programme steps 3/4/6 (key rows and badges, DetailViews literals, contrast pass) are untouched by this round",
+      "the startup-blocking keychain read (AppStore.init → hydrateSecrets → SecItemCopyMatching on the main thread) still needs its own fix; ARDM_SKIP_KEYCHAIN=1 is a verification hook, not a cure"
+    ]
   }
 }

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>ARDM Native</string>
+    <string>RDM Native</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleLocalizations</key>
@@ -12,15 +12,15 @@
         <string>en</string>
     </array>
     <key>CFBundleDisplayName</key>
-    <string>Another Redis Desktop Manager</string>
+    <string>RDM Native</string>
     <key>CFBundleIdentifier</key>
     <string>me.qii404.ardm.native</string>
     <key>CFBundleVersion</key>
-    <string>1.7.5</string>
+    <string>1.7.6</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.7.5</string>
+    <string>1.7.6</string>
     <key>CFBundleExecutable</key>
-    <string>ardm-native</string>
+    <string>rdm-native</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
@@ -32,6 +32,6 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
-    <string>ARDM native port, based on AnotherRedisDesktopManager</string>
+    <string>RDM native port, based on AnotherRedisDesktopManager. Redis is a trademark of Redis Ltd.</string>
 </dict>
 </plist>

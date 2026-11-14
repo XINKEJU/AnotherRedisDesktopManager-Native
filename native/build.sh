@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT="$(dirname "$ROOT")"
 BUILD="$ROOT/.build"
-APP="$ROOT/ARDM Native.app"
+APP="$ROOT/RDM Native.app"
 
 echo "[0/6] Checking the toolchain..."
 DEVDIR="$(xcode-select -p)"
@@ -57,19 +57,25 @@ xcrun swiftc -O -parse-as-library \
     -framework AppKit -framework SwiftUI -framework JavaScriptCore \
     -framework WebKit -framework Network -framework Security \
     -lz \
-    -o "$BUILD/ardm-native"
+    -o "$BUILD/rdm-native"
 
 echo "[3/6] Assembling the .app bundle..."
-cp "$BUILD/ardm-native" "$APP/Contents/MacOS/ardm-native"
+cp "$BUILD/rdm-native" "$APP/Contents/MacOS/rdm-native"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "[4/6] Bundling project assets (13 languages, command reference, icon)..."
 cp "$PROJECT"/src/i18n/langs/*.js "$APP/Contents/Resources/langs/"
 cp "$PROJECT"/src/commands.js "$APP/Contents/Resources/commands.js"
-if [ -f "$PROJECT/pack/electron/icons/icon.icns" ]; then
-    cp "$PROJECT/pack/electron/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
+# The app icon is the official Redis mark, rendered from native/icons/redis.svg
+# by native/icons/make-icns.sh and committed as .icns so this step stays a copy.
+# Required, not optional: a silent skip ships a generic-document icon and nobody
+# notices until the release is out.
+if [ ! -s "$ROOT/icons/icon.icns" ]; then
+    echo "ERROR: $ROOT/icons/icon.icns is missing or empty. Run 'bash native/icons/make-icns.sh'." >&2
+    exit 1
 fi
+cp "$ROOT/icons/icon.icns" "$APP/Contents/Resources/icon.icns"
 # Declaring a zh-Hans localization lets AppKit localise the standard
 # File/Edit/View/Window/Help menus to Chinese on Chinese macOS systems.
 mkdir -p "$APP/Contents/Resources/zh-Hans.lproj"
@@ -78,7 +84,7 @@ printf '/* Simplified Chinese localization marker for AppKit system menus */\n' 
 
 echo "[5/6] Signing (ad-hoc) and verifying..."
 codesign --force --sign - "$APP" 2>/dev/null || echo "  (ad-hoc signing skipped)"
-file "$APP/Contents/MacOS/ardm-native"
+file "$APP/Contents/MacOS/rdm-native"
 plutil -lint "$APP/Contents/Info.plist"
 
 # Guard the deployment target. A binary stamped with the build machine's OS
@@ -90,7 +96,7 @@ WANT_MINOS="${DEPLOY_TARGET##*-apple-macos}"
 # prints "14.0", and compare the numbers rather than the strings.
 VTOOL="$(xcrun -f vtool 2>/dev/null || true)"
 [[ -x "$VTOOL" ]] || VTOOL="/Library/Developer/CommandLineTools/usr/bin/vtool"
-BUILD_INFO="$("$VTOOL" -show-build "$APP/Contents/MacOS/ardm-native" 2>&1 || true)"
+BUILD_INFO="$("$VTOOL" -show-build "$APP/Contents/MacOS/rdm-native" 2>&1 || true)"
 GOT_MINOS="$(printf '%s\n' "$BUILD_INFO" | awk '/minos/ {gsub(/[^0-9.]/, "", $2); print $2; exit}')"
 minmaj() { awk -v v="$1" 'BEGIN {split(v, a, "."); printf "%d.%d", a[1], (a[2] == "" ? 0 : a[2])}'; }
 if [[ "$(minmaj "${GOT_MINOS:-none}")" != "$(minmaj "$WANT_MINOS")" ]]; then
@@ -103,7 +109,7 @@ echo "  deployment target: macOS $GOT_MINOS (arch arm64)"
 
 echo "[6/6] Size report"
 BYTES=$(find "$APP" -type f -exec stat -f '%z' {} + | awk '{s+=$1} END {print s}')
-EXEC=$(stat -f '%z' "$APP/Contents/MacOS/ardm-native")
+EXEC=$(stat -f '%z' "$APP/Contents/MacOS/rdm-native")
 awk -v b="$BYTES" -v e="$EXEC" 'BEGIN {
     printf "  SwiftUI .app       : %.0f bytes (%.2f MB)\n", b, b/1048576
     printf "  executable         : %.0f bytes (%.0f KB)\n", e, e/1024

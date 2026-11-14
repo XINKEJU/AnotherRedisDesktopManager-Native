@@ -77,7 +77,7 @@ run_updater() {
     fi
     # Prefer the real build so the signature checks run against what ships;
     # fall back to a generated fixture on machines that never ran build.sh.
-    local app="$ROOT/ARDM Native.app"
+    local app="$ROOT/RDM Native.app"
     if [[ ! -d "$app" ]]; then
         app="$BUILD/Fixture.app"
         bash "$HERE/updater/fixture.sh" "$app" || return 1

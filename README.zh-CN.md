@@ -42,21 +42,27 @@
 `native/` 是本客户端的**纯 Swift 移植**：SwiftUI + AppKit 界面，自研 RESP 协议内核，
 不带 Electron、不带 Chromium、不捆绑 Node 运行时。上面的 Electron 版本不受影响，照常构建。
 
+应用名为 **RDM Native**，图标取自 Redis 官方标识（`native/icons/redis.svg`，
+由 `native/icons/make-icns.sh` 生成 `icon.icns`）。改名时刻意保留了
+`CFBundleIdentifier`（`me.qii404.ardm.native`）、钥匙串服务名和
+`~/.config/ardm-native/connections.json`——它们是旧版本升级过来的数据入口，
+动其中任何一项都会让已保存的连接和密码失效。
+
 | | Electron 版 | 原生版（`native/`） |
 | --- | --- | --- |
-| 安装体积 | 191.87 MB | 6.57 MB |
+| 安装体积 | 191.87 MB | 5.89 MB |
 | 运行时 | Chromium + Node.js | 仅系统框架 |
 | 平台 | Linux / Windows / macOS | macOS 14.0+，Apple 芯片 |
 | 值编辑器 | monaco-editor | 原生文本视图 + 语法高亮 |
 
 ```bash
-bash native/build.sh        # 产物 native/ARDM Native.app
+bash native/build.sh        # 产物 native/RDM Native.app
 bash native/tests/run.sh    # 内核 + 更新器回归，无需真实 redis
-bash native/package.sh      # → native/dist/ARDM-Native-<版本>-arm64.zip + SHA256SUMS
+bash native/package.sh      # → native/dist/RDM-Native-<版本>-arm64.zip + SHA256SUMS
 ```
 
 - 把 `.app` 拖进「应用程序」即可。构建为 **ad-hoc 签名**，下载副本若被 Gatekeeper 拦截，
-  执行 `sudo xattr -rd com.apple.quarantine "/Applications/ARDM Native.app"`。
+  执行 `sudo xattr -rd com.apple.quarantine "/Applications/RDM Native.app"`。
 - 应用内更新器读取本仓库的 GitHub Release，并用 `SHA256SUMS` 校验下载包。
   **只带 zip 不带 SHA256SUMS 的 Release 会被拒绝安装**——这是刻意设计，两个文件都要传。
 - 已知边界：仅 arm64（未出 universal）、无 Developer ID 签名与公证、
@@ -162,7 +168,7 @@ bash native/package.sh      # → native/dist/ARDM-Native-<版本>-arm64.zip + S
 部署目标是单独钉住的。
 
 ```bash
-bash native/build.sh        # 编译 swift/*.swift → native/ARDM Native.app
+bash native/build.sh        # 编译 swift/*.swift → native/RDM Native.app
 bash native/tests/run.sh    # 直接用真实源码跑内核 + 更新器回归
 bash native/package.sh      # 产物 native/dist/ 下的 zip + SHA256SUMS
 ```

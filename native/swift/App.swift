@@ -3,6 +3,14 @@ import AppKit
 
 // MARK: - Application entry
 
+/// The product's own name, as it appears in the title bar and the About pane.
+/// Deliberately not read from the bundle at runtime: the bundle display name is
+/// also what LaunchServices and the app menu show, and those should follow the
+/// .app on disk rather than a hard-coded string.
+enum ARDMAppNames {
+    static let product = "RDM Native"
+}
+
 @main
 struct ARDMNativeApp: App {
     @NSApplicationDelegateAdaptor(ARDMAppDelegate.self) var appDelegate
@@ -45,14 +53,16 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         }
         AppStore.shared.startAutoRefresh()
         applyStartupArguments()
-        hideWindowTitle()
+        if let main = NSApp.windows.first { nameMainWindow(main) }
     }
 
-    /// The app name in the title bar repeats what the menu bar already says.
-    /// Nothing else is in that strip any more, so leaving the name in would make
-    /// the whole bar say one thing the menu bar says twice.
-    private func hideWindowTitle() {
-        for window in NSApp.windows { window.titleVisibility = .hidden }
+    /// The strip beside the traffic lights is the only place the window chrome
+    /// says which app this is, so the main window carries the product name there.
+    /// Sheets are excluded: the settings pane draws its own header, and a second
+    /// title above it would just repeat it.
+    private func nameMainWindow(_ window: NSWindow) {
+        window.titleVisibility = .visible
+        window.title = ARDMAppNames.product
     }
 
     /// A saved frame is only reusable when a decent slice of it is still inside
@@ -146,8 +156,19 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         // is the only way to render the detail pane without a synthetic click,
         // and this machine has no accessibility grant for one. Inert unless the
         // flag is on the command line.
+        //
+        // It waits for the keyspace rather than for a fixed delay: a SCAN of a
+        // loaded db finishes after the deadline a flat 2.5 s assumes, and the
+        // reload then drops the selection back to the empty-state pane.
         if let key = value("--select-key") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { store.selectKey(key) }
+            func wait(_ attempt: Int) {
+                if store.connected && (!store.keys.isEmpty || !store.keyNodes.isEmpty) {
+                    store.selectKey(key)
+                } else if attempt < 60 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { wait(attempt + 1) }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { wait(0) }
         }
         // Same rationale as --select-key: opens the settings sheet for the
         // screenshot harness. Inert unless the flag is on the command line.
@@ -343,12 +364,12 @@ struct ColumnDivider: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(collapseArmed ? Color.accentColor : Color.secondary.opacity(0.18))
-                .frame(width: 1)
+                .fill(collapseArmed ? ARDMStroke.accent : ARDMStroke.hairline)
+                .frame(width: ARDMStroke.width)
                 .frame(maxHeight: .infinity)
             Rectangle()
                 .fill(Color.clear)
-                .frame(width: 7)
+                .frame(width: ARDMMetrics.dividerHitWidth)
                 .contentShape(Rectangle())
                 .onHover { hovering in
                     if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
@@ -370,7 +391,7 @@ struct ColumnDivider: View {
                         }
                 )
         }
-        .frame(width: 7)
+        .frame(width: ARDMMetrics.dividerHitWidth)
         .frame(maxHeight: .infinity)
         .accessibilityLabel("sidebar divider")
     }
@@ -391,7 +412,7 @@ struct StatusBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: ARDMSpace.s) {
             Circle()
                 .fill(store.connected ? Color.green : Color.secondary.opacity(0.5))
                 .frame(width: 6, height: 6)
@@ -402,21 +423,21 @@ struct StatusBar: View {
                 Text("·").foregroundStyle(.tertiary)
                 Text("DB \(store.selectedDB)").foregroundStyle(.secondary)
             }
-            Spacer(minLength: 12)
+            Spacer(minLength: ARDMSpace.l)
             Text(store.statusText)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if store.liveRunning {
-                HStack(spacing: 4) {
+                HStack(spacing: ARDMSpace.xs) {
                     Image(systemName: "dot.radiowaves.left.and.right")
                         .font(.system(size: ARDMFont.micro))
                     Text(L10n("LIVE")).font(.system(size: ARDMFont.micro, weight: .medium))
                 }
                 .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 5)
+                .padding(.horizontal, ARDMBadge.hPadding)
                 .padding(.vertical, 1)
-                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                .background(Capsule().fill(ARDMTint.selected()))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(L10n("LIVE"))
             }
@@ -424,8 +445,8 @@ struct StatusBar: View {
         .font(.system(size: ARDMFont.small))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status.bar")
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, ARDMMetrics.paneInset)
+        .frame(height: ARDMMetrics.barHeight)
         // Liquid Glass on macOS 26+, bar material below it.
         .ardmGlass(in: Rectangle())
     }
@@ -444,9 +465,12 @@ struct ARDMSheets: ViewModifier {
                     .frame(minWidth: 620, minHeight: 520)
             }
             .sheet(isPresented: $store.showingSettings) {
+                // No frame here: a `minWidth` on this wrapper and a fixed width
+                // inside SettingsView are two different sizes, and AppKit sizes
+                // the sheet to the smaller one, clipping the right-hand column
+                // of every row. The pane owns its size.
                 SettingsView()
                     .environmentObject(store)
-                    .frame(minWidth: 640, minHeight: 560)
             }
             .sheet(isPresented: $store.showingNewKey) {
                 NewKeySheet().environmentObject(store).frame(width: 480, height: 300)

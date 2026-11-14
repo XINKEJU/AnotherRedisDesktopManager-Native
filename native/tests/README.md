@@ -44,7 +44,7 @@ being refused, a digest mismatch aborting before install, and `/Applications`
 staying untouched through both refusals.
 
 The signature tests need a sealed `.app`. `run.sh` passes the real build when
-`native/ARDM Native.app` exists, otherwise it generates an ad-hoc-signed fixture
+`native/RDM Native.app` exists, otherwise it generates an ad-hoc-signed fixture
 via `updater/fixture.sh`.
 
 ## Deliberately not covered

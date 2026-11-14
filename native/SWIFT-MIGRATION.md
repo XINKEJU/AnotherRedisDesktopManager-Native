@@ -9,14 +9,14 @@
 `native/` 下已无任何 `.m` / Objective-C 头文件，`build.sh` 仅用 `swiftc` 编译
 `swift/*.swift`；`tests/run.sh` 仅编译 Swift 内核 + Swift 探针。
 
-- `bash native/build.sh` 通过，产物 `native/ARDM Native.app`。
+- `bash native/build.sh` 通过，产物 `native/RDM Native.app`。
 - `bash native/tests/run.sh`：core 93/93、updater 15/15。
 - 删除：`Redis.m`、`Services.m`、`Transport.m`、`ARDM.h`、`Transport.h`、`Bridge.h`。
 - 三个未提交界面文件（`ARDMCodeView.swift`、`App.swift`、`DetailViews.swift`）原样保留。
 
 当前基线（迁移前）：
 
-- `bash native/build.sh` 通过，产物 `native/ARDM Native.app`。
+- `bash native/build.sh` 通过，产物 `native/RDM Native.app`。
 - `bash native/tests/run.sh`：core 93/93、updater 15/15。
 - 三个 `.m` 共约 3,200 行；Swift 侧仅通过 `Bridge.h → ARDM.h / Transport.h` 调用。
 - `native/swift/ARDMCodeView.swift`、`App.swift`、`DetailViews.swift` 有未提交的界面改动，**全程不改动**。

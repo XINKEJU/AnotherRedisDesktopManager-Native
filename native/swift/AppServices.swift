@@ -238,7 +238,7 @@ enum ARDMAppServices {
     private static func fetchText(_ urlString: String, timeout: TimeInterval) -> String? {
         guard !urlString.isEmpty, let url = URL(string: urlString) else { return nil }
         var request = URLRequest(url: url)
-        request.setValue("ARDM-Native", forHTTPHeaderField: "User-Agent")
+        request.setValue("RDM-Native", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = timeout
         let done = DispatchSemaphore(value: 0)
         var payload: Data?
@@ -292,7 +292,7 @@ enum ARDMAppServices {
 
     static func checkForUpdate(_ completion: @escaping (String, URL?) -> Void) {
         var request = URLRequest(url: URL(string: updateAPI)!)
-        request.setValue("ARDM-Native", forHTTPHeaderField: "User-Agent")
+        request.setValue("RDM-Native", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
         let task = URLSession.shared.dataTask(with: request) { data, _, networkError in
             var status: String
@@ -375,7 +375,7 @@ enum ARDMAppServices {
                 let fm = FileManager.default
                 let dir = (NSHomeDirectory() as NSString).appendingPathComponent("Downloads")
                 try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                let name = asset.lastPathComponent.isEmpty ? "ARDM-Native-Update.dmg" : asset.lastPathComponent
+                let name = asset.lastPathComponent.isEmpty ? "RDM-Native-Update.dmg" : asset.lastPathComponent
                 let dest = (dir as NSString).appendingPathComponent(name)
                 try? fm.removeItem(atPath: dest)
                 do {

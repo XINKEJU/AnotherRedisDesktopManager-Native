@@ -48,21 +48,28 @@
 top of a hand-written RESP client, with no Electron, no Chromium and no bundled Node
 runtime. The Electron app above is untouched and still builds.
 
+The app is named **RDM Native**, and its icon is the official Redis mark
+(`native/icons/redis.svg`, turned into `icon.icns` by `native/icons/make-icns.sh`).
+Renaming the bundle left `CFBundleIdentifier` (`me.qii404.ardm.native`), the
+keychain service name and `~/.config/ardm-native/connections.json` deliberately
+unchanged — they are the upgrade path for an existing install, and moving any of
+them would orphan saved connections and passwords.
+
 | | Electron | Native (`native/`) |
 | --- | --- | --- |
-| Installed size | 191.87 MB | 6.57 MB |
+| Installed size | 191.87 MB | 5.89 MB |
 | Runtime | Chromium + Node.js | system frameworks only |
 | Platforms | Linux / Windows / macOS | macOS 14.0+, Apple silicon |
 | Editor surface | monaco-editor | native text view with syntax highlighting |
 
 ```bash
-bash native/build.sh        # → native/ARDM Native.app
+bash native/build.sh        # → native/RDM Native.app
 bash native/tests/run.sh    # core + updater regression, no redis-server needed
-bash native/package.sh      # → native/dist/ARDM-Native-<version>-arm64.zip + SHA256SUMS
+bash native/package.sh      # → native/dist/RDM-Native-<version>-arm64.zip + SHA256SUMS
 ```
 
 - Drag the `.app` into `/Applications`. The build is **ad-hoc signed**, so a
-  downloaded copy needs `sudo xattr -rd com.apple.quarantine "/Applications/ARDM Native.app"`
+  downloaded copy needs `sudo xattr -rd com.apple.quarantine "/Applications/RDM Native.app"`
   if Gatekeeper objects.
 - The in-app updater reads this repository's latest GitHub Release and verifies the
   download against `SHA256SUMS`. A release that carries only the `.zip` is
@@ -171,7 +178,7 @@ SDK at compile time. `build.sh` says so up front if it finds an older SDK. The
 **artifact** still runs on macOS 14.0+ — the deployment target is pinned separately.
 
 ```bash
-bash native/build.sh        # compile swift/*.swift → native/ARDM Native.app
+bash native/build.sh        # compile swift/*.swift → native/RDM Native.app
 bash native/tests/run.sh    # core + updater regression against the real sources
 bash native/package.sh      # zip + SHA256SUMS under native/dist/
 ```

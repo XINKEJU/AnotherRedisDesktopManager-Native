@@ -1,6 +1,6 @@
 #!/bin/bash
 # Produce the release artifact the in-app updater can actually verify:
-#   dist/ARDM-Native-<version>-arm64.zip   (zip keeps the .app wrapper)
+#   dist/RDM-Native-<version>-arm64.zip    (zip keeps the .app wrapper)
 #   dist/SHA256SUMS                        (attach BOTH files to the release)
 #
 # An ad-hoc signed bundle carries no provenance, so the updater refuses any
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/ARDM Native.app"
+APP="$ROOT/RDM Native.app"
 OUT="$ROOT/dist"
 
 if [[ ! -d "$APP" ]]; then
@@ -18,7 +18,7 @@ if [[ ! -d "$APP" ]]; then
 fi
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-NAME="ARDM-Native-${VERSION}-arm64.zip"
+NAME="RDM-Native-${VERSION}-arm64.zip"
 
 echo "[1/3] Verifying the bundle signature (deep + strict)..."
 codesign --verify --deep --strict "$APP"

@@ -30,7 +30,6 @@ let uiChinese: [String: String] = [
     "Add to favorites": "加入收藏",
     "Advanced": "高级",
     "All preferences persist to NSUserDefaults": "所有偏好均保存在 NSUserDefaults",
-    "Another Redis Desktop Manager (Native)": "Another Redis Desktop Manager（原生版）",
     "Appearance": "外观",
     "Application": "应用",
     "UI": "界面",

@@ -59,10 +59,11 @@ struct SettingsView: View {
             Divider()
             footer
         }
-        // One size for every pane. The height used to follow the content, so
-        // switching 外观 → 格式视图 grew the sheet by 145pt and everything behind
-        // it jumped — and the tallest pane scrolled anyway.
-        .frame(width: 720, height: 520)
+        // One size for every pane, and it has to be the size the rows actually
+        // need: the sheet used to ask 720 while AppKit gave it 640, so the value
+        // column of every row ran past the right edge and 「关闭」 was cut to 「关」.
+        // 700 × 520 is what the widest control in the grid needs.
+        .frame(width: 700, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: section) { _, newValue in
             UserDefaults.standard.set(newValue.rawValue, forKey: "ARDMSettingsTab")
@@ -93,12 +94,12 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(L10n(section.title))
                 .font(.system(size: ARDMFont.title, weight: .bold))
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 12)
+                .padding(.horizontal, ARDMSpace.xxl)
+                .padding(.top, ARDMSpace.xxl)
+                .padding(.bottom, ARDMSpace.l)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: ARDMSpace.xxl) {
                     switch section {
                     case .appearance: appearancePane
                     case .keys: keysPane
@@ -107,7 +108,7 @@ struct SettingsView: View {
                     case .about: aboutPane
                     }
                 }
-                .padding(20)
+                .padding(ARDMSpace.xxl)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -118,22 +119,23 @@ struct SettingsView: View {
     /// A caption over a bordered card of grid-aligned rows.
     @ViewBuilder
     private func group<C: View>(_ caption: String? = nil, @ViewBuilder rows: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: ARDMSpace.s) {
             if let caption {
                 Text(L10n(caption))
                     .font(.system(size: ARDMFont.small, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 4)
+                    .padding(.leading, ARDMSpace.xs)
             }
             VStack(spacing: 0) { rows() }
-                .padding(.vertical, 2)
+                .padding(.vertical, ARDMSpace.xxs)
+                .clipShape(RoundedRectangle(cornerRadius: ARDMRadius.card, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: ARDMRadius.card, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+                RoundedRectangle(cornerRadius: ARDMRadius.card, style: .continuous)
+                    .strokeBorder(ARDMStroke.hairline, lineWidth: ARDMStroke.width)
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -151,7 +153,7 @@ struct SettingsView: View {
                         Text(L10n("Dark")).tag("dark")
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(maxWidth: ardmScaled(240), alignment: .leading)
                 }
                 RowDivider()
                 SettingsRow("Language") {
@@ -161,7 +163,7 @@ struct SettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(maxWidth: ardmScaled(240), alignment: .leading)
                     .onChange(of: store.language) { _, newValue in
                         ARDMLocalization.shared().currentLanguage = newValue
                     }
@@ -172,7 +174,7 @@ struct SettingsView: View {
                         ForEach(store.fonts, id: \.self) { Text($0).tag($0) }
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(maxWidth: ardmScaled(240), alignment: .leading)
                 }
             }
 
@@ -255,14 +257,14 @@ struct SettingsView: View {
                         ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
                     }
                     .labelsHidden()
-                    .fixedSize()
+                    .frame(maxWidth: ardmScaled(240), alignment: .leading)
                 }
                 RowDivider()
                 SettingsRow("Formatters") {
-                    HStack(spacing: 10) {
+                    HStack(spacing: ARDMSpace.m) {
                         Text("\(store.customFormatters.count) " + L10n("saved formatters"))
                             .font(.system(size: ARDMFont.small))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(ARDMInk.secondary)
                         Button(L10n("Manage formatters…")) { store.showingFormatterManager = true }
                             .controlSize(.small)
                     }
@@ -270,23 +272,23 @@ struct SettingsView: View {
             }
 
             group("Custom script") {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: ARDMSpace.m) {
                     Text(L10n("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):"))
                         .font(.system(size: ARDMFont.small))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(ARDMInk.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     TextEditor(text: $store.customViewerScript)
                         .font(store.monoFont(ARDMFont.monoRow))
                         .frame(height: ardmScaled(96))
                         .scrollContentBackground(.hidden)
-                        .padding(6)
+                        .padding(ARDMSpace.s)
                         .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            RoundedRectangle(cornerRadius: ARDMRadius.control, style: .continuous)
                                 .fill(Color(nsColor: .textBackgroundColor))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ARDMRadius.control, style: .continuous)
+                                .strokeBorder(ARDMStroke.control, lineWidth: ARDMStroke.width)
                         )
                     Button(L10n("Test on current value")) {
                         store.viewerName = "Custom"
@@ -294,7 +296,7 @@ struct SettingsView: View {
                     }
                     .controlSize(.small)
                 }
-                .padding(14)
+                .padding(ARDMSpace.l)
             }
 
             // The full viewer list used to be a four-line gray paragraph at the
@@ -302,15 +304,15 @@ struct SettingsView: View {
             DisclosureGroup {
                 Text(L10n("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore."))
                     .font(.system(size: ARDMFont.small))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ARDMInk.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
+                    .padding(.top, ARDMSpace.s)
             } label: {
                 Text(L10n("Viewers are built on Foundation, zlib and JavaScriptCore."))
                     .font(.system(size: ARDMFont.small))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ARDMInk.secondary)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, ARDMSpace.xs)
         }
     }
 
@@ -329,12 +331,12 @@ struct SettingsView: View {
     // MARK: About & updates
 
     private var aboutPane: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: ARDMSpace.xxl) {
             group {
-                InfoRow(L10n("Application"), "Another Redis Desktop Manager (Native)")
+                InfoRow(L10n("Application"), ARDMAppNames.product)
                 RowDivider()
                 InfoRow(L10n("Version"),
-                        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.4")
+                        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.6")
                 RowDivider()
                 InfoRow(L10n("UI"), "SwiftUI + AppKit")
                 RowDivider()
@@ -343,86 +345,75 @@ struct SettingsView: View {
                 InfoRow(L10n("Localization"), "\(store.languages.count) " + L10n("languages"))
             }
 
+            // Same row chrome as every other card: the buttons used to float in
+            // a padded box of their own, so their left edge sat 2pt off the grid
+            // and the switch under them had a gutter of its own as well.
             group("Updates") {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Button(L10n("Check for Updates")) {
-                            checkingUpdate = true
-                            ARDMAppServices.checkForUpdate { status, url in
-                                checkingUpdate = false
-                                store.updateStatus = status
-                                if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
-                                    NSWorkspace.shared.open(url)
-                                }
+                LinkRow {
+                    Button(L10n("Check for Updates")) {
+                        checkingUpdate = true
+                        ARDMAppServices.checkForUpdate { status, url in
+                            checkingUpdate = false
+                            store.updateStatus = status
+                            if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
+                                NSWorkspace.shared.open(url)
                             }
                         }
-                        .controlSize(.small)
-                        .disabled(checkingUpdate)
-                        Button(L10n("Download & verify")) {
-                            checkingUpdate = true
-                            store.updateStatus = L10n("Downloading…")
-                            ARDMAppServices.downloadUpdate { status, file in
-                                checkingUpdate = false
-                                store.updateStatus = status
-                                guard let file else { return }
-                                pendingArchive = file
-                                confirmInstall = true      // never replace the app without an explicit OK
-                            }
+                    }
+                    .controlSize(.small)
+                    .disabled(checkingUpdate)
+                    Button(L10n("Download & verify")) {
+                        checkingUpdate = true
+                        store.updateStatus = L10n("Downloading…")
+                        ARDMAppServices.downloadUpdate { status, file in
+                            checkingUpdate = false
+                            store.updateStatus = status
+                            guard let file else { return }
+                            pendingArchive = file
+                            confirmInstall = true      // never replace the app without an explicit OK
                         }
-                        .controlSize(.small)
-                        .disabled(checkingUpdate || ARDMAppServices.pendingUpdateVersion() == nil)
-                        if checkingUpdate {
-                            ProgressView().controlSize(.small)
-                        }
-                        Spacer(minLength: 0)
                     }
-
-                    HStack(spacing: ardmScaled(14)) {
-                        Text(L10n("Open release page when available"))
-                            .font(.system(size: ARDMFont.body))
-                            .frame(width: settingsLabelWidth, alignment: .leading)
-                        SettingsSwitch(isOn: Binding(
-                            get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
-                            set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
-                        Spacer(minLength: 0)
+                    .controlSize(.small)
+                    .disabled(checkingUpdate || ARDMAppServices.pendingUpdateVersion() == nil)
+                    if checkingUpdate {
+                        ProgressView().controlSize(.small)
                     }
-
-                    if let version = ARDMAppServices.pendingUpdateVersion() {
-                        Text(L10n("Pending:") + " \(version) · "
-                             + (ARDMAppServices.pendingUpdateHasChecksum()
-                                ? L10n("SHA-256 available")
-                                : L10n("no SHA-256 published")))
-                            .font(.system(size: ARDMFont.small))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(store.updateStatus.isEmpty ? L10n("No update check has been run yet.") : store.updateStatus)
-                        .font(.system(size: ARDMFont.small))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(14)
                 .alert(L10n("Install this update?"), isPresented: $confirmInstall) {
                     Button(L10n("Cancel"), role: .cancel) { pendingArchive = nil }
                     Button(L10n("Install and relaunch")) { installPendingUpdate() }
                 } message: {
                     Text(installPrompt)
                 }
+                RowDivider()
+                SettingsRow("Open release page when available") {
+                    SettingsSwitch(isOn: Binding(
+                        get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
+                        set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
+                }
+                RowDivider()
+                if let version = ARDMAppServices.pendingUpdateVersion() {
+                    Footnote(L10n("Pending:") + " \(version) · "
+                             + (ARDMAppServices.pendingUpdateHasChecksum()
+                                ? L10n("SHA-256 available")
+                                : L10n("no SHA-256 published")))
+                } else {
+                    Footnote(store.updateStatus.isEmpty ? "No update check has been run yet." : store.updateStatus)
+                }
             }
 
             DisclosureGroup {
                 Text(L10n("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity."))
                     .font(.system(size: ARDMFont.small))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ARDMInk.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 6)
+                    .padding(.top, ARDMSpace.s)
             } label: {
                 Text(L10n("Some viewers and features need extra components."))
                     .font(.system(size: ARDMFont.small))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ARDMInk.secondary)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, ARDMSpace.xs)
         }
     }
 
@@ -437,8 +428,8 @@ struct SettingsView: View {
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.bordered)
         }
-        .padding(.horizontal, 16)
-        .frame(height: ardmScaled(44))
+        .padding(.horizontal, ARDMSpace.xl)
+        .frame(height: settingsFooterHeight)
     }
 
     // MARK: Update install
@@ -475,8 +466,16 @@ struct SettingsView: View {
 /// One label/control pair. The label column is pinned and the control follows
 /// one gutter later: the old row ended with `Spacer()`, which pushed every
 /// control to the far edge and left a 300pt hole in the middle of each line.
-private let settingsLabelWidth = ardmScaled(150)
-private let settingsRowInset = ardmScaled(14)
+///
+/// 132 rather than 150: at 150 the label plus gutter plus the widest control
+/// (the language picker) measured past the card, which is how rows ran off the
+/// sheet. 「Keys per SCAN page」 is the longest label in the app and it fits.
+private let settingsLabelWidth = ardmScaled(132)
+private let settingsRowInset = ardmScaled(12)
+private let settingsRowGutter = ardmScaled(12)
+private let settingsRowHeight = ardmScaled(28)
+/// The sheet's own action lane — the one place a button sits outside a card.
+private let settingsFooterHeight = ardmScaled(44)
 
 private struct SettingsRow<Control: View>: View {
     let label: String
@@ -488,15 +487,17 @@ private struct SettingsRow<Control: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: ardmScaled(14)) {
+        HStack(spacing: settingsRowGutter) {
             Text(L10n(label))
                 .font(.system(size: ARDMFont.body))
+                .lineLimit(1)
                 .frame(width: settingsLabelWidth, alignment: .leading)
             control
             Spacer(minLength: 0)
         }
         .padding(.horizontal, settingsRowInset)
-        .padding(.vertical, 7)
+        .padding(.vertical, ARDMSpace.s)
+        .frame(minHeight: settingsRowHeight)
     }
 }
 
@@ -513,12 +514,12 @@ private struct Footnote: View {
     var body: some View {
         Text(L10n(text))
             .font(.system(size: ARDMFont.micro))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(ARDMInk.tertiary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, settingsRowInset)
             .padding(.trailing, settingsRowInset)
-            .padding(.bottom, 8)
+            .padding(.bottom, ARDMSpace.m)
     }
 }
 
@@ -526,8 +527,8 @@ private struct Footnote: View {
 private struct RowDivider: View {
     var body: some View {
         Rectangle()
-            .fill(Color.secondary.opacity(0.16))
-            .frame(height: 1)
+            .fill(ARDMStroke.hairline)
+            .frame(height: ARDMStroke.width)
             .padding(.horizontal, settingsRowInset)
     }
 }
@@ -554,12 +555,13 @@ private struct LinkRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: ARDMSpace.l) {
             content()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, settingsRowInset)
-        .padding(.vertical, 10)
+        .padding(.vertical, ARDMSpace.m)
+        .frame(minHeight: settingsRowHeight)
     }
 }
 
@@ -571,13 +573,13 @@ private struct ValueSlider: View {
     @ViewBuilder let readout: () -> Text
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: ARDMSpace.m) {
             Slider(value: $value, in: range, step: step)
-                .frame(width: ardmScaled(190))
+                .frame(minWidth: 120, idealWidth: ardmScaled(180), maxWidth: ardmScaled(220))
             readout()
                 .font(.system(size: ARDMFont.small, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(ARDMInk.secondary)
                 .frame(width: ardmScaled(46), alignment: .trailing)
         }
     }
@@ -594,18 +596,22 @@ private struct InfoRow: View {
     }
 
     var body: some View {
-        HStack(spacing: ardmScaled(14)) {
+        HStack(spacing: settingsRowGutter) {
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(ARDMInk.secondary)
                 .font(.system(size: ARDMFont.body))
+                .lineLimit(1)
                 .frame(width: settingsLabelWidth, alignment: .leading)
             Text(value)
-                .foregroundStyle(.primary)
+                .foregroundStyle(ARDMInk.primary)
                 .font(.system(size: ARDMFont.body))
+                .lineLimit(1)
+                .truncationMode(.middle)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, settingsRowInset)
-        .padding(.vertical, 7)
+        .padding(.vertical, ARDMSpace.s)
+        .frame(minHeight: settingsRowHeight)
     }
 }
