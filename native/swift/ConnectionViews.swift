@@ -95,7 +95,6 @@ struct ConnectionDraft {
 
 struct ConnectionSidebar: View {
     @EnvironmentObject var store: AppStore
-    @State private var query = ""
     @State private var showingNewGroup = false
     @State private var newGroupName = ""
     /// The List selects one string; connection rows use their identifier and
@@ -103,64 +102,12 @@ struct ConnectionSidebar: View {
     /// the database rows be clickable without making them list selection.
     @State private var sidebarSelection: String?
     @State private var expandedConnections: Set<String> = []
-    @FocusState private var searchFocused: Bool
+    @State private var showAllDatabases: Set<String> = []
 
-
-    /// One connection tab. Extracted from `body` because the inline version with
-    /// its accessibility modifiers and context menu pushed the type checker over
-    /// its time budget on older Swift compilers.
-    private func tabChip(_ id: String) -> some View {
-        let config = store.connections.first { $0.identifier == id }
-        let name = config?.name ?? id
-        let active = id == store.activeConnectionID
-        return HStack(spacing: 5) {
-            Circle()
-                .fill(dotColor(store.connectionStates[id]))
-                .frame(width: 6, height: 6)
-                .accessibilityHidden(true)
-            Text(name).font(store.uiFont(11)).lineLimit(1)
-            Button { store.closeConnection(id) } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .semibold))
-                    .frame(width: 12, height: 12)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .accessibilityLabel(L10n("Close tab") + ": " + name)
-        }
-        .padding(.leading, 7)
-        .padding(.trailing, 4)
-        .frame(height: 22)
-        .background(RoundedRectangle(cornerRadius: 5).fill(
-            active ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12)))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n("Connection tab") + ": " + name)
-        .accessibilityValue(active ? L10n("Selected") : "")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { store.switchConnection(id) }
-        .onTapGesture { store.switchConnection(id) }
-        .contextMenu {
-            Button(L10n("Close Connection")) { store.closeConnection(id) }
-            Button(L10n("Refresh")) { store.switchConnection(id); store.refreshKeys(reset: true) }
-            Divider()
-            Button(L10n("Close Other Tabs")) {
-                for other in store.openConnectionIDs where other != id { store.closeConnection(other) }
-            }
-            Button(L10n("Close Tabs to the Left")) {
-                guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
-                for other in store.openConnectionIDs.prefix(index) { store.closeConnection(other) }
-            }
-            Button(L10n("Close Tabs to the Right")) {
-                guard let index = store.openConnectionIDs.firstIndex(of: id) else { return }
-                for other in store.openConnectionIDs.suffix(from: index + 1) { store.closeConnection(other) }
-            }
-        }
-    }
-
+    /// Every connection is listed: the sidebar holds the connections the user
+    /// made, not an index, and ⌘K already searches name, host and group.
     private var groups: [(String, [ARDMConnectionConfig])] {
-        let filtered = store.connections.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.group.localizedCaseInsensitiveContains(query) }
-        let grouped = Dictionary(grouping: filtered) { $0.group.isEmpty ? "Ungrouped" : $0.group }
+        let grouped = Dictionary(grouping: store.connections) { $0.group.isEmpty ? "Ungrouped" : $0.group }
         return grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
     }
 
@@ -173,16 +120,72 @@ struct ConnectionSidebar: View {
     @ViewBuilder
     private func connectionNode(_ config: ARDMConnectionConfig) -> some View {
         if store.openConnectionIDs.contains(config.identifier) && !config.cluster {
-            let counts = config.identifier == store.activeConnectionID ? dbKeyCounts() : [:]
             DisclosureGroup(isExpanded: expansionBinding(config.identifier)) {
-                ForEach(0..<16, id: \.self) { db in
-                    databaseRow(db, config: config, counts: counts)
-                }
+                databaseRows(config)
             } label: {
                 connectionLabel(config)
             }
         } else {
             connectionLabel(config)
+        }
+    }
+
+    /// Sixteen rows under a connection, twelve of them empty, made the sidebar
+    /// the tallest column in the window. Empty databases collapse behind one row
+    /// until asked for; the database currently in use never hides.
+    @ViewBuilder
+    private func databaseRows(_ config: ARDMConnectionConfig) -> some View {
+        let counts = config.identifier == store.activeConnectionID ? dbKeyCounts() : [:]
+        let collapsed = collapsedDatabases(config, counts: counts)
+        let shown = showAllDatabases.contains(config.identifier) ? Array(0..<16) : collapsed
+        ForEach(shown, id: \.self) { db in
+            databaseRow(db, config: config, counts: counts)
+        }
+        if collapsed.count < 16 {
+            toggleAllDatabasesRow(config, collapsed: collapsed.count,
+                                  expanded: showAllDatabases.contains(config.identifier))
+        }
+    }
+
+    private func collapsedDatabases(_ config: ARDMConnectionConfig, counts: [Int: Int]) -> [Int] {
+        let selected = store.databaseIndex(for: config.identifier)
+        let populated = (0..<16).filter { (counts[$0] ?? 0) > 0 }
+        if populated.contains(selected) { return populated }
+        return (populated + [selected]).sorted()
+    }
+
+    private func toggleAllDatabasesRow(_ config: ARDMConnectionConfig,
+                                       collapsed: Int, expanded: Bool) -> some View {
+        // A plain row with a tap gesture, not a Button: a Button in this List
+        // takes the click as list selection and never runs its action.
+        return HStack(spacing: 5) {
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .font(.system(size: 7, weight: .semibold))
+            Text(expanded ? L10n("Only databases with keys")
+                          : L10n("All 16 databases"))
+                .font(.system(size: ARDMFont.small))
+            Spacer(minLength: 2)
+        }
+        .foregroundStyle(.secondary)
+        .frame(minHeight: ARDMMetrics.sideRow)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 4))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if expanded { showAllDatabases.remove(config.identifier) }
+            else { showAllDatabases.insert(config.identifier) }
+        }
+        .help(expanded ? L10n("Only databases with keys")
+                       : L10n("Show the empty databases too"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(expanded ? L10n("Only databases with keys")
+                                     : L10n("All 16 databases"))
+        .accessibilityValue("\(collapsed)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            if expanded { showAllDatabases.remove(config.identifier) }
+            else { showAllDatabases.insert(config.identifier) }
         }
     }
 
@@ -210,14 +213,14 @@ struct ConnectionSidebar: View {
     private func databaseRow(_ db: Int, config: ARDMConnectionConfig, counts: [Int: Int]) -> some View {
         let current = store.databaseIndex(for: config.identifier) == db
         return HStack(spacing: 5) {
-            // No cylinder glyph per row: sixteen identical icons stacked under
-            // one connection read as decoration, not information. Indentation
-            // already says "child of the connection"; the count badge is the
-            // payload, and an open database keeps an accent bar on its left edge
-            // so the tree and the tab strip above the key list agree.
-            RoundedRectangle(cornerRadius: 1)
-                .fill(current ? Color.accentColor : Color.clear)
-                .frame(width: 2, height: 11)
+            // The same 15pt glyph column the connection row uses, so the two
+            // levels of the tree line up on one edge. `cylinder.fill` rather
+            // than `database.fill`: the latter is SF Symbols 6 and would render
+            // nothing on the macOS 14 target this bundle declares.
+            Image(systemName: "cylinder.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(current ? Color.accentColor : Color.secondary)
+                .frame(width: 15, alignment: .center)
             Text("db\(db)")
                 .font(.system(size: ARDMFont.small, weight: current ? .medium : .regular))
                 .foregroundStyle(current ? Color.accentColor : Color.primary)
@@ -228,7 +231,7 @@ struct ConnectionSidebar: View {
             }
             Spacer(minLength: 2)
         }
-        .frame(minHeight: 19)
+        .frame(minHeight: ARDMMetrics.sideRow)
         .padding(.leading, 10)
         .padding(.trailing, 4)
         .background(
@@ -285,25 +288,12 @@ struct ConnectionSidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tabs.vue: one tab per open connection, all sockets stay alive.
-            if !store.openConnectionIDs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(store.openConnectionIDs, id: \.self) { id in
-                            tabChip(id)
-                        }
-                    }
-                }
-                .frame(height: 30)
-                .padding(.horizontal, 6)
-                Divider()
-            }
-
+            // No tab strip here: every open connection is already a row in the
+            // tree below, with its own status dot and key count. Clicking that
+            // row switches to it, which is all the strip used to do.
+            // No search field either: a second box that looked exactly like the
+            // SCAN pattern below it, for a list the user typed by hand.
             HStack(spacing: 4) {
-                ARDMSearchField(placeholder: L10n("Search"),
-                                text: $query,
-                                focus: $searchFocused,
-                                identifier: "sidebar.search")
                 ARDMIconButton(systemName: "plus", help: L("message.new_connection", "New Connection")) {
                     store.editingConnection = nil
                     store.showingConnectionEditor = true
@@ -331,9 +321,17 @@ struct ConnectionSidebar: View {
                         }
                     }
                 }
+                Spacer(minLength: 0)
+                // The title bar's own sidebar toggle was removed years ago
+                // because it toggled a column that could not collapse. Now that
+                // it can, the affordance belongs next to the column it hides.
+                ARDMIconButton(systemName: "sidebar.left", help: L10n("Collapse Sidebar")) {
+                    store.sidebarCollapsed = true
+                }
+                .accessibilityIdentifier("sidebar.collapse")
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .fixedSize(horizontal: false, vertical: true)
 
             List(selection: $sidebarSelection) {
@@ -381,6 +379,14 @@ struct ConnectionSidebar: View {
                 return
             }
             store.selectedConnectionID = value
+            // Selecting an already-open connection is the tab strip's old job:
+            // bring it forward, and revive it if its socket dropped.
+            if value != store.activeConnectionID, store.openConnectionIDs.contains(value),
+               let config = store.connections.first(where: { $0.identifier == value }) {
+                store.connect(to: config)
+            }
+            // Arrows now belong to this list, which takes them natively.
+            store.keyListHasFocus = false
         }
         .onChange(of: store.selectedConnectionID) { _, newValue in
             if sidebarSelection != newValue { sidebarSelection = newValue }
@@ -392,6 +398,7 @@ struct ConnectionSidebar: View {
         }
         .onChange(of: store.openConnectionIDs) { _, ids in
             expandedConnections = expandedConnections.intersection(ids)
+            showAllDatabases = showAllDatabases.intersection(ids)
         }
         .alert(L10n("New Group"), isPresented: $showingNewGroup) {
             TextField(L10n("Group name"), text: $newGroupName)
@@ -416,12 +423,12 @@ struct ConnectionRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // The glyph says what the row is; the colour says how it is doing.
-            // It used to swap to `bolt.fill` once connected, which read like the
-            // "connect" toolbar button rather than a state.
+            // The glyph says what the row is; the dot at the far end says how it
+            // is doing. They used to be the same colour, which meant a green
+            // server icon and no way to read state at a glance.
             Image(systemName: "server.rack")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(dotColor(store.connectionStates[config.identifier]))
+                .foregroundStyle(Color.secondary)
                 .frame(width: 15, alignment: .center)
             // One line per connection, like the reference clients. The address
             // moved to the tooltip and the context menu: sixteen database rows
@@ -446,8 +453,18 @@ struct ConnectionRow: View {
                     .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
+            // The whole server, not the one database the middle column happens to
+            // have open — the dot beside it is per-connection, so the number
+            // should be too. Only the active tab has an INFO keyspace of its own.
+            if let total = serverKeyTotal() {
+                ARDMCountBadge(count: total, tint: .secondary)
+            }
+            Circle()
+                .fill(dotColor(store.connectionStates[config.identifier]))
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
         }
-        .frame(minHeight: 20)
+        .frame(minHeight: ARDMMetrics.sideRow)
         .help("\(config.name) — \(config.host):\(config.port)")
         // One element instead of five: the status and capability glyphs are
         // meaningless when read out as "bolt.fill, lock, network".
@@ -459,7 +476,7 @@ struct ConnectionRow: View {
         .onTapGesture(count: 2) { store.connect(to: config) }
         .contextMenu {
             Button(L10n("Connect")) { store.connect(to: config) }
-            Button(L10n("Close Connection")) { store.disconnect() }
+            Button(L10n("Close Connection")) { store.closeConnection(config.identifier) }
             Divider()
             Button(L("message.edit_connection", "Edit Connection")) { store.editingConnection = config; store.showingConnectionEditor = true }
             Button(L10n("Duplicate Connection")) { duplicate() }
@@ -467,6 +484,22 @@ struct ConnectionRow: View {
             Divider()
             Button(L10n("Delete Connection"), role: .destructive) { delete() }
         }
+    }
+
+    /// Keys across every database of the active server, from INFO keyspace.
+    /// nil for a connection that is not in front, because its keyspace was
+    /// never asked for — a blank is honest where a zero would lie.
+    private func serverKeyTotal() -> Int? {
+        guard config.identifier == store.activeConnectionID, !store.keyspaceStats.isEmpty
+        else { return nil }
+        var total = 0
+        for (name, stats) in store.keyspaceStats where name.hasPrefix("db") {
+            for field in stats.split(separator: ",") {
+                let pair = field.split(separator: "=")
+                if pair.count == 2, pair[0] == "keys", let n = Int(pair[1]) { total += n }
+            }
+        }
+        return total
     }
 
     private var rowDescription: String {

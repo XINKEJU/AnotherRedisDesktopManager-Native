@@ -56,11 +56,12 @@ struct DetailPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // A labelled, scrollable tab strip replaces the old icon-only
-            // segmented control that packed nine tabs into the title bar.
-            // Text-only tabs with an underline, like the reference clients. The
-            // nine coloured glyphs that used to sit here turned the one strip
-            // that never changes into the loudest row in the window.
+            // A labelled, scrollable tab strip. It spent a while in the title
+            // bar as a nine-segment control, which put a column-local switch in
+            // the one place that reads as window-global and ate half the title
+            // bar's width. Text-only tabs with an underline, like the reference
+            // clients; the nine coloured glyphs that used to sit here turned the
+            // one strip that never changes into the loudest row in the window.
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     ForEach(MainTab.allCases) { tab in
@@ -70,7 +71,7 @@ struct DetailPane: View {
                                 .font(.system(size: ARDMFont.small, weight: active ? .medium : .regular))
                                 .foregroundStyle(active ? Color.primary : Color.secondary)
                                 .padding(.horizontal, 9)
-                                .frame(height: 28)
+                                .frame(height: ARDMMetrics.stripHeight)
                                 .overlay(alignment: .bottom) {
                                     Rectangle()
                                         .fill(active ? Color.accentColor : Color.clear)
@@ -216,13 +217,13 @@ struct KeyDetailView: View {
                 // The name is the one string in the pane that has to be read
                 // character by character, so it is the only one set in mono.
                 Text(key)
-                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .font(.system(size: ARDMFont.monoRow, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 Spacer(minLength: 8)
 
-                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Reload this key's value")) {
                     store.reloadKeyDetail()
                 }
                 headerDivider
@@ -263,7 +264,7 @@ struct KeyDetailView: View {
             // The type word carries the colour; no chip is needed here.
             HStack(spacing: 6) {
                 Text(typeName(store.selectedKeyType).uppercased())
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: ARDMFont.micro, weight: .semibold))
                     .foregroundStyle(store.selectedKeyType.tint)
                 Text("·").foregroundStyle(.quaternary)
                 Text("\(L10n("Size")): \(valueSizeText)")
@@ -273,7 +274,7 @@ struct KeyDetailView: View {
                     .foregroundStyle(ttlHeaderTint(store.selectedKeyTTL))
                 Spacer(minLength: 4)
             }
-            .font(.system(size: 10.5))
+            .font(.system(size: ARDMFont.micro))
             .monospacedDigit()
             .lineLimit(1)
         }
@@ -299,9 +300,8 @@ struct KeyDetailView: View {
 
     // MARK: String / ReJSON / Vector / unknown -> format bars + code surface
 
-    /// Decode transforms and render views. The reference client splits these
-    /// into two rows because they answer different questions ("is this gzipped?"
-    /// and "show it as JSON"), and a single 15-item picker answered neither.
+    /// Decode transforms and render views — one flat list of "how to read these
+    /// bytes", because that is the single question the bar answers.
     private let decodeFormats: [ViewerChip] = [
         ViewerChip(id: "Gzip", title: "Gzip"), ViewerChip(id: "Deflate", title: "Deflate"),
         ViewerChip(id: "Brotli", title: "Brotli"), ViewerChip(id: "Msgpack", title: "Msgpack"),
@@ -352,74 +352,116 @@ struct KeyDetailView: View {
         }
     }
 
-    private var formatBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                Text(L10n("Decode"))
-                    .font(.system(size: ARDMFont.micro))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 30, alignment: .leading)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 1) {
-                        ForEach(decodeFormats) { chip in
-                            ARDMChip(title: chip.title, selected: store.viewerName == chip.id) {
-                                selectViewer(chip.id)
-                            }
-                        }
-                    }
-                }
-                Button(L10n("Auto")) {
-                    selectViewer(ARDMFormatters.detectViewer(for: store.keyRawValue))
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: ARDMFont.micro))
-                .foregroundStyle(.secondary)
-                .help(L10n("Auto detect"))
-                Button(L10n("Run")) { store.renderValue() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    .help(L10n("Re-render with the selected decoder"))
-            }
-            .frame(height: 26)
-            .padding(.horizontal, 10)
+    /// The nine chips that fit the bar, in the order their 1–9 shortcuts pick.
+    private var inlineViewers: [ViewerChip] {
+        viewFormats + Array(decodeFormats.prefix(4))
+    }
 
-            HStack(spacing: 4) {
-                Text(L10n("View"))
-                    .font(.system(size: ARDMFont.micro))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 30, alignment: .leading)
+    private var overflowViewers: [ViewerChip] {
+        Array(decodeFormats.dropFirst(4))
+    }
+
+    /// One strip, not two. Thirteen chips across two rows answered "is this
+    /// gzipped?" and "show it as JSON" one line each, and cost the value pane
+    /// the height those rows took.
+    private var formatBar: some View {
+        HStack(spacing: 4) {
+            ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 1) {
-                        ForEach(viewFormats) { chip in
-                            ARDMChip(title: chip.title, selected: store.viewerName == chip.id) {
+                        ForEach(Array(inlineViewers.enumerated()), id: \.element.id) { index, chip in
+                            ARDMChip(title: chip.title,
+                                     selected: store.viewerName == chip.id,
+                                     keyHint: "\(index + 1)") {
                                 selectViewer(chip.id)
                             }
+                            .id(chip.id)
                         }
                     }
                 }
-                // "原文 / 渲染": the same bytes read two ways. The eye button that
-                // used to live in the overflow row did this invisibly.
-                Picker("", selection: $showPreview) {
-                    Text(L10n("Raw")).tag(false)
-                    Text(L10n("Rendered")).tag(true)
+                // A chip picked by its digit is no use off the right edge.
+                .onChange(of: store.viewerName) { _, name in
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(name, anchor: .center) }
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.mini)
-                .frame(width: 108)
-                .labelsHidden()
-                .disabled(canEditValue == false)
-                .accessibilityLabel(L10n("Rendered"))
             }
-            .frame(height: 26)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity)
+
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(width: 1, height: 12)
+
+            overflowMenu
+
+            Button(L10n("Run")) { store.renderValue() }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .help(L10n("Re-render with the selected decoder"))
+
+            // "原文 / 渲染": the same bytes read two ways. The eye button that
+            // used to live in the overflow row did this invisibly.
+            Picker("", selection: $showPreview) {
+                Text(L10n("Raw")).tag(false)
+                Text(L10n("Rendered")).tag(true)
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.mini)
+            .frame(width: 100)
+            .labelsHidden()
+            .disabled(canEditValue == false)
+            .accessibilityLabel(L10n("Rendered"))
         }
-        // One glass slab behind both chip rows (macOS 26+): the chips read as a
+        .frame(height: 30)
+        .padding(.horizontal, 10)
+        // One glass slab behind the chip bar (macOS 26+): the chips read as a
         // single floating control instead of paint on the detail background.
-        .padding(.vertical, 3)
         .ardmGlass(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 8)
         .padding(.top, 2)
+        .background(ViewerHotKeys(store: store,
+                                  viewers: inlineViewers.map(\.id),
+                                  select: { selectViewer($0) }))
+    }
+
+    /// The four decoders nobody reaches for daily, plus the auto-detect that
+    /// used to own a button of its own.
+    private var overflowMenu: some View {
+        let active = overflowViewers.first { $0.id == store.viewerName }
+        return Menu {
+            ForEach(overflowViewers) { chip in
+                Button { selectViewer(chip.id) } label: {
+                    if store.viewerName == chip.id {
+                        Label(chip.title, systemImage: "checkmark")
+                    } else {
+                        Text(chip.title)
+                    }
+                }
+            }
+            Divider()
+            Button {
+                selectViewer(ARDMFormatters.detectViewer(for: store.keyRawValue))
+            } label: {
+                Label(L10n("Auto detect"), systemImage: "wand.and.stars")
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(active?.title ?? L10n("More"))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+            }
+            .font(.system(size: ARDMFont.small))
+            .foregroundStyle(active != nil ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 6)
+            .frame(height: ardmScaled(22))
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(active != nil ? Color.accentColor.opacity(0.12) : Color.clear)
+            )
+            .fixedSize()
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help(L10n("More decoders"))
+        .accessibilityLabel(L10n("More decoders"))
     }
 
     private func selectViewer(_ viewer: String) {
@@ -546,7 +588,7 @@ struct KeyDetailView: View {
                 TextField("", value: $store.rowLimit, format: .number)
                     .frame(width: 54).textFieldStyle(.roundedBorder)
                     .accessibilityLabel(L10n("Limit"))
-                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh")) {
+                ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Reload this key's value")) {
                     store.reloadKeyDetail()
                 }
                 ARDMIconButton(systemName: "chevron.left", help: L10n("Previous")) {
@@ -622,11 +664,11 @@ struct KeyDetailView: View {
                     Text(L10n("Field TTL"))
                         .font(.system(size: ARDMFont.micro, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .frame(width: 92, alignment: .trailing)
+                        .frame(width: ardmScaled(92), alignment: .trailing)
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 22)
+            .frame(height: ardmScaled(24))
             .background(Color.secondary.opacity(0.06))
             Divider()
 
@@ -658,7 +700,7 @@ struct KeyDetailView: View {
                         Text(store.fieldTTLs[row.field].map(String.init) ?? "–")
                             .font(store.monoFont(11))
                             .foregroundStyle(.secondary)
-                            .frame(width: 92, alignment: .trailing)
+                            .frame(width: ardmScaled(92), alignment: .trailing)
                     }
                 }
                 .contentShape(Rectangle())
@@ -1096,7 +1138,7 @@ struct HexEditorSheet: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(L10n("Hex editor")).font(.headline)
-                Text(store.selectedKey ?? "").font(.system(size: 11, design: .monospaced))
+                Text(store.selectedKey ?? "").font(.system(size: ARDMFont.monoRow, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(store.hexBytes.count + store.hexTail.count) " + L10n("bytes"))
@@ -1116,7 +1158,7 @@ struct HexEditorSheet: View {
     private func rowView(_ row: Int) -> some View {
         HStack(spacing: 3) {
             Text(String(format: "%08X", row * perRow))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: ARDMFont.monoRow, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 66, alignment: .leading)
             ForEach(0..<perRow, id: \.self) { column in
@@ -1124,19 +1166,19 @@ struct HexEditorSheet: View {
                 if index < store.hexBytes.count {
                     TextField("", text: byteBinding(index))
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: ARDMFont.monoRow, design: .monospaced))
                         .multilineTextAlignment(.center)
-                        .frame(width: 24, height: 18)
+                        .frame(width: ardmScaled(26), height: ardmScaled(20))
                         .background(selected == index
                                     ? Color.accentColor.opacity(0.30)
                                     : Color.secondary.opacity(0.07))
                         .onTapGesture { selected = index }
                 } else {
-                    Color.clear.frame(width: 24, height: 18)
+                    Color.clear.frame(width: ardmScaled(26), height: ardmScaled(20))
                 }
             }
             Text(ascii(row))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: ARDMFont.monoRow, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 8)
         }
@@ -1187,4 +1229,85 @@ struct HexEditorSheet: View {
 struct ViewerChip: Identifiable {
     let id: String
     let title: String
+}
+
+/// Digits 1–9 choose the viewer chips in the format bar, in the order they are
+/// drawn. Scoped to the detail column and skipped while something is being
+/// typed, so the value editor keeps its numbers.
+struct ViewerHotKeys: NSViewRepresentable {
+    @ObservedObject var store: AppStore
+    var viewers: [String]
+    var select: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let coordinator = context.coordinator
+        coordinator.configure(store: store, viewers: viewers, select: select)
+        coordinator.install()
+        let view = Host(frame: .zero)
+        view.onWindowChange = { [weak coordinator] in coordinator?.hostWindow = $0 }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.configure(store: store, viewers: viewers, select: select)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    /// Tells the monitor which window the bar lives in, so a dialog's keys stay
+    /// with the dialog.
+    private final class Host: NSView {
+        var onWindowChange: (NSWindow?) -> Void = { _ in }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindowChange(window)
+        }
+    }
+
+    final class Coordinator {
+        private var monitor: Any?
+        private weak var store: AppStore?
+        weak var hostWindow: NSWindow?
+        private var viewers: [String] = []
+        private var select: (String) -> Void = { _ in }
+
+        func configure(store: AppStore, viewers: [String], select: @escaping (String) -> Void) {
+            self.store = store
+            self.viewers = viewers
+            self.select = select
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let index = self.claim(event) else { return event }
+                self.select(self.viewers[index])
+                return nil
+            }
+        }
+
+        func uninstall() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            self.monitor = nil
+        }
+
+        /// nil means "not ours" and the event continues down the responder chain.
+        private func claim(_ event: NSEvent) -> Int? {
+            guard let window = event.window, window.attachedSheet == nil else { return nil }
+            guard hostWindow == nil || window === hostWindow else { return nil }
+            guard !(window.firstResponder is NSText) else { return nil }
+            guard let store, !store.showingQuickOpen else { return nil }
+            let flags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.function, .capsLock])
+            guard flags.isEmpty,
+                  let digit = event.charactersIgnoringModifiers?.first?.wholeNumberValue,
+                  digit >= 1, digit <= 9, digit <= viewers.count else { return nil }
+            return digit - 1
+        }
+    }
 }

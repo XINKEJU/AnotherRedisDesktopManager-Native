@@ -17,7 +17,6 @@ struct ARDMNativeApp: App {
                 .environment(\.dynamicTypeSize, store.dynamicTypeSize)
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
         .commands { ARDMCommands(store: store) }
     }
 }
@@ -46,34 +45,14 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         }
         AppStore.shared.startAutoRefresh()
         applyStartupArguments()
-        removeSidebarToggle()
+        hideWindowTitle()
     }
 
-    /// NavigationSplitView always installs a "hide sidebar" button in the title
-    /// bar. This window has three fixed columns and no reason to collapse them,
-    /// so the button was pure decoration in the one place the eye lands first.
-    /// SwiftUI's `.toolbar(removing: .sidebarToggle)` does not reach the item
-    /// the split view creates here, so it is dropped from the NSToolbar once the
-    /// window exists.
-    private func removeSidebarToggle() {
-        // The split view rebuilds its toolbar when the first connection opens,
-        // which puts the button back; sweep every window a few times instead of
-        // trusting a single pass.
-        for delay in [1.0, 3.0, 6.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                for window in NSApp.windows {
-                    guard let toolbar = window.toolbar else { continue }
-                    let doomed = toolbar.items.filter {
-                        $0.itemIdentifier.rawValue.lowercased().contains("togglesidebar")
-                    }
-                    for item in doomed {
-                        if let index = toolbar.items.firstIndex(of: item) {
-                            toolbar.removeItem(at: index)
-                        }
-                    }
-                }
-            }
-        }
+    /// The app name in the title bar repeats what the menu bar already says.
+    /// Nothing else is in that strip any more, so leaving the name in would make
+    /// the whole bar say one thing the menu bar says twice.
+    private func hideWindowTitle() {
+        for window in NSApp.windows { window.titleVisibility = .hidden }
     }
 
     /// A saved frame is only reusable when a decent slice of it is still inside
@@ -98,55 +77,69 @@ final class ARDMAppDelegate: NSObject, NSApplicationDelegate {
         func flag(_ name: String) -> Bool { args.contains(name) }
 
         let store = AppStore.shared
-        let config = ARDMConnectionConfig()
-        config.identifier = UUID().uuidString
-        if config.separator.isEmpty { config.separator = ":" }
-        if let host = value("--host") { config.host = host }
-        if let port = value("--port"), let parsed = Int(port) { config.port = parsed }
-        if let auth = value("--auth") { config.auth = auth }
-        if let user = value("--user") ?? value("--username") { config.username = user }
-        if let db = value("--db"), let parsed = Int(db) { config.db = parsed }
-        if config.host.isEmpty { config.host = "127.0.0.1" }
-        if config.port <= 0 { config.port = 6379 }
-        config.name = value("--name") ?? "\(config.host):\(config.port)"
-        config.cluster = flag("--cluster")
 
-        if flag("--ssh") || value("--ssh-host") != nil {
-            config.sshEnabled = true
-            if let v = value("--ssh-host") { config.sshHost = v }
-            if let v = value("--ssh-port"), let parsed = Int(v) { config.sshPort = parsed }
-            if let v = value("--ssh-user") { config.sshUser = v }
-            if let v = value("--ssh-password") { config.sshPassword = v }
-            if let v = value("--ssh-key") { config.sshPrivateKey = v }
-        }
-        if flag("--sentinel") || value("--sentinel-master") != nil {
-            config.sentinelEnabled = true
-            config.cluster = false
-            if let v = value("--sentinel-master") { config.sentinelMaster = v }
-            if let v = value("--sentinel-password") { config.sentinelNodePassword = v }
-        }
-        if flag("--ssl") || flag("--tls") {
-            config.tlsEnabled = true
-            if let v = value("--tls-ca") { config.tlsCA = v }
-            if let v = value("--tls-cert") { config.tlsCert = v }
-            if let v = value("--tls-key") { config.tlsKey = v }
-            if let v = value("--tls-sni") { config.tlsSNI = v }
-        }
-        if config.sentinelEnabled && config.cluster { config.cluster = false }
+        // UI-only flags (--show-settings, --show-quick-open, --select-key) must
+        // not open a connection. They used to fall through to the default
+        // 127.0.0.1:6379 profile, so the sheet ended up behind a NOAUTH alert
+        // on every screenshot run.
+        let connectionFlags = [
+            "--host", "--port", "--auth", "--user", "--username", "--db", "--name",
+            "--cluster", "--ssh", "--ssh-host", "--ssh-port", "--ssh-user",
+            "--ssh-password", "--ssh-key", "--sentinel", "--sentinel-master",
+            "--sentinel-node-password", "--ssl", "--tls", "--tls-ca", "--tls-cert",
+            "--tls-key", "--tls-sni"
+        ]
+        if connectionFlags.contains(where: { flag($0) }) {
+            let config = ARDMConnectionConfig()
+            config.identifier = UUID().uuidString
+            if config.separator.isEmpty { config.separator = ":" }
+            if let host = value("--host") { config.host = host }
+            if let port = value("--port"), let parsed = Int(port) { config.port = parsed }
+            if let auth = value("--auth") { config.auth = auth }
+            if let user = value("--user") ?? value("--username") { config.username = user }
+            if let db = value("--db"), let parsed = Int(db) { config.db = parsed }
+            if config.host.isEmpty { config.host = "127.0.0.1" }
+            if config.port <= 0 { config.port = 6379 }
+            config.name = value("--name") ?? "\(config.host):\(config.port)"
+            config.cluster = flag("--cluster")
 
-        // Reuse the profile for this endpoint instead of appending a new one on
-        // every launch. Unconditional appends had grown the sidebar by one row
-        // per `--host` run, which left thirteen copies of the same server.
-        if let existing = store.connections.first(where: {
-            $0.host == config.host && $0.port == config.port && $0.db == config.db &&
-            $0.auth == config.auth && !$0.cluster && !$0.sentinelEnabled &&
-            !$0.sshEnabled && !$0.tlsEnabled
-        }) {
-            store.connect(to: existing)
-        } else {
-            store.connections.append(config)
-            store.saveConnections()
-            store.connect(to: config)
+            if flag("--ssh") || value("--ssh-host") != nil {
+                config.sshEnabled = true
+                if let v = value("--ssh-host") { config.sshHost = v }
+                if let v = value("--ssh-port"), let parsed = Int(v) { config.sshPort = parsed }
+                if let v = value("--ssh-user") { config.sshUser = v }
+                if let v = value("--ssh-password") { config.sshPassword = v }
+                if let v = value("--ssh-key") { config.sshPrivateKey = v }
+            }
+            if flag("--sentinel") || value("--sentinel-master") != nil {
+                config.sentinelEnabled = true
+                config.cluster = false
+                if let v = value("--sentinel-master") { config.sentinelMaster = v }
+                if let v = value("--sentinel-password") { config.sentinelNodePassword = v }
+            }
+            if flag("--ssl") || flag("--tls") {
+                config.tlsEnabled = true
+                if let v = value("--tls-ca") { config.tlsCA = v }
+                if let v = value("--tls-cert") { config.tlsCert = v }
+                if let v = value("--tls-key") { config.tlsKey = v }
+                if let v = value("--tls-sni") { config.tlsSNI = v }
+            }
+            if config.sentinelEnabled && config.cluster { config.cluster = false }
+
+            // Reuse the profile for this endpoint instead of appending a new one on
+            // every launch. Unconditional appends had grown the sidebar by one row
+            // per `--host` run, which left thirteen copies of the same server.
+            if let existing = store.connections.first(where: {
+                $0.host == config.host && $0.port == config.port && $0.db == config.db &&
+                $0.auth == config.auth && !$0.cluster && !$0.sentinelEnabled &&
+                !$0.sshEnabled && !$0.tlsEnabled
+            }) {
+                store.connect(to: existing)
+            } else {
+                store.connections.append(config)
+                store.saveConnections()
+                store.connect(to: config)
+            }
         }
 
         // Verification hook used by the screenshot harness: preselecting a key
@@ -228,6 +221,8 @@ struct ARDMCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: .command)
             Button(L10n("Toggle Tree View")) { store.showTree.toggle(); store.buildTree() }
+            Button(L10n("Toggle Sidebar")) { store.sidebarCollapsed.toggle() }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             Button(L10n("Settings…")) { store.showingSettings = true }
                 .keyboardShortcut(",", modifiers: .command)
             Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
@@ -292,107 +287,40 @@ struct RootView: View {
         // are ordinary views, so they stop exactly where the columns stop.
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ConnectionSidebar()
-                    .frame(width: CGFloat(min(520, max(200, store.sidebarWidth))))
-                    .layoutPriority(1)
-                ColumnDivider(limit: 520, lower: 200, value: $store.sidebarWidth)
+                if !store.sidebarCollapsed {
+                    ConnectionSidebar()
+                        .frame(width: CGFloat(min(520, max(200, store.sidebarWidth))))
+                        .layoutPriority(1)
+                    ColumnDivider(limit: 520, lower: 200, value: $store.sidebarWidth)
+                }
                 KeyBrowserView()
-                    .frame(width: 340)
+                    .frame(width: ardmScaled(340))
                     .layoutPriority(1)
                 Divider()
                 DetailPane()
                     .frame(maxWidth: .infinity)
             }
 
-            StatusBar(toolsMenu: true)
+            StatusBar()
         }
         .modifier(ARDMSheets())
+        // ⌘K floats over the columns rather than sheeting them away: what is
+        // behind the palette stays readable, which is the whole point of it.
+        .overlay(alignment: .top) {
+            if store.showingQuickOpen {
+                QuickOpenPalette()
+                    .environmentObject(store)
+            }
+        }
+        // Save / copy / delete news lands here instead of in a modal alert the
+        // user has to click away before continuing.
+        .overlay(alignment: .bottom) { ARDMToastLayer() }
         .alert(L10n("Error"), isPresented: Binding(get: { store.errorMessage != nil },
                                             set: { if !$0 { store.errorMessage = nil } })) {
             Button(L10n("OK"), role: .cancel) { }
         } message: {
             Text(store.errorMessage ?? "")
         }
-    }
-}
-
-/// The one overflow menu the window still needs (connect/disconnect, refresh,
-/// database switcher, import/export, settings). It used to live in the title
-/// bar toolbar, but attaching a toolbar makes the window lay its content out
-/// under the title bar, which dragged the column dividers up through it.
-struct ToolsMenu: View {
-    @EnvironmentObject var store: AppStore
-
-    var body: some View {
-        Menu {
-            Section {
-                Button {
-                    if let c = store.selectedConnection { store.connect(to: c) }
-                } label: {
-                    Label(L10n("Connect"), systemImage: "play.fill")
-                }
-                Button { store.disconnect() } label: {
-                    Label(L10n("Disconnect"), systemImage: "stop.fill")
-                }
-            }
-            Section {
-                Button { store.refreshKeys(reset: true) } label: {
-                    Label(L10n("Refresh Keys"), systemImage: "arrow.clockwise")
-                }
-                Button { store.showingNewKey = true } label: {
-                    Label(L10n("New Key"), systemImage: "plus.square")
-                }
-                Button { store.showingBatchDelete = true } label: {
-                    Label(L10n("Batch Delete"), systemImage: "trash")
-                }
-            }
-            if store.connected {
-                Section {
-                    Menu {
-                        ForEach(0..<16, id: \.self) { db in
-                            Button {
-                                store.changeDatabase(db)
-                            } label: {
-                                if store.selectedDB == db {
-                                    Label("db\(db)", systemImage: "checkmark")
-                                } else {
-                                    Text("db\(db)")
-                                }
-                            }
-                        }
-                    } label: {
-                        Label(L10n("Database"), systemImage: "cylinder.split.1x2")
-                    }
-                }
-            }
-            Section {
-                Button { store.showingImportExport = true } label: {
-                    Label(L10n("Import / Export…"), systemImage: "arrow.up.arrow.down")
-                }
-                Button { store.showingFormatterManager = true } label: {
-                    Label(L10n("Custom Formatters…"), systemImage: "wand.and.stars")
-                }
-                Button { store.showingJsonEditor = true } label: {
-                    Label(L10n("JSON Editor…"), systemImage: "curlybraces")
-                }
-            }
-            Section {
-                Button { store.showingSettings = true } label: {
-                    Label(L10n("Settings…"), systemImage: "gearshape")
-                }
-            }
-        } label: {
-            // Generic sliders read cleanly at 13pt; the crossed wrench and
-            // screwdriver collapsed into a scribble at this size.
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 13))
-        }
-        .menuIndicator(.hidden)
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(L10n("Tools"))
-        .accessibilityLabel(L10n("Tools"))
-        .accessibilityIdentifier("toolbar.tools")
     }
 }
 
@@ -408,11 +336,14 @@ struct ColumnDivider: View {
     let lower: Double
     @Binding var value: Double
     @State private var dragStart: Double?
+    /// Set while the pointer is far enough past the narrowest width that
+    /// releasing would mean "hide this column"; it also lights the line up.
+    @State private var collapseArmed = false
 
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(Color.secondary.opacity(0.18))
+                .fill(collapseArmed ? Color.accentColor : Color.secondary.opacity(0.18))
                 .frame(width: 1)
                 .frame(maxHeight: .infinity)
             Rectangle()
@@ -427,9 +358,16 @@ struct ColumnDivider: View {
                         .onChanged { g in
                             if dragStart == nil { dragStart = value }
                             let base = dragStart ?? value
-                            value = Swift.min(limit, Swift.max(lower, base + Double(g.translation.width)))
+                            let settled = ARDMSidebarDrag.settle(raw: base + Double(g.translation.width),
+                                                                 lower: lower, limit: limit)
+                            collapseArmed = settled.collapse
+                            value = settled.width
                         }
-                        .onEnded { _ in dragStart = nil }
+                        .onEnded { _ in
+                            if collapseArmed { store.sidebarCollapsed = true }
+                            dragStart = nil
+                            collapseArmed = false
+                        }
                 )
         }
         .frame(width: 7)
@@ -440,7 +378,6 @@ struct ColumnDivider: View {
 
 struct StatusBar: View {
     @EnvironmentObject var store: AppStore
-    var toolsMenu = false
 
     /// The bar used to be whatever the last operation wrote into `statusText`,
     /// so it alternated between "500 / 3038 keys · DB 0" and "13 rows" and lost
@@ -473,7 +410,7 @@ struct StatusBar: View {
             if store.liveRunning {
                 HStack(spacing: 4) {
                     Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 9))
+                        .font(.system(size: ARDMFont.micro))
                     Text(L10n("LIVE")).font(.system(size: ARDMFont.micro, weight: .medium))
                 }
                 .foregroundStyle(Color.accentColor)
@@ -482,10 +419,6 @@ struct StatusBar: View {
                 .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(L10n("LIVE"))
-            }
-            if toolsMenu {
-                ToolsMenu()
-                    .foregroundStyle(.secondary)
             }
         }
         .font(.system(size: ARDMFont.small))
@@ -514,11 +447,6 @@ struct ARDMSheets: ViewModifier {
                 SettingsView()
                     .environmentObject(store)
                     .frame(minWidth: 640, minHeight: 560)
-            }
-            .sheet(isPresented: $store.showingQuickOpen) {
-                QuickOpenSheet()
-                    .environmentObject(store)
-                    .presentationBackground(.clear)
             }
             .sheet(isPresented: $store.showingNewKey) {
                 NewKeySheet().environmentObject(store).frame(width: 480, height: 300)

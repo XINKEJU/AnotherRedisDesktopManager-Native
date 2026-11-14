@@ -267,6 +267,7 @@ extension AppStore {
         keyNodes = []
         buildTree()
         selectedKey = nil
+        keySelection.removeAll()
         keyRows = []
         statusText = L10n("Switched to") + " \(config?.name ?? id)"
         if keys.isEmpty { refreshKeys(reset: true) }
@@ -304,6 +305,7 @@ extension AppStore {
         keys = []
         keyNodes = []
         selectedKey = nil
+        keySelection.removeAll()
         keyRows = []
         liveEvents = []
         liveRunning = false
@@ -529,8 +531,34 @@ extension AppStore {
             }
         }
         groupMembership = membership
-        keyNodes = makeNodes(root, prefix: "", sep: sep)
+        keyNodes = collapseChains(makeNodes(root, prefix: "", sep: sep))
         autoExpandTreeIfNeeded()
+    }
+
+    /// Fold a run of folders that each have exactly one child into a single row.
+    /// `app:cache:api:resp:api.v1.feed:1` otherwise costs five rows of empty
+    /// plumbing before the reader reaches anything they can recognise. The merged
+    /// row keeps the deepest path, so counts, checkboxes and group deletion still
+    /// address the real prefix.
+    private func collapseChains(_ nodes: [KeyNode]) -> [KeyNode] {
+        nodes.map { node in
+            if node.isLeaf { return node }
+            var chain = collapseTreeChains ? [node.name] : []
+            var deepest = node
+            if collapseTreeChains {
+                while let kids = deepest.children, kids.count == 1, let only = kids.first, !only.isLeaf {
+                    chain.append(only.name)
+                    deepest = only
+                }
+            }
+            let kids = collapseChains(deepest.children ?? [])
+            if chain.count <= 1 {
+                return KeyNode(id: node.id, name: node.name, fullPath: node.fullPath,
+                               isLeaf: false, children: kids.isEmpty ? nil : kids)
+            }
+            return KeyNode(id: deepest.id, name: deepest.name, fullPath: deepest.fullPath,
+                           isLeaf: false, children: kids.isEmpty ? nil : kids, chain: chain)
+        }
     }
 
     private func insert(_ node: inout [String: Any], _ parts: [String], full: String) {
@@ -696,9 +724,149 @@ extension AppStore {
     func selectKey(_ key: String) {
         selectedKey = key
         checkedKeys.removeAll()
+        // Keep the list's highlight on whatever was just opened, whether the tap
+        // came from the list itself or from ⌘K, a favourite or the row menu. When
+        // it came from the list the key is already in the selection, so a ⇧/⌘ run
+        // survives being opened.
+        if !keySelection.contains(key) {
+            keySelection = [key]
+        }
+        selectionAnchor = key
         rowOffset = 0
         oversizeOffset = 0
+        recordRecent(key)
         reloadKeyDetail()
+    }
+
+    /// Newest first, capped: long enough to cover a working set, short enough to
+    /// render in the palette without scrolling past the interesting rows.
+    private func recordRecent(_ key: String) {
+        guard recentKeys.first != key else { return }
+        var list = recentKeys
+        list.removeAll { $0 == key }
+        list.insert(key, at: 0)
+        recentKeys = Array(list.prefix(12))
+    }
+
+    // MARK: Keyboard selection
+
+    /// Keys in the order the list actually paints them, which is what a ⇧ range
+    /// and the selection anchor are measured against. In the tree only leaves
+    /// take part — a folder row carries no selection tag — and a collapsed branch
+    /// contributes nothing because none of its rows are on screen.
+    func visibleKeyOrder() -> [String] {
+        if !showTree { return filteredKeys() }
+        var out: [String] = []
+        func walk(_ nodes: [KeyNode]) {
+            for node in nodes {
+                if node.isLeaf {
+                    out.append(node.fullPath)
+                } else if expandedNodeIDs.contains(node.fullPath) {
+                    walk(node.children ?? [])
+                }
+            }
+        }
+        walk(keyNodes)
+        return out
+    }
+
+    /// `List` reports the new selection but not the row that was clicked, so the
+    /// anchor — the key the detail pane follows and ↩ opens — has to be inferred.
+    /// Exactly one new row means that row. A run of new rows means ⇧ was held,
+    /// and the clicked end of the run is whichever end is not the old anchor.
+    func resolveSelectionAnchor(previous: Set<String>) {
+        let added = keySelection.subtracting(previous)
+        if added.count == 1 {
+            selectionAnchor = added.first
+            return
+        }
+        if added.isEmpty { return }
+        let order = visibleKeyOrder()
+        let positions = order.enumerated()
+            .filter { added.contains($0.element) }
+            .map(\.offset)
+        guard let low = positions.min(), let high = positions.max() else {
+            selectionAnchor = added.first
+            return
+        }
+        let oldIndex = selectionAnchor.flatMap { order.firstIndex(of: $0) }
+        selectionAnchor = oldIndex == low ? order[high] : order[low]
+    }
+
+    /// Every key the batch actions should treat as "selected": the ⇧/⌘ selection
+    /// plus whatever the row checkboxes ticked by hand, in list order. Checked
+    /// keys that have scrolled out of the current page still belong to the batch,
+    /// so they follow behind rather than being dropped.
+    func batchKeys() -> [String] {
+        let all = keySelection.union(checkedKeys)
+        let ordered = visibleKeyOrder().filter { all.contains($0) }
+        return ordered + all.subtracting(ordered).sorted()
+    }
+
+    /// Called from the list's `onChange` with the selection as it was before the
+    /// gesture. Arrowing through a long list must not cost a server round-trip per
+    /// keystroke, so the detail pane follows on a short settle instead.
+    func selectionChanged(previous: Set<String>) {
+        if selectionMoveToken != handledSelectionMoveToken {
+            // The keyboard already decided where the caret is.
+            handledSelectionMoveToken = selectionMoveToken
+            if let anchor = selectionAnchor, keySelection.contains(anchor) {
+                followSelection(anchor)
+            }
+            return
+        }
+        resolveSelectionAnchor(previous: previous)
+        guard let anchor = selectionAnchor, keySelection.contains(anchor) else { return }
+        followSelection(anchor)
+    }
+
+    private func followSelection(_ anchor: String) {
+        guard anchor != selectedKey else { return }
+        detailSettleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.selectedKey != anchor, self.keySelection.contains(anchor) else { return }
+            self.selectKey(anchor)
+        }
+        detailSettleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// ↑↓ through the rows on screen. Without ⇧ the caret is a one-row selection;
+    /// with it the selection becomes the run between the anchor and the caret, so
+    /// extending back over it shrinks again the way Finder's does.
+    func moveKeySelection(down: Bool, extending: Bool) {
+        let order = visibleKeyOrder()
+        guard !order.isEmpty else { return }
+        let caret: Int
+        if extending {
+            let edges = keySelection.compactMap { order.firstIndex(of: $0) }
+            caret = down ? (edges.max() ?? -1) : (edges.min() ?? order.count)
+        } else if let index = selectionAnchor.flatMap({ order.firstIndex(of: $0) })
+                    ?? selectedKey.flatMap({ order.firstIndex(of: $0) }) {
+            caret = index
+        } else {
+            caret = down ? -1 : order.count
+        }
+        let target = min(max(caret + (down ? 1 : -1), 0), order.count - 1)
+        let key = order[target]
+        selectionMoveToken += 1
+        if extending {
+            let anchor = selectionAnchor.flatMap { keySelection.contains($0) ? $0 : nil } ?? key
+            let start = order.firstIndex(of: anchor) ?? target
+            let lo = min(start, target), hi = max(start, target)
+            selectionAnchor = anchor
+            keySelection = Set(order[lo...hi])
+        } else {
+            selectionAnchor = key
+            keySelection = [key]
+        }
+    }
+
+    /// Clear the ⇧/⌘ selection without touching the key the pane is showing —
+    /// Esc steps back one level at a time rather than wiping everything at once.
+    func clearKeySelection() {
+        keySelection.removeAll()
+        selectionAnchor = nil
     }
 
     func reloadKeyDetail() {
@@ -806,9 +974,10 @@ extension AppStore {
             if case .success = result {
                 self.keys.removeAll { targets.contains($0) }
                 self.checkedKeys.removeAll()
+                self.keySelection.subtract(targets)
                 if targets.contains(self.selectedKey ?? "") { self.selectedKey = nil; self.keyRows = [] }
                 self.buildTree()
-                self.notify("Deleted \(targets.count) key(s)")
+                self.notify(L10n("Deleted") + " \(targets.count) " + L10n("keys"))
             }
         }
     }
@@ -819,6 +988,8 @@ extension AppStore {
             if case .success = result {
                 if let index = self.keys.firstIndex(of: key) { self.keys[index] = newName }
                 self.selectedKey = newName
+                self.keySelection = [newName]
+                self.selectionAnchor = newName
                 self.buildTree()
                 self.reloadKeyDetail()
                 self.notify("Renamed")

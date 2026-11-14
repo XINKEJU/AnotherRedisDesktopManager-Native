@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import UniformTypeIdentifiers
 
 // MARK: - Per-type value decoding (KeyContent*.vue, all 10 types)

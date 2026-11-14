@@ -9,193 +9,439 @@ struct SettingsView: View {
     @State private var checkingUpdate = false
     @State private var pendingArchive: URL?
     @State private var confirmInstall = false
-    @State private var tab = 0
+
+    /// Remembers the last visited section so reopening Settings lands where the
+    /// user left off instead of always resetting to Appearance.
+    @State private var section: Section = Section(storedTab: UserDefaults.standard.integer(forKey: "ARDMSettingsTab"))
+
+    /// The five panes, in sidebar order. The raw value keeps the persisted
+    /// `ARDMSettingsTab` integer meaningful across the change from a segmented
+    /// picker to a list.
+    enum Section: Int, CaseIterable, Identifiable {
+        case appearance, keys, viewers, connections, about
+
+        var id: Int { rawValue }
+
+        init(storedTab: Int) {
+            // 0…3 are the old picker's indices and name the same four panes;
+            // the 连接 pane has no predecessor.
+            self = Section(rawValue: min(max(storedTab, 0), 4)) ?? .appearance
+        }
+
+        var title: String {
+            switch self {
+            case .appearance: return "Appearance"
+            case .keys: return "Keys"
+            case .viewers: return "Viewers"
+            case .connections: return "Connections"
+            case .about: return "About & Updates"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .appearance: return "paintbrush.pointed"
+            case .keys: return "key.horizontal"
+            case .viewers: return "eye"
+            case .connections: return "network"
+            case .about: return "info.circle"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(L10n("Settings")).font(.headline)
-                Spacer()
-                Text(L10n("All preferences persist to NSUserDefaults")).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 0) {
+                sidebar
+                Divider()
+                content
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
-
-            // A plain segmented Picker instead of TabView: the sheet sizes to
-            // its content and TabView's tab bar collapsed into ellipses at
-            // that width; the picker keeps the four labels readable.
-            Picker("", selection: $tab) {
-                Text(L10n("Appearance")).tag(0)
-                Text(L10n("Keys")).tag(1)
-                Text(L10n("Viewers")).tag(2)
-                Text(L10n("About & Updates")).tag(3)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 16)
-
             Divider()
-                .padding(.top, 12)
+            footer
+        }
+        // One size for every pane. The height used to follow the content, so
+        // switching 外观 → 格式视图 grew the sheet by 145pt and everything behind
+        // it jumped — and the tallest pane scrolled anyway.
+        .frame(width: 720, height: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: section) { _, newValue in
+            UserDefaults.standard.set(newValue.rawValue, forKey: "ARDMSettingsTab")
+        }
+    }
 
-            Group {
-                switch tab {
-                case 0: appearanceTab
-                case 1: keysTab
-                case 2: viewersTab
-                default: aboutTab
+    // MARK: Sidebar
+
+    /// System-Settings-style section list, replacing the segmented picker that
+    /// shared the title row: four 88pt segments, one of which clipped
+    /// 「关于与更新」 to 「关于与更…」, and no room for a fifth pane.
+    private var sidebar: some View {
+        List(selection: $section) {
+            ForEach(Section.allCases) { item in
+                Label(L10n(item.title), systemImage: item.symbol)
+                    .font(.system(size: ARDMFont.body))
+                    .tag(item)
+            }
+        }
+        .listStyle(.sidebar)
+        .frame(width: 180)
+        .accessibilityLabel(L10n("Settings"))
+    }
+
+    // MARK: Content
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L10n(section.title))
+                .font(.system(size: ARDMFont.title, weight: .bold))
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 12)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    switch section {
+                    case .appearance: appearancePane
+                    case .keys: keysPane
+                    case .viewers: viewersPane
+                    case .connections: connectionsPane
+                    case .about: aboutPane
+                    }
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            Divider()
-            HStack(spacing: 8) {
-                Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
-                Button(L10n("Import / Export…")) { store.showingImportExport = true }
-                Button(L10n("Custom Formatters…")) { store.showingFormatterManager = true }
-                Spacer()
-                Button(L10n("Close")) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.borderedProminent)
-            }
-            .padding(12)
         }
-        .frame(width: 660, height: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
 
-    private var appearanceTab: some View {
-        Form {
-            Picker(L10n("Theme"), selection: $store.theme) {
-                Text(L10n("Follow system")).tag("system")
-                Text(L10n("Light")).tag("light")
-                Text(L10n("Dark")).tag("dark")
+    /// A caption over a bordered card of grid-aligned rows.
+    @ViewBuilder
+    private func group<C: View>(_ caption: String? = nil, @ViewBuilder rows: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let caption {
+                Text(L10n(caption))
+                    .font(.system(size: ARDMFont.small, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
             }
-            Picker(L10n("Language"), selection: $store.language) {
-                ForEach(store.languages, id: \.self) { code in
-                    Text("\(code.uppercased()) — \(languageName(code))").tag(code)
+            VStack(spacing: 0) { rows() }
+                .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Appearance
+
+    private var appearancePane: some View {
+        Group {
+            group {
+                SettingsRow("Theme") {
+                    Picker("", selection: $store.theme) {
+                        Text(L10n("Follow system")).tag("system")
+                        Text(L10n("Light")).tag("light")
+                        Text(L10n("Dark")).tag("dark")
+                    }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-            }
-            .onChange(of: store.language) { _, newValue in
-                ARDMLocalization.shared().currentLanguage = newValue
-            }
-            Picker(L10n("Font family"), selection: $store.fontFamily) {
-                ForEach(store.fonts, id: \.self) { Text($0).tag($0) }
-            }
-            Stepper(L10n("Font size") + ": \(Int(store.fontSize))", value: $store.fontSize, in: 9...24)
-            HStack {
-                Text(L10n("Zoom"))
-                Slider(value: $store.zoom, in: 0.7...1.6, step: 0.1)
-                Text(String(format: "%.1f×", store.zoom)).font(store.monoFont(11)).frame(width: 44, alignment: .trailing)
-            }
-            HStack {
-                Text(L10n("Sidebar width"))
-                Slider(value: $store.sidebarWidth, in: 200...520, step: 10)
-                Text("\(Int(store.sidebarWidth)) px").font(store.monoFont(11)).frame(width: 60, alignment: .trailing)
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var keysTab: some View {
-        Form {
-            Stepper(L10n("Keys per SCAN page") + ": \(store.pageSize)", value: $store.pageSize, in: 50...5000, step: 50)
-            TextField(L10n("Key tree separator"), text: $store.separator)
-                .onChange(of: store.separator) { _, _ in store.buildTree() }
-            Toggle(L10n("Use tree view"), isOn: $store.showTree)
-            Toggle(L10n("Read-only mode (blocks write commands)"), isOn: $store.readOnly)
-            HStack {
-                Text(L10n("Database"))
-                Spacer()
-                Picker("", selection: $store.selectedDB) {
-                    ForEach(0..<16, id: \.self) { Text("DB \($0)").tag($0) }
-                }
-                .frame(width: 110)
-                .onChange(of: store.selectedDB) { _, newValue in store.changeDatabase(newValue) }
-            }
-            Text(L10n("Read-only is enforced in the RESP client before any command is written."))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
-    }
-
-    private var viewersTab: some View {
-        Form {
-            Picker(L10n("Default viewer"), selection: $store.viewerName) {
-                ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
-            }
-            Text(L10n("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):"))
-                .font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: $store.customViewerScript)
-                .font(store.monoFont(11))
-                .frame(height: 110)
-                .border(Color.secondary.opacity(0.3))
-            HStack {
-                Button(L10n("Test on current value")) { store.viewerName = "Custom"; store.renderValue() }
-                Button(L10n("Manage formatters…")) { store.showingFormatterManager = true }
-                Spacer()
-                Text("\(store.customFormatters.count) saved formatters").font(.caption)
-            }
-            Text(L10n("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore."))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
-    }
-
-    private var aboutTab: some View {
-        Form {
-            LabeledContent("Application", value: "Another Redis Desktop Manager (Native)")
-            LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.4")
-            LabeledContent("UI", value: "SwiftUI + AppKit (system frameworks, zero bundled runtime)")
-            LabeledContent("Redis protocol", value: "RESP2 (RESP3 reply types parsed) over CFStream")
-            LabeledContent("Localization", value: "\(store.languages.count) languages via JavaScriptCore")
-            Divider()
-            HStack {
-                Button(L10n("Check for Updates")) {
-                    checkingUpdate = true
-                    ARDMAppServices.checkForUpdate { status, url in
-                        checkingUpdate = false
-                        store.updateStatus = status
-                        if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
-                            NSWorkspace.shared.open(url)
+                RowDivider()
+                SettingsRow("Language") {
+                    Picker("", selection: $store.language) {
+                        ForEach(store.languages, id: \.self) { code in
+                            Text("\(code.uppercased()) — \(languageName(code))").tag(code)
                         }
                     }
-                }
-                .disabled(checkingUpdate)
-                Button(L10n("Download & verify")) {
-                    checkingUpdate = true
-                    store.updateStatus = L10n("Downloading…")
-                    ARDMAppServices.downloadUpdate { status, file in
-                        checkingUpdate = false
-                        store.updateStatus = status
-                        guard let file else { return }
-                        pendingArchive = file
-                        confirmInstall = true      // never replace the app without an explicit OK
+                    .labelsHidden()
+                    .fixedSize()
+                    .onChange(of: store.language) { _, newValue in
+                        ARDMLocalization.shared().currentLanguage = newValue
                     }
                 }
-                .disabled(checkingUpdate || ARDMAppServices.pendingUpdateVersion() == nil)
-                if checkingUpdate { ProgressView().scaleEffect(0.6) }
-                Toggle(L10n("Open release page when available"), isOn: Binding(
-                    get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
-                    set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
+                RowDivider()
+                SettingsRow("Font family") {
+                    Picker("", selection: $store.fontFamily) {
+                        ForEach(store.fonts, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
             }
-            if let version = ARDMAppServices.pendingUpdateVersion() {
-                Text(L10n("Pending:") + " \(version) · "
-                     + (ARDMAppServices.pendingUpdateHasChecksum()
-                        ? L10n("SHA-256 available")
-                        : L10n("no SHA-256 published")))
-                    .font(.caption).foregroundStyle(.secondary)
+
+            group("Text and layout") {
+                SettingsRow("Font size") {
+                    Stepper(value: $store.fontSize, in: 9...24) {
+                        Text("\(Int(store.fontSize)) pt")
+                            .font(.system(size: ARDMFont.body, design: .monospaced))
+                            .monospacedDigit()
+                    }
+                    .fixedSize()
+                }
+                Footnote("Applies to the three columns as you change it")
+                RowDivider()
+                SettingsRow("Zoom") {
+                    ValueSlider(value: $store.zoom, range: 0.7...1.6, step: 0.1) {
+                        Text(String(format: "%.1f×", store.zoom))
+                    }
+                }
+                RowDivider()
+                SettingsRow("Sidebar width") {
+                    ValueSlider(value: $store.sidebarWidth, range: 200...520, step: 10) {
+                        Text("\(Int(store.sidebarWidth)) px")
+                    }
+                }
             }
-            Text(store.updateStatus.isEmpty ? L10n("No update check has been run yet.") : store.updateStatus)
-                .font(.caption).foregroundStyle(.secondary)
-            Divider()
-            Text(L10n("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity."))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
-        .alert(L10n("Install this update?"), isPresented: $confirmInstall) {
-            Button(L10n("Cancel"), role: .cancel) { pendingArchive = nil }
-            Button(L10n("Install and relaunch")) { installPendingUpdate() }
-        } message: {
-            Text(installPrompt)
         }
     }
+
+    // MARK: Keys
+
+    private var keysPane: some View {
+        Group {
+            group("Browsing") {
+                SettingsRow("Keys per SCAN page") {
+                    Stepper(value: $store.pageSize, in: 50...5000, step: 50) {
+                        Text("\(store.pageSize)")
+                            .font(.system(size: ARDMFont.body, design: .monospaced))
+                            .monospacedDigit()
+                    }
+                    .fixedSize()
+                }
+                RowDivider()
+                SettingsRow("Key tree separator") {
+                    TextField("", text: $store.separator)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: ardmScaled(70))
+                        .onChange(of: store.separator) { _, _ in store.buildTree() }
+                }
+            }
+
+            // The database picker used to live here as well. It switched the
+            // middle column, which the breadcrumb and the sidebar already do,
+            // and left this pane showing a DB that was not the one on screen.
+            group("Behaviour") {
+                SettingsRow("Use tree view") {
+                    SettingsSwitch(isOn: $store.showTree)
+                }
+                RowDivider()
+                SettingsRow("Read-only mode") {
+                    SettingsSwitch(isOn: $store.readOnly)
+                }
+                Footnote("Read-only is enforced in the RESP client before any command is written.")
+                RowDivider()
+                LinkRow {
+                    Button(L10n("Keyboard Shortcuts…")) { store.showingHotKeys = true }
+                        .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    // MARK: Viewers
+
+    private var viewersPane: some View {
+        Group {
+            group("Default viewer") {
+                SettingsRow("Viewer") {
+                    Picker("", selection: $store.viewerName) {
+                        ForEach(store.viewers, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                RowDivider()
+                SettingsRow("Formatters") {
+                    HStack(spacing: 10) {
+                        Text("\(store.customFormatters.count) " + L10n("saved formatters"))
+                            .font(.system(size: ARDMFont.small))
+                            .foregroundStyle(.secondary)
+                        Button(L10n("Manage formatters…")) { store.showingFormatterManager = true }
+                            .controlSize(.small)
+                    }
+                }
+            }
+
+            group("Custom script") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n("Custom viewer JavaScript (JavaScriptCore; `bytes` is a Uint8Array):"))
+                        .font(.system(size: ARDMFont.small))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextEditor(text: $store.customViewerScript)
+                        .font(store.monoFont(ARDMFont.monoRow))
+                        .frame(height: ardmScaled(96))
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
+                    Button(L10n("Test on current value")) {
+                        store.viewerName = "Custom"
+                        store.renderValue()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(14)
+            }
+
+            // The full viewer list used to be a four-line gray paragraph at the
+            // bottom of the pane. One line here, the detail still reachable.
+            DisclosureGroup {
+                Text(L10n("All 15 viewers (Text, Hex, Json, Binary, Msgpack, PHPSerialize, JavaSerialize, Pickle, Brotli, Gzip, Deflate, DeflateRaw, Protobuf, OverSize, Custom) are implemented with Foundation / zlib / JavaScriptCore."))
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
+            } label: {
+                Text(L10n("Viewers are built on Foundation, zlib and JavaScriptCore."))
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    // MARK: Connections
+
+    private var connectionsPane: some View {
+        group {
+            LinkRow {
+                Button(L10n("Import / Export…")) { store.showingImportExport = true }
+                    .controlSize(.small)
+            }
+            Footnote("Passwords are stored in the macOS Keychain, never in connections.json.")
+        }
+    }
+
+    // MARK: About & updates
+
+    private var aboutPane: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            group {
+                InfoRow(L10n("Application"), "Another Redis Desktop Manager (Native)")
+                RowDivider()
+                InfoRow(L10n("Version"),
+                        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.7.4")
+                RowDivider()
+                InfoRow(L10n("UI"), "SwiftUI + AppKit")
+                RowDivider()
+                InfoRow(L10n("Redis protocol"), "RESP2 · RESP3 reply types")
+                RowDivider()
+                InfoRow(L10n("Localization"), "\(store.languages.count) " + L10n("languages"))
+            }
+
+            group("Updates") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button(L10n("Check for Updates")) {
+                            checkingUpdate = true
+                            ARDMAppServices.checkForUpdate { status, url in
+                                checkingUpdate = false
+                                store.updateStatus = status
+                                if let url, UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(checkingUpdate)
+                        Button(L10n("Download & verify")) {
+                            checkingUpdate = true
+                            store.updateStatus = L10n("Downloading…")
+                            ARDMAppServices.downloadUpdate { status, file in
+                                checkingUpdate = false
+                                store.updateStatus = status
+                                guard let file else { return }
+                                pendingArchive = file
+                                confirmInstall = true      // never replace the app without an explicit OK
+                            }
+                        }
+                        .controlSize(.small)
+                        .disabled(checkingUpdate || ARDMAppServices.pendingUpdateVersion() == nil)
+                        if checkingUpdate {
+                            ProgressView().controlSize(.small)
+                        }
+                        Spacer(minLength: 0)
+                    }
+
+                    HStack(spacing: ardmScaled(14)) {
+                        Text(L10n("Open release page when available"))
+                            .font(.system(size: ARDMFont.body))
+                            .frame(width: settingsLabelWidth, alignment: .leading)
+                        SettingsSwitch(isOn: Binding(
+                            get: { UserDefaults.standard.bool(forKey: "ARDMOpenReleaseOnUpdate") },
+                            set: { UserDefaults.standard.set($0, forKey: "ARDMOpenReleaseOnUpdate") }))
+                        Spacer(minLength: 0)
+                    }
+
+                    if let version = ARDMAppServices.pendingUpdateVersion() {
+                        Text(L10n("Pending:") + " \(version) · "
+                             + (ARDMAppServices.pendingUpdateHasChecksum()
+                                ? L10n("SHA-256 available")
+                                : L10n("no SHA-256 published")))
+                            .font(.system(size: ARDMFont.small))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(store.updateStatus.isEmpty ? L10n("No update check has been run yet.") : store.updateStatus)
+                        .font(.system(size: ARDMFont.small))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(14)
+                .alert(L10n("Install this update?"), isPresented: $confirmInstall) {
+                    Button(L10n("Cancel"), role: .cancel) { pendingArchive = nil }
+                    Button(L10n("Install and relaunch")) { installPendingUpdate() }
+                } message: {
+                    Text(installPrompt)
+                }
+            }
+
+            DisclosureGroup {
+                Text(L10n("External / conditional capabilities: Brotli viewer needs the system `brotli` CLI; RedisJSON / TimeSeries / Vector / Array views need the corresponding Redis modules; mutual TLS needs a PKCS#12 or PEM client identity."))
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
+            } label: {
+                Text(L10n("Some viewers and features need extra components."))
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    // MARK: Footer
+
+    /// Only Close. The three links that shared this row each belong to a pane
+    /// and now sit inside it, next to the settings they relate to.
+    private var footer: some View {
+        HStack {
+            Spacer()
+            Button(L10n("Close")) { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: ardmScaled(44))
+    }
+
+    // MARK: Update install
 
     private var installPrompt: String {
         let version = ARDMAppServices.pendingUpdateVersion() ?? "?"
@@ -220,21 +466,146 @@ struct SettingsView: View {
     }
 
     private func languageName(_ code: String) -> String {
-        switch code {
-        case "cn": return "简体中文"
-        case "tw": return "繁體中文"
-        case "en": return "English"
-        case "de": return "Deutsch"
-        case "es": return "Español"
-        case "fr": return "Français"
-        case "it": return "Italiano"
-        case "ko": return "한국어"
-        case "pt": return "Português"
-        case "ru": return "Русский"
-        case "tr": return "Türkçe"
-        case "ua": return "Українська"
-        case "vi": return "Tiếng Việt"
-        default: return code
+        languageDisplayName(code)
+    }
+}
+
+// MARK: - Shared settings chrome
+
+/// One label/control pair. The label column is pinned and the control follows
+/// one gutter later: the old row ended with `Spacer()`, which pushed every
+/// control to the far edge and left a 300pt hole in the middle of each line.
+private let settingsLabelWidth = ardmScaled(150)
+private let settingsRowInset = ardmScaled(14)
+
+private struct SettingsRow<Control: View>: View {
+    let label: String
+    @ViewBuilder var control: Control
+
+    init(_ label: String, @ViewBuilder control: () -> Control) {
+        self.label = label
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(spacing: ardmScaled(14)) {
+            Text(L10n(label))
+                .font(.system(size: ARDMFont.body))
+                .frame(width: settingsLabelWidth, alignment: .leading)
+            control
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, settingsRowInset)
+        .padding(.vertical, 7)
+    }
+}
+
+/// Explanatory line under a row, left-aligned with the row label the way
+/// System Settings does it: the control column is where the value lives, and a
+/// sentence there reads as a second value.
+private struct Footnote: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(L10n(text))
+            .font(.system(size: ARDMFont.micro))
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, settingsRowInset)
+            .padding(.trailing, settingsRowInset)
+            .padding(.bottom, 8)
+    }
+}
+
+/// Hairline between two rows of the same card.
+private struct RowDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.16))
+            .frame(height: 1)
+            .padding(.horizontal, settingsRowInset)
+    }
+}
+
+/// A switch without the label AppKit reserves space for.
+private struct SettingsSwitch: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle("", isOn: $isOn)
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+    }
+}
+
+/// A destination rather than a setting: a row that is only a button, so it
+/// doesn't need a label column pretending it holds a value.
+private struct LinkRow<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, settingsRowInset)
+        .padding(.vertical, 10)
+    }
+}
+
+/// Slider with its value printed beside it in digits that don't jitter.
+private struct ValueSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    @ViewBuilder let readout: () -> Text
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Slider(value: $value, in: range, step: step)
+                .frame(width: ardmScaled(190))
+            readout()
+                .font(.system(size: ARDMFont.small, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: ardmScaled(46), alignment: .trailing)
+        }
+    }
+}
+
+/// Read-only `label: value` line in the About pane.
+private struct InfoRow: View {
+    let label: String
+    let value: String
+
+    init(_ label: String, _ value: String) {
+        self.label = label
+        self.value = value
+    }
+
+    var body: some View {
+        HStack(spacing: ardmScaled(14)) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .font(.system(size: ARDMFont.body))
+                .frame(width: settingsLabelWidth, alignment: .leading)
+            Text(value)
+                .foregroundStyle(.primary)
+                .font(.system(size: ARDMFont.body))
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, settingsRowInset)
+        .padding(.vertical, 7)
     }
 }

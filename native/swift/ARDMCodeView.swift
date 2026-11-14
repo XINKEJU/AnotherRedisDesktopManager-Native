@@ -127,7 +127,7 @@ struct ARDMCodeView: NSViewRepresentable {
             self.text = text
         }
 
-        func attach(textView: NSTextView, ruler: ARDMLineNumberRuler) {
+        func attach(textView: NSTextView, ruler: ARDMLineNumberRuler?) {
             self.textView = textView
             self.ruler = ruler
         }
@@ -247,6 +247,20 @@ final class ARDMLineNumberRuler: NSRulerView {
         needsDisplay = true
     }
 
+    /// A vertical ruler is given a frame as tall as the document, and NSView does
+    /// not clip a subview's drawing to the scroll view's bounds — so the gutter
+    /// painted a rule from the title bar to the status bar, well above the code
+    /// surface it belongs to. Clipping in `draw(_:)` covers everything AppKit
+    /// draws on the ruler's behalf, not just what this subclass strokes.
+    override func draw(_ dirtyRect: NSRect) {
+        guard let clip = scrollView?.contentView else { super.draw(dirtyRect); return }
+        let band = convert(clip.bounds, from: clip).intersection(bounds)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: band).setClip()
+        super.draw(dirtyRect)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView = clientView as? NSTextView,
               let layout = textView.layoutManager,
@@ -255,7 +269,7 @@ final class ARDMLineNumberRuler: NSRulerView {
         NSColor.textBackgroundColor.setFill()
         bounds.fill()
 
-        // Hairline separator, matching the 1pt rules used between the panes.
+        // Hairline on the gutter's trailing edge, inside the clip set above.
         NSColor.separatorColor.withAlphaComponent(0.55).setFill()
         NSRect(x: bounds.maxX - 1, y: bounds.minY, width: 1, height: bounds.height).fill()
 

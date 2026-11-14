@@ -81,6 +81,11 @@ struct KeyNode: Identifiable {
     var fullPath: String
     var isLeaf: Bool
     var children: [KeyNode]?
+    /// The folder names a collapsed chain stands for. Empty for an ordinary node,
+    /// which then renders `name` alone.
+    var chain: [String] = []
+
+    var displayPath: String { chain.isEmpty ? name : chain.joined(separator: " › ") }
 }
 
 /// Recursive node for connection groups in the sidebar.
@@ -189,7 +194,14 @@ final class AppStore: ObservableObject {
     @Published var activeTab: MainTab = .keys
     @Published var statusText = L10n("Not connected")
     @Published var errorMessage: String?
-    @Published var infoMessage: String?
+    /// Inline feedback pill above the status bar. A save, a copy and a delete
+    /// used to each raise a modal alert for news that needs no decision.
+    @Published private(set) var toast: Toast?
+
+    struct Toast: Equatable {
+        let text: String
+        let id = UUID()
+    }
 
     // Key browser
     /// `filteredKeys()` is read from several places inside a single body
@@ -215,16 +227,55 @@ final class AppStore: ObservableObject {
     /// the new page.
     var metaLoadedKeys = Set<String>()
     @Published var selectedKey: String?
+    /// Pointer/keyboard selection in the key list. A `Set` is what buys the free
+    /// behaviour: `List` gives ↑↓ to move it, ⇧ to extend a range and ⌘ to add a
+    /// row, which is the whole multi-select story. `selectedKey` stays the single
+    /// key the detail pane is reading, so arrowing never reloads nine values.
+    @Published var keySelection: Set<String> = []
+    /// The row arrow keys and ⇧-ranges hang off, and the one ↩ opens. `List` does
+    /// not report the clicked row, so it is reconstructed from what the selection
+    /// gained (see `resolveSelectionAnchor`).
+    var selectionAnchor: String?
+    /// Whether the arrow keys belong to the key list. `List` on macOS only takes
+    /// the keyboard when it is the focus owner, and in this hand-rolled
+    /// three-column layout a row click selects without ever focusing the list —
+    /// the sidebar's list does it, the middle one does not. So the flag follows
+    /// the pointer, and `moveKeySelection` does the rest.
+    var keyListHasFocus = false
+    /// Bumped when the keyboard moves the selection, so the `onChange` handler
+    /// knows the anchor was just set deliberately and must not re-derive it from
+    /// the diff — a ⇧ extension would otherwise re-anchor to the wrong end.
+    var selectionMoveToken = 0
+    var handledSelectionMoveToken = 0
     @Published var searchText = "" {
-        didSet { invalidateKeyCaches(scope: .filter) }
+        didSet { scheduleFilterInvalidation() }
     }
     /// Second-pass filter over the keys already loaded from SCAN. Never triggers a
     /// server round-trip, so narrowing a 100k-key page stays instant.
     @Published var localFilter = "" {
-        didSet { invalidateKeyCaches(scope: .filter) }
+        didSet { scheduleFilterInvalidation() }
     }
     @Published var localFilterRegex = false {
-        didSet { invalidateKeyCaches(scope: .filter) }
+        didSet { scheduleFilterInvalidation() }
+    }
+    /// Bumped when a debounced filter change finally lands, so the rows redraw
+    /// with the new result instead of the one still in the cache.
+    @Published var filterRevision = 0
+    private var filterSettleWork: DispatchWorkItem?
+    /// Trailing-edge timer for the detail load that follows keyboard selection.
+    var detailSettleWork: DispatchWorkItem?
+    /// Typing re-filters and ICU-sorts the whole loaded page, which is far too
+    /// much work for every keystroke of a ten-character needle. The result is
+    /// allowed to lag a beat behind the field; the field itself never does.
+    private func scheduleFilterInvalidation() {
+        filterSettleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.invalidateKeyCaches(scope: .filter)
+            self.filterRevision += 1
+        }
+        filterSettleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
     /// Incremented by the ⌘F menu command so the key search field can grab focus.
     @Published var searchFocusRequest = 0
@@ -328,9 +379,20 @@ final class AppStore: ObservableObject {
     @Published var sidebarWidth: Double = UserDefaults.standard.double(forKey: "ARDMSidebarWidth").nonZero(or: 240) {
         didSet { UserDefaults.standard.set(sidebarWidth, forKey: "ARDMSidebarWidth") }
     }
+    /// Collapsed state is separate from the width: hiding the column must not
+    /// forget how wide the user left it.
+    @Published var sidebarCollapsed: Bool = UserDefaults.standard.bool(forKey: "ARDMSidebarCollapsed") {
+        didSet { UserDefaults.standard.set(sidebarCollapsed, forKey: "ARDMSidebarCollapsed") }
+    }
     @Published var searchHistory: [String] = UserDefaults.standard.stringArray(forKey: "ARDMKeySearchHistory") ?? []
     @Published var checkedKeys: Set<String> = []
     @Published var favoriteKeys: [String] = []
+    /// Keys opened most recently, newest first. The ⌘K palette shows these (and
+    /// the favourites) before the user types anything, which is what makes the
+    /// palette a jump target rather than only a search box.
+    @Published var recentKeys: [String] = [] {
+        didSet { UserDefaults.standard.set(recentKeys, forKey: "ARDMRecentKeys") }
+    }
     /// Persisted tree expansion state (KeyListVirtualTree.vue).
     @Published var expandedNodeIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ARDMExpandedNodes") ?? [])
     /// folder path → every key beneath it. Rebuilt by buildTree() so the tree's
@@ -390,6 +452,16 @@ final class AppStore: ObservableObject {
     @Published var showTree: Bool = (UserDefaults.standard.object(forKey: "ARDMShowTree") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(showTree, forKey: "ARDMShowTree") }
     }
+    /// Fold `app › cache › api › resp` — a run of folders that each have exactly
+    /// one child — into a single row. Deeply namespaced keys otherwise spend the
+    /// whole column on empty plumbing and the leaf ends up labelled "1".
+    @Published var collapseTreeChains: Bool =
+        (UserDefaults.standard.object(forKey: "ARDMCollapseTreeChains") as? Bool) ?? true {
+        didSet {
+            UserDefaults.standard.set(collapseTreeChains, forKey: "ARDMCollapseTreeChains")
+            buildTree()
+        }
+    }
     @Published var customFormatters: [[String: String]] = ARDMAppServices.customFormatters() {
         didSet { ARDMAppServices.saveCustomFormatters(customFormatters) }
     }
@@ -440,6 +512,7 @@ final class AppStore: ObservableObject {
         ARDMLocalization.shared().currentLanguage = language
         commandReference = ARDMAppServices.commandReference()
         favoriteKeys = UserDefaults.standard.stringArray(forKey: "ARDMFavoriteKeys") ?? []
+        recentKeys = UserDefaults.standard.stringArray(forKey: "ARDMRecentKeys") ?? []
         cliHistory = UserDefaults.standard.stringArray(forKey: "ARDMCliHistory") ?? []
     }
 
@@ -512,8 +585,15 @@ final class AppStore: ObservableObject {
     }
 
     func notify(_ message: String) {
-        infoMessage = message
-        statusText = message
+        // Localized here rather than at each call site: the same string feeds the
+        // toast and the status bar, and both are user-facing.
+        let text = L10n(message)
+        statusText = text
+        toast = Toast(text: text)
+    }
+
+    func dismissToast(_ toast: Toast) {
+        if self.toast == toast { self.toast = nil }
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -524,8 +604,14 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// The one multiplier behind every chrome dimension: the 字号 setting
+    /// measured against its 13pt baseline, times 缩放. `ARDMFont` and
+    /// `ARDMMetrics` read it, so the two settings in 外观 now size the whole
+    /// interface rather than the two views that used to call `scaled`.
+    var uiScale: CGFloat { CGFloat(fontSize / 13.0) * CGFloat(zoom) }
+
     /// Base size is scaled by both the user font size and the zoom factor.
-    func scaled(_ base: CGFloat) -> CGFloat { base * CGFloat(fontSize / 13.0) * CGFloat(zoom) }
+    func scaled(_ base: CGFloat) -> CGFloat { base * uiScale }
 
     /// The user-selected font family is now actually applied to every editor/list font.
     func monoFont(_ base: CGFloat, weight: Font.Weight = .regular) -> Font {

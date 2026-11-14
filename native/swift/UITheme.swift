@@ -9,52 +9,64 @@ import AppKit
 /// which is what made the interface read as noisy even after the toolbars were
 /// collapsed. These four sizes are the only ones the UI should use.
 enum ARDMIcon {
-    /// Glyph inside a chip, badge or search field.
-    static let inline: CGFloat = 11
+    /// Glyph inside a chip, badge or search field. Scales with the text around
+    /// it, otherwise a larger 字号 leaves the magnifier a pinprick in a wider box.
+    static var inline: CGFloat { ardmScaled(11) }
     /// Icon-only button and tab strip glyph. One step above `inline` so a
-    /// symbol with wide bearings still fills its 24pt target.
-    static let control: CGFloat = 12.5
-    /// Leading glyph of a list row. Rows scale their text with the font size
-    /// setting, so this scales too.
-    static let row: CGFloat = 13
-    /// Empty-state illustration.
+    /// symbol with wide bearings still fills its control-sized target.
+    static var control: CGFloat { ardmScaled(12.5) }
+    /// Empty-state illustration. Deliberately fixed: it is decoration, and
+    /// growing it with the text would push the real content off the pane.
     static let emptyState: CGFloat = 36
 }
+
+/// Applies the live 字号 × 缩放 multiplier to a chrome dimension. Free function
+/// rather than a store method because `ARDMFont` and `ARDMMetrics` are used from
+/// static contexts that have no store in scope.
+func ardmScaled(_ base: CGFloat) -> CGFloat { base * AppStore.shared.uiScale }
 
 enum ARDMMetrics {
     /// Square hit target shared by every icon button and icon menu. Without it
     /// the target followed the glyph, so `plus` was wider than `play.fill` and
     /// the controls beside them never lined up.
-    static let control: CGFloat = 24
+    static var control: CGFloat { ardmScaled(26) }
     static let controlSpacing: CGFloat = 2
     static let rowSpacing: CGFloat = 6
     static let corner: CGFloat = 6
-    /// Compact search field height; matches the 24pt control next to it.
-    static let fieldHeight: CGFloat = 24
-    /// Dense list row. The reference clients pack key rows into 24pt, which is
-    /// also the smallest height that fits a 13pt checkbox beside a type chip;
-    /// anything taller turns a 3000-key page into a scrolling exercise.
-    static let rowHeight: CGFloat = 24
+    /// Search field height; matches the control beside it.
+    static var fieldHeight: CGFloat { ardmScaled(26) }
+    /// Key row height. The reference clients pack rows into 24pt, which is the
+    /// smallest height that fits a checkbox beside a type chip — but at that
+    /// height a page of keys reads as a spreadsheet, so the baseline starts one
+    /// step looser and scales with the text so neither overflows the other.
+    static var rowHeight: CGFloat { ardmScaled(27) }
     static let listInset: CGFloat = 10
     /// Height shared by the database tab strip and the filter strips above it.
-    static let stripHeight: CGFloat = 28
+    static var stripHeight: CGFloat { ardmScaled(30) }
+    /// Sidebar rows: a connection, or one of the sixteen databases. Looser than
+    /// the 19pt they were, which made the column read as a compact index.
+    static var sideRow: CGFloat { ardmScaled(24) }
 }
 
 /// Type scale. Every view used to pass its own number to `uiFont`, so the key
 /// list, the sidebar and the detail header drifted between 10.5 and 14pt. These
 /// five steps are now the only sizes used for chrome text; editors keep their
 /// own zoomable size because they hold user data, not labels.
+///
+/// The steps read the live 字号 × 缩放 multiplier rather than being constants,
+/// because they were constants: the two settings in 外观 changed exactly two
+/// views in the whole app and left the other ninety call sites untouched.
 enum ARDMFont {
     /// Counters, TTLs, badge text.
-    static let micro: CGFloat = 10
+    static var micro: CGFloat { ardmScaled(11) }
     /// Secondary row text, status bar, chips.
-    static let small: CGFloat = 11
+    static var small: CGFloat { ardmScaled(12) }
     /// Default row and label text.
-    static let body: CGFloat = 12
+    static var body: CGFloat { ardmScaled(13) }
     /// Pane titles and the selected key name.
-    static let title: CGFloat = 13
+    static var title: CGFloat { ardmScaled(14) }
     /// Monospaced key names inside list rows.
-    static let monoRow: CGFloat = 11.5
+    static var monoRow: CGFloat { ardmScaled(12.5) }
 }
 
 // MARK: - Liquid Glass (macOS 26 Tahoe and later)
@@ -203,9 +215,19 @@ struct ARDMSearchField: View {
                 .accessibilityHidden(true)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: ARDMFont.body))
                 .focused(focus)
                 .onSubmit(onSubmit)
+                // Esc behaves like the browser omni-box: clear the text, run the
+                // clear hook, then hand focus back to the list.
+                .onKeyPress(.escape) {
+                    if !text.isEmpty {
+                        text = ""
+                        onClear?()
+                    }
+                    focus.wrappedValue = false
+                    return .handled
+                }
                 .accessibilityLabel(placeholder)
                 .accessibilityIdentifier(identifier)
             if !text.isEmpty {
@@ -314,10 +336,10 @@ struct ARDMTypeBadge: View {
 
     var body: some View {
         Text(type.badgeText)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: ARDMFont.micro, weight: .medium))
             .foregroundStyle(dimmed ? Color.secondary : type.tint)
             .padding(.horizontal, 5)
-            .frame(height: 15)
+            .frame(height: ardmScaled(17))
             .background(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(type.tint.opacity(dimmed ? 0.04 : 0.10))
@@ -339,31 +361,42 @@ struct ARDMChip: View {
     var selected: Bool = false
     var tint: Color = .accentColor
     var help: String = ""
+    /// The digit that picks this chip from the keyboard, printed on the chip.
+    var keyHint: String = ""
     var action: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: ARDMFont.small))
-                .foregroundStyle(selected ? tint : Color.secondary)
-                .padding(.horizontal, 6)
-                .frame(height: 20)
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(selected ? tint.opacity(0.12)
-                                       : (hovering ? Color.secondary.opacity(0.10) : Color.clear))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .strokeBorder(selected ? tint.opacity(0.38) : Color.clear, lineWidth: 0.8)
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: 2) {
+                Text(title)
+                    .font(.system(size: ARDMFont.small))
+                    .foregroundStyle(selected ? tint : Color.secondary)
+                if !keyHint.isEmpty {
+                    Text(keyHint)
+                        .font(.system(size: ARDMFont.micro, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(selected ? tint.opacity(0.75)
+                                                   : Color.secondary.opacity(0.55))
+                }
+            }
+            .padding(.horizontal, 6)
+            .frame(height: ardmScaled(22))
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(selected ? tint.opacity(0.12)
+                                   : (hovering ? Color.secondary.opacity(0.10) : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(selected ? tint.opacity(0.38) : Color.clear, lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(help.isEmpty ? title : help)
+        .help(help.isEmpty ? (keyHint.isEmpty ? title : "\(title) (\(keyHint))") : help)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -375,11 +408,11 @@ struct ARDMCountBadge: View {
 
     var body: some View {
         Text(ARDMFormat.count(count))
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: ARDMFont.micro, weight: .medium))
             .monospacedDigit()
             .foregroundStyle(tint.opacity(0.9))
             .padding(.horizontal, 4)
-            .frame(minWidth: 18, minHeight: 13)
+            .frame(minWidth: ardmScaled(20), minHeight: ardmScaled(15))
             .background(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(tint.opacity(0.10))
@@ -399,7 +432,7 @@ struct ARDMMetaChip: View {
         HStack(spacing: 3) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: ARDMFont.micro, weight: .medium))
                     .accessibilityHidden(true)
             }
             Text(label).foregroundStyle(.tertiary)
@@ -464,5 +497,62 @@ enum ARDMFormat {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         return f.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+}
+
+// MARK: - Inline feedback pill
+
+/// The toast layer, mounted once over the three columns. Sits above the status
+/// bar so the news never lands where the eye already reads it twice.
+struct ARDMToastLayer: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        // The ZStack and the animation live here so the mount point in `RootView`
+        // is a single view: the longer the modifier chain on the root, the more
+        // often the type checker gives up on the whole body.
+        ZStack {
+            if let toast = store.toast {
+                ARDMToastPill(toast: toast)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.25), value: store.toast)
+        .padding(.bottom, 32)
+    }
+}
+
+/// One message, shown until it ages out. A newer `notify` replaces this pill
+/// rather than queueing behind it: the last thing that happened is the thing
+/// worth reading.
+private struct ARDMToastPill: View {
+    @EnvironmentObject var store: AppStore
+    let toast: AppStore.Toast
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: ARDMFont.small, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
+            Text(toast.text)
+                .font(.system(size: ARDMFont.small))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: ARDMMetrics.control)
+        .ardmGlass(in: Capsule())
+        .contentShape(Capsule())
+        .accessibilityIdentifier("app.toast")
+        .onTapGesture { store.dismissToast(toast) }
+        // `.task(id:)` cancels the previous countdown when a new toast arrives,
+        // so the timer can never dismiss a message that has already been
+        // replaced.
+        .task(id: toast.id) {
+            try? await Task.sleep(for: .seconds(2.2))
+            guard !Task.isCancelled else { return }
+            store.dismissToast(toast)
+        }
     }
 }
