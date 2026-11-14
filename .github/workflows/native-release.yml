@@ -1,0 +1,93 @@
+name: Native release artifacts
+
+# Builds and verifies the artifact that gets attached to a GitHub Release.
+# Publishing stays manual: this repo's releases are created by hand, and the
+# in-app updater refuses an ad-hoc build unless SHA256SUMS is attached too, so
+# the job's whole purpose is to hand you a zip whose contents are already proven.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  artifact:
+    name: Build, package, verify
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          swiftc --version | head -1
+
+      - name: Run native tests
+        run: bash native/tests/run.sh
+
+      - name: Build and package
+        run: |
+          bash native/build.sh
+          bash native/package.sh
+
+      - name: Assert the tag matches the bundle version
+        run: |
+          set -euo pipefail
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "native/ARDM Native.app/Contents/Info.plist")"
+          echo "bundle version: $VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [[ "$TAG" != "$VERSION" ]]; then
+              echo "::error::tag is v$TAG but native/Info.plist says $VERSION — bump the plist before tagging, or the updater offers the wrong version." >&2
+              exit 1
+            fi
+          else
+            echo "Not a tag push ($GITHUB_REF); version check skipped."
+          fi
+
+      - name: Verify the shipped zip end to end
+        # Everything the in-app updater checks before it touches /Applications.
+        run: |
+          set -euo pipefail
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "native/ARDM Native.app/Contents/Info.plist")"
+          ZIP="native/dist/ARDM-Native-${VERSION}-arm64.zip"
+          test -f "$ZIP"                       || { echo "::error::missing $ZIP"; exit 1; }
+          test -f native/dist/SHA256SUMS       || { echo "::error::missing SHA256SUMS"; exit 1; }
+          (cd native/dist && shasum -a 256 -c SHA256SUMS)
+
+          WORK="$(mktemp -d)"
+          /usr/bin/ditto -x -k "$ZIP" "$WORK"
+          APP="$WORK/ARDM Native.app"
+          test -d "$APP"                       || { echo "::error::zip has no .app wrapper"; exit 1; }
+          codesign --verify --deep --strict "$APP"
+          vtool -show-build "$APP/Contents/MacOS/ardm-native" | grep -q "minos 14.0" \
+            || { echo "::error::artifact is not stamped for macOS 14.0"; exit 1; }
+          test "$(lipo -archs "$APP/Contents/MacOS/ardm-native")" = "arm64"
+          LANGS="$(find "$APP/Contents/Resources/langs" -name '*.js' | wc -l | tr -d ' ')"
+          test "$LANGS" -ge 13                 || { echo "::error::only $LANGS language tables bundled"; exit 1; }
+          test -f "$APP/Contents/Resources/commands.js"
+          echo "verified: $(du -h "$APP" | cut -f1) bundle, $LANGS languages, sha256 ok"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARDM-Native-${{ github.ref_name }}
+          path: |
+            native/dist/*.zip
+            native/dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: How to publish
+        run: |
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "native/ARDM Native.app/Contents/Info.plist")"
+          cat <<EOF
+          Download the artifact from this run, then attach BOTH files to the release:
+            ARDM-Native-${VERSION}-arm64.zip
+            SHA256SUMS
+          A release without SHA256SUMS cannot be auto-installed: the updater rejects
+          ad-hoc signed downloads it cannot checksum.
+          EOF

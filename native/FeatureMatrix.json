@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round8-hex-zset-protobuf-memory-2026-11-13",
+  "revision": "round13-optimization + native-1.7.5-2026-11-14",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -22,7 +22,37 @@
     "native_source_lines": 6346,
     "compiled_swift_files": 14,
     "compiled_objc_sources": 3,
-    "note": "native_source_lines 为实际编译的 14 个 Swift 文件 + 3 个 ObjC .m + 头文件；已停用的 UI.m（AppKit 第一版界面）不计入"
+    "note": "以上三项为 round4 时的历史基线快照（14 个 Swift + 3 个 ObjC .m + 头文件，UI.m 不计入），保留用于体积对比，不代表当前源码构成。当前构成见 objc_migration。",
+    "history_note": "compiled_objc_sources=3 指的是迁移前的 Redis.m / Services.m / Transport.m；这三个文件及其中间桥接头文件已在后续轮次删除。"
+  },
+  "objc_migration": {
+    "status": "complete",
+    "date": "2026-11-13",
+    "current_compiled_swift_files": 24,
+    "current_compiled_objc_sources": 0,
+    "current_native_source_lines": 12578,
+    "removed_sources": [
+      "native/Redis.m",
+      "native/Services.m",
+      "native/Transport.m",
+      "native/ARDM.h",
+      "native/Transport.h",
+      "native/Bridge.h"
+    ],
+    "swift_replacements": {
+      "Redis.m": "swift/RedisClient.swift（ARDMRedisClient + ARDMRESPStream：RESP2/3 解析、集群 MOVED/ASK、只读拦截、命令日志脱敏、SSH -L 隧道）",
+      "Services.m": "swift/AppServices.swift、swift/Deserializers.swift、swift/Formatters.swift、swift/Localization.swift、swift/RedisKit.swift",
+      "Transport.m": "swift/AppServices.swift（Network.framework TLS + Security.framework 客户端身份 PKCS#12/PEM）、swift/RedisClient.swift（SSH 转发与证书链校验）"
+    },
+    "behavior_guarantees": [
+      "只读拦截：writeCommands 集合补齐 DEBUG/MODULE/REPLICAOF/SLAVEOF/ACL/FAILOVER/CLUSTER 等，并用 trim + 双 token 匹配修复原内核空格导致永不命中的缺陷",
+      "日志脱敏：AUTH 参数掩为 '***'，单参数 >200 字符截断，二进制参数记为 '<N bytes>'，保活 PING 不入日志",
+      "TLS：kCFStreamSSLValidatesCertificateChain 默认开启，仅 tlsInsecure 显式勾选才跳过；原内核硬编码 NO",
+      "集群：MOVED 永久重指向；ASK 用临时连接发送 ASKING 后恢复原连接（原内核 ASK 成功后不恢复）",
+      "SSH：-L 转发目标使用 config.host 而非硬编码 127.0.0.1，ConnectTimeout 取 sshTimeout，支持 keepalive 与 autoClose"
+    ],
+    "enforcement": "build.sh 第 33-37 行在发现 *.m 或 Bridge.h 时直接让构建失败",
+    "verification": "tests/run.sh 全量通过（core 93 + updater 15），测试探针亦为纯 Swift（tests/core/main.swift），无 probe.m"
   },
   "toolchain": {
     "developer_dir": "/Applications/Xcode.app/Contents/Developer",
@@ -36,8 +66,8 @@
   "verification": {
     "swift_typecheck_errors": 0,
     "build_warnings": 0,
-    "runtime_probe": "103 passed, 0 failed（core 88 + updater 15）。core 覆盖假 Redis 协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考；updater 覆盖 SHA-256、校验和格式、签名校验、原子替换与回滚、外来 bundle 与摘要不符的双重拒绝",
-    "probe_harness": "native/tests/（core/probe.m + core/fake_redis.py、updater/probe.m + updater/fixture.sh、run.sh）；runner 只依赖 clang 与 python3，不需要 redis-server、GUI 或完整 Xcode；无 bundle 运行时用 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 以加载 13 语言与 commands.js；CI 见 .github/workflows/native.yml（macos-14：tests 作业跑 103 条断言，build 作业出 .app 并打包）",
+    "runtime_probe": "126 passed, 0 failed（core 111 + updater 15）。core 覆盖假 Redis 协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考；updater 覆盖 SHA-256、校验和格式、签名校验、原子替换与回滚、外来 bundle 与摘要不符的双重拒绝",
+    "probe_harness": "native/tests/（core/main.swift + core/fake_redis.py、updater/main.swift + updater/fixture.sh、run.sh）；runner 只依赖 swiftc 与 python3，不需要 redis-server、GUI 或完整 Xcode；无 bundle 运行时用 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 以加载 13 语言与 commands.js；CI 见 .github/workflows/native.yml（macos-14：tests 作业跑 103 条断言，build 作业出 .app 并打包）",
     "gui": "2026-11-13 12:46 实测截图：应用启动、三栏 SwiftUI 窗口、中文菜单栏/工具栏/标签条/空态/状态栏均正常，无 ERR、无控件挤压",
     "localization_probe": "13 张语言表全部可解析；12 张非英语表各自返回 message.new_connection 的本地译文（cn=新建连接 … vi=Kết nối mới）",
     "distinct_ui_labels_wrapped_in_l10n": 238,
@@ -382,7 +412,7 @@
   "remaining_gaps": [
     "【round 8 口径】逐域细粒度差距见各 domain.gaps，共 12 条；其中 6 条属平台性 / 不可等价差异（Monaco IDE 能力、pipeline 语义、SSH 交互式认证、SSH 多隧道、ad-hoc 签名公证、RESP3 文档口径），其余为工具链或外部条件限制。",
     "已关闭：Vector 详情与量化、TimeSeries 聚合、Stream 消费者面板、Java/Pickle 真反序列化、.proto 解析、KEYSPACE 统计、慢日志阈值、更新自动安装、Status 排序（详见 round5_remediation.gap_accounting）。",
-    "降级或近似实现：12 语言未命中官方译文时走逐词近似翻译；Protobuf 的 .proto 解析只取平铺字段；Json viewer 展示侧大整数仍经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表为懒加载而非单元格复用。",
+    "降级或近似实现（round13 更正）：非英语标签先命中官方上游译文（148 条探针里 48 条命中），其余走逐词近似；Protobuf 的 .proto 解析只取平铺字段；Json viewer 仅在 formatJSON 判定为非法 JSON 时回落 JSONSerialization，此时大整数经 Double；Brotli 依赖系统 CLI；自定义 formatter 仅 JavaScriptCore 沙箱；树形列表用 SwiftUI List 而非手写 NSOutlineView 单元格复用（实测每行应用侧开销 0.3 µs，不构成瓶颈）。",
     "文档表述修正后的残留：解析器认识 RESP3 类型但从未发送 HELLO 3（原版同样未启用，非功能退化）。",
     "条件依赖：RedisJSON / TimeSeries / Vector / Array 需服务端模块；HTTL / HEXPIRE 需 Redis >= 7.4；mTLS 需用户证书；更新需网络与已发布 Release；签名公证需开发者账号。",
     "不可等价：SwiftUI 原生控件与 Web 视觉样式逐像素不一致；monaco-editor 的 IDE 能力无法由系统控件完全复刻。"
@@ -1221,5 +1251,42 @@
       "无障碍仅覆盖交互控件与结构区域，未做 VoiceOver 逐项朗读回归；动态类型（dynamicTypeSize）与高对比度未额外适配",
       "无障碍修饰符叠加后，连接标签页那段表达式在 Xcode 16 的 Swift 6 驱动下触发『unable to type-check in reasonable time』，本机新工具链却能编过——已抽出 tabChip(_:) 并上 CI 验证。后续再往长表达式里加修饰符要留意编译预算"
     ]
+  },
+  "round13_optimization": {
+    "date": "2026-11-14",
+    "round": 13,
+    "trigger": "用户『软件整体优化，推送，打包部署』；范围经确认＝正确性+性能/本地化+工程分发，随后提交推送并以手动方式发版",
+    "fixed": [
+      "P0 JSON 展示与写回损坏：formatJSON 逐字节 String(UnicodeScalar(byte)) 构造结果，任何非 ASCII 都按 latin-1 解读——「张三丰」渲染成 å¼ ä¸°、emoji 变成不可读序列；而 JSON viewer 与 JsonEditorSheet 的 Pretty/Minify 都走这条路，编辑器里点 Pretty 再保存会把乱码写回 Redis。改为全程按字节缓冲、末尾整体 UTF-8 解码（非法字节回落 U+FFFD  lossy 解码），结构校验语义一字未动。",
+      "P1 mTLS 身份构造：PKCS#12 分支把 SecPKCS12Import 的返回值直接 as! SecIdentity，无任何校验；PEM 分支虽比对 CFTypeID 但同样落到 as!。两处统一走 ARDMSecIdentity()，先核 CFGetTypeID 再取。注：Swift 把『向下转型到 CoreFoundation 类型』视为恒成立，as? 会被编译器拒绝，因此只能用 CFTypeID 判定。",
+      "P1 本地化官方译文兜底整条是死代码：englishIndex 只遍历 en.js 顶层，而上游表全部嵌在 message./info. 等分组下，`value as? String` 对每个顶层键都失败 ⇒ 索引恒空 ⇒ tText() 恒等返回输入 ⇒ 兜底链最后一环与 UILabels.swift 顶部注释假定的『上游反查』从未生效。改为递归展平后按 key 路径排序写入（多个键共享同一英文文案时结果必须可复现），并新增 translation(forEnglishText:)：查不到就返回 nil，绝不把 message.foo 这种键路径透到界面上。",
+      "P2 兜底优先级：uiWordwise 原先先做逐词替换、只在『一个词都没换动』时才试官方译文，于是部分命中就把人写的官方译文永久盖掉。现改为官方译文优先，逐词混合只填没人写过的标签。",
+      "P2 每次标签解析都新建 NSRegularExpression，提到文件级常量。"
+    ],
+    "verification": {
+      "tests": "core 111 + updater 15 = 126 全过（此前 93 + 15）。新增 18 条：UTF-8 直传（中文键/中文值/4 字节 emoji/Json viewer 渲染）、字符串内 { } ] , : 与转义符必须保持字面量、非法 UTF-8 不崩且不返回 nil、展平索引可达嵌套键、未知文案返回 nil、12 语言键路径零泄漏、官方译文优先于逐词混合",
+      "negative_control": "把旧 formatJSON 与新的并排跑同一 2.4 MB / 20k 条含中文载荷：旧实现输出体积从 2,417,781 B 涨到 4,737,782 B（每个多字节字符被拆成 2–3 个 latin-1 字符再编码），新实现压缩后与输入逐字节相同；旧实现结果 contains(张三丰)=false",
+      "perf_formatJSON": "2,417,781 B 载荷：pretty 46 ms → 7 ms，compact 37 ms → 5 ms",
+      "perf_localization": "同一组热标签 5,000 次解析：de 4.5 → 2.2 µs/次，ru 4.5 → 2.0，ko 4.4 → 1.9，cn 2.4 → 1.4；30,000 行键列表的 splitKey + 每行 2 个标签合计 9.3 ms（≈0.3 µs/行）",
+      "localization_coverage": "148 个真实标签 × 12 语言：命中官方上游译文 0 → 48；键路径泄漏 0",
+      "build": "0 错误 0 警告；.app 6,894,099 B（6.57 MB）；minos 14.0 / arm64"
+    },
+    "measured_not_defects": [
+      "树形列表『无单元格复用』：keyNodes 是 @Published 存储属性，只在键集合变化时重建（RedisKit.swift:534），不是每次 body 求值重算；每行应用侧工作 0.3 µs。SwiftUI List 的行渲染成本要 Instruments 才能定论，为它改写成 NSOutlineView 属高风险重构，本轮不动。",
+      "ARDMCodeView / UILocalization 的 try! NSRegularExpression 模式全是字面量常量，不可失败。",
+      "Json viewer 的 JSONSerialization 兜底只在 formatJSON 判为非法 JSON 时才可能触发，且此时 JSONSerialization 通常同样失败 ⇒ 落到 plainText。保留。"
+    ],
+    "engineering": [
+      "版本统一：native/Info.plist 1.7.4 → 1.7.5（发版号唯一来源），根 package.json 与 package-lock.json 1.1.1 → 1.7.5；pack/electron/package.json 保持 1.7.4，它是 Electron 产物的版本，本轮 Electron 侧零改动。",
+      "README.md / README.zh-CN.md 新增原生版章节：与 Electron 的体积/运行时/平台对照表、三条构建命令、Gatekeeper 处置、Release 必须同时带 zip 与 SHA256SUMS、已知边界（arm64 only / ad-hoc / 非 IDE 编辑器）、版本号来源。",
+      "新增 .github/workflows/native-release.yml：tag v* 或手动触发 → 跑测试 → 构建+打包 → 断言 tag 与 plist 版本一致 → 解包 zip 复算 shasum、codesign --deep --strict、minos=14.0、单架构 arm64、语言表 ≥13、commands.js 在包内 → 上传产物并打印手动发布步骤。发布本身仍需人工创建 Release（权限只给 contents: read）。",
+      "native/tests/run.sh 的 core 编译加入 UILocalization.swift + UILabels.swift，让『策展表 → 官方译文 → 逐词混合』的优先级链真正进入回归覆盖。"
+    ],
+    "left_open": [
+      "bundle id me.qii404.ardm.native 仍借用上游作者域名反写：改动会连带钥匙串服务名与更新器的 bundle 校验一起失效，属破坏性变更，经确认本轮不动。",
+      "ad-hoc 签名 → 每次重建 CDHash 变化，钥匙串会重新弹授权；根治需 Developer ID + 公证。",
+      "仅 arm64，无 universal 产物。"
+    ]
   }
-}
+  }
+  

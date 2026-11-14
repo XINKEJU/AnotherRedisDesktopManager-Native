@@ -42,6 +42,40 @@
 <br/>[![get from app store](https://cdn.jsdelivr.net/gh/qishibo/img/avail_app_store180.svg)](https://apps.apple.com/app/id1516451072)
 
 
+## Native macOS app
+
+`native/` holds a **pure Swift port** of this client for macOS: SwiftUI + AppKit on
+top of a hand-written RESP client, with no Electron, no Chromium and no bundled Node
+runtime. The Electron app above is untouched and still builds.
+
+| | Electron | Native (`native/`) |
+| --- | --- | --- |
+| Installed size | 191.87 MB | 6.57 MB |
+| Runtime | Chromium + Node.js | system frameworks only |
+| Platforms | Linux / Windows / macOS | macOS 14.0+, Apple silicon |
+| Editor surface | monaco-editor | native text view with syntax highlighting |
+
+```bash
+bash native/build.sh        # → native/ARDM Native.app
+bash native/tests/run.sh    # core + updater regression, no redis-server needed
+bash native/package.sh      # → native/dist/ARDM-Native-<version>-arm64.zip + SHA256SUMS
+```
+
+- Drag the `.app` into `/Applications`. The build is **ad-hoc signed**, so a
+  downloaded copy needs `sudo xattr -rd com.apple.quarantine "/Applications/ARDM Native.app"`
+  if Gatekeeper objects.
+- The in-app updater reads this repository's latest GitHub Release and verifies the
+  download against `SHA256SUMS`. A release that carries only the `.zip` is
+  **refused on purpose** — attach both files.
+- Known gaps: arm64 only (no universal binary), no Developer ID signature or
+  notarization, and the value editor is a native text view rather than a full IDE.
+- The release version comes from `native/Info.plist`; the version in
+  `pack/electron/package.json` belongs to the Electron build.
+
+Details: [native/SWIFT-MIGRATION.md](native/SWIFT-MIGRATION.md) and
+[native/FeatureMatrix.json](native/FeatureMatrix.json) (per-feature parity ledger).
+
+
 ## Enjoy!
 
 ![redis status dark](https://cdn.jsdelivr.net/gh/qishibo/img/ardm/20260729160531924.png)
@@ -124,6 +158,22 @@ This project exists thanks to all the people who contribute.
 
 
 ## Dev Build
+
+### Native macOS app
+
+Needs the full Xcode toolchain (`xcode-select -s /Applications/Xcode.app/Contents/Developer`)
+and nothing else — no `npm install`, since the app links only system frameworks and
+reads its language tables from `src/i18n/langs/`.
+
+```bash
+bash native/build.sh        # compile swift/*.swift → native/ARDM Native.app
+bash native/tests/run.sh    # core + updater regression against the real sources
+bash native/package.sh      # zip + SHA256SUMS under native/dist/
+```
+
+`build.sh` pins `arm64-apple-macos14.0` and fails the build if the Mach-O deployment
+target drifts from `LSMinimumSystemVersion`, which is what makes the artifact
+launchable on machines other than the build host.
 
 ### Linux Or Mac
 

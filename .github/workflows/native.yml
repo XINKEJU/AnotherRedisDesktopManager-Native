@@ -1,6 +1,6 @@
 name: Native app
 
-# CI for the SwiftUI/Objective-C port in native/. The Electron workflows under
+# CI for the pure-Swift app in native/. The Electron workflows under
 # .github/workflows/build_*.yml do not cover it.
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
       - name: Show toolchain
         run: |
           sw_vers
-          clang --version | head -1
+          swiftc --version | head -1
           python3 --version
 
       - name: Run native tests

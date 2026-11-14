@@ -37,6 +37,36 @@
 <br/>[![app store](https://cdn.jsdelivr.net/gh/qishibo/img/avail_app_store180.svg)](https://apps.apple.com/app/id1516451072)
 
 
+## 原生 macOS 版本
+
+`native/` 是本客户端的**纯 Swift 移植**：SwiftUI + AppKit 界面，自研 RESP 协议内核，
+不带 Electron、不带 Chromium、不捆绑 Node 运行时。上面的 Electron 版本不受影响，照常构建。
+
+| | Electron 版 | 原生版（`native/`） |
+| --- | --- | --- |
+| 安装体积 | 191.87 MB | 6.57 MB |
+| 运行时 | Chromium + Node.js | 仅系统框架 |
+| 平台 | Linux / Windows / macOS | macOS 14.0+，Apple 芯片 |
+| 值编辑器 | monaco-editor | 原生文本视图 + 语法高亮 |
+
+```bash
+bash native/build.sh        # 产物 native/ARDM Native.app
+bash native/tests/run.sh    # 内核 + 更新器回归，无需真实 redis
+bash native/package.sh      # → native/dist/ARDM-Native-<版本>-arm64.zip + SHA256SUMS
+```
+
+- 把 `.app` 拖进「应用程序」即可。构建为 **ad-hoc 签名**，下载副本若被 Gatekeeper 拦截，
+  执行 `sudo xattr -rd com.apple.quarantine "/Applications/ARDM Native.app"`。
+- 应用内更新器读取本仓库的 GitHub Release，并用 `SHA256SUMS` 校验下载包。
+  **只带 zip 不带 SHA256SUMS 的 Release 会被拒绝安装**——这是刻意设计，两个文件都要传。
+- 已知边界：仅 arm64（未出 universal）、无 Developer ID 签名与公证、
+  值编辑器是原生文本视图而非 IDE 级控件。
+- 发版版本号取自 `native/Info.plist`；`pack/electron/package.json` 的版本属于 Electron 版。
+
+详见 [native/SWIFT-MIGRATION.md](native/SWIFT-MIGRATION.md) 与
+[native/FeatureMatrix.json](native/FeatureMatrix.json)（逐功能对齐台账）。
+
+
 ## 起飞!
 
 ![redis status dark](https://cdn.jsdelivr.net/gh/qishibo/img/ardm/20260729160531924.png)
@@ -120,6 +150,20 @@
 
 > Tips: 此为开发环境，用于运行完整项目，**普通用户**直接从前面下载安装包即可
 
+
+### Native macOS app
+
+只需要完整 Xcode 工具链（`xcode-select -s /Applications/Xcode.app/Contents/Developer`），
+不需要 `npm install`：原生版只链接系统框架，语言表直接读仓库里的 `src/i18n/langs/`。
+
+```bash
+bash native/build.sh        # 编译 swift/*.swift → native/ARDM Native.app
+bash native/tests/run.sh    # 直接用真实源码跑内核 + 更新器回归
+bash native/package.sh      # 产物 native/dist/ 下的 zip + SHA256SUMS
+```
+
+`build.sh` 固定 `arm64-apple-macos14.0`，并在 Mach-O 的部署目标偏离
+`LSMinimumSystemVersion` 时直接让构建失败——这正是产物能在「非构建机」上启动的前提。
 
 ### Linux Or Mac
 
