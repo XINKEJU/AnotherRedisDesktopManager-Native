@@ -37,19 +37,34 @@ enum ARDMMetrics {
     static var rowSpacing: CGFloat { ardmScaled(6) }
     /// The one radius a plain control wears. `ARDMRadius.control` is the
     /// definition; this alias stays because the existing call sites use it.
-    static var corner: CGFloat { ARDMRadius.control }    /// Search field height; matches the control beside it.
+    static var corner: CGFloat { ARDMRadius.control }
+    /// Search field height; matches the control beside it.
     static var fieldHeight: CGFloat { ardmScaled(26) }
     /// Key row height. The reference clients pack rows into 24pt, which is the
     /// smallest height that fits a checkbox beside a type chip — but at that
     /// height a page of keys reads as a spreadsheet, so the baseline starts one
     /// step looser and scales with the text so neither overflows the other.
     static var rowHeight: CGFloat { ardmScaled(27) }
-    /// Horizontal inset of the key list. Still 10 at the default 字号, so this
-    /// step changes nothing on screen; snapping it onto the grid is step 3's
-    /// call, made with the row pictures in front of us.
-    static var listInset: CGFloat { ardmScaled(10) }
+    /// Horizontal inset of the key list. Aliased to `paneInset` so a pane's
+    /// header and its rows can never drift apart; step 3 still re-decides the
+    /// value (10 → 8 or 12) against the row pictures.
+    static var listInset: CGFloat { paneInset }
     /// Height shared by the database tab strip and the filter strips above it.
-    static var stripHeight: CGFloat { ardmScaled(30) }
+    static var stripHeight: CGFloat { paneHeader }
+    /// Height of all three column headers: the sidebar's action row, the key
+    /// list's database strip, the detail pane's tab strip. They were 36, an
+    /// unscaled 30 and a scaled 30, so the top edges of the three panes never
+    /// lined up — and at a larger 字号 the unscaled one clipped its buttons.
+    static var paneHeader: CGFloat { ardmScaled(30) }
+    /// Leading inset of every pane, so a column's header label sits on the same
+    /// vertical line as the rows under it. Was 8 in the sidebar, 6 above the key
+    /// list and detail tabs, 10 in the list itself.
+    static var paneInset: CGFloat { ardmScaled(10) }
+    /// Height of the bottom status bar.
+    static var barHeight: CGFloat { ardmScaled(24) }
+    /// Invisible drag strip beside a column divider. The hairline itself is
+    /// `ARDMStroke.width`; this is only the target that catches the pointer.
+    static let dividerHitWidth: CGFloat = 7
     /// Sidebar rows: a connection, or one of the sixteen databases. Looser than
     /// the 19pt they were, which made the column read as a compact index.
     static var sideRow: CGFloat { ardmScaled(24) }

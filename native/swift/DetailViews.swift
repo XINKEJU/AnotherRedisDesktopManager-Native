@@ -86,7 +86,7 @@ struct DetailPane: View {
                         .accessibilityIdentifier("detail.tab." + tab.title)
                     }
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, ARDMMetrics.paneInset)
             }
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("detail.tabs")

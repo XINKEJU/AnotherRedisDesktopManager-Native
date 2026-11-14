@@ -141,14 +141,14 @@ struct KeyBrowserView: View {
             loadCounts
             listActions
         }
-        .padding(.horizontal, 6)
-        .frame(height: 30)
+        .padding(.horizontal, ARDMMetrics.paneInset)
+        .frame(height: ARDMMetrics.paneHeader)
     }
 
     /// Loaded / total as one bare pair. The old strip printed the same numbers
     /// twice in different phrasings and burned a whole row doing it.
     private var loadCounts: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: ARDMMetrics.controlSpacing) {
             if store.connected && !store.scanFinished {
                 ProgressView()
                     .controlSize(.mini)
@@ -168,7 +168,7 @@ struct KeyBrowserView: View {
     }
 
     private var listActions: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: ARDMMetrics.controlSpacing) {
             ARDMIconButton(systemName: "arrow.clockwise", help: L10n("Refresh the key list (⌘R)")) {
                 store.refreshKeys(reset: true)
             }
@@ -249,7 +249,7 @@ struct KeyBrowserView: View {
             noExpiryToggle
         }
         .padding(.horizontal, ARDMMetrics.listInset)
-        .padding(.bottom, 5)
+        .padding(.bottom, ARDMSpace.s)
     }
 
     private var matchModeMenu: some View {
@@ -259,7 +259,7 @@ struct KeyBrowserView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 2) {
+            HStack(spacing: ARDMMetrics.controlSpacing) {
                 Image(systemName: "asterisk")
                     .font(.system(size: 8.5, weight: .semibold))
                 Text(L10n(store.matchMode.label))
@@ -515,8 +515,8 @@ struct KeyBrowserView: View {
                 .accessibilityLabel(L10n("Clear filter"))
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 6)
+        .padding(.horizontal, ARDMMetrics.paneInset)
+        .padding(.bottom, ARDMSpace.s)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -542,8 +542,8 @@ struct KeyBrowserView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(L10n("Clear selection"))
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 5)
+        .padding(.horizontal, ARDMMetrics.paneInset)
+        .padding(.bottom, ARDMSpace.s)
         .fixedSize(horizontal: false, vertical: true)
     }
 

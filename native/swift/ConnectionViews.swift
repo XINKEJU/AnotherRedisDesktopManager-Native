@@ -168,8 +168,8 @@ struct ConnectionSidebar: View {
         }
         .foregroundStyle(.secondary)
         .frame(minHeight: ARDMMetrics.sideRow)
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
+        .padding(.leading, ARDMMetrics.paneInset)
+        .padding(.trailing, ARDMSpace.xs)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 4))
         .contentShape(Rectangle())
         .onTapGesture {
@@ -232,8 +232,8 @@ struct ConnectionSidebar: View {
             Spacer(minLength: 2)
         }
         .frame(minHeight: ARDMMetrics.sideRow)
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
+        .padding(.leading, ARDMMetrics.paneInset)
+        .padding(.trailing, ARDMSpace.xs)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(current ? Color.accentColor.opacity(0.10) : Color.clear)
@@ -293,7 +293,7 @@ struct ConnectionSidebar: View {
             // row switches to it, which is all the strip used to do.
             // No search field either: a second box that looked exactly like the
             // SCAN pattern below it, for a list the user typed by hand.
-            HStack(spacing: 4) {
+            HStack(spacing: ARDMSpace.xs) {
                 ARDMIconButton(systemName: "plus", help: L("message.new_connection", "New Connection")) {
                     store.editingConnection = nil
                     store.showingConnectionEditor = true
@@ -330,9 +330,8 @@ struct ConnectionSidebar: View {
                 }
                 .accessibilityIdentifier("sidebar.collapse")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, ARDMMetrics.paneInset)
+            .frame(height: ARDMMetrics.paneHeader)
 
             List(selection: $sidebarSelection) {
                 if !store.favoriteKeys.isEmpty {
