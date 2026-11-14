@@ -64,8 +64,16 @@ jobs:
           APP="$WORK/ARDM Native.app"
           test -d "$APP"                       || { echo "::error::zip has no .app wrapper"; exit 1; }
           codesign --verify --deep --strict "$APP"
-          vtool -show-build "$APP/Contents/MacOS/ardm-native" | grep -q "minos 14.0" \
-            || { echo "::error::artifact is not stamped for macOS 14.0"; exit 1; }
+          # Capture before grepping: under `set -o pipefail` a `grep -q` that
+          # exits early can kill the writer with SIGPIPE and fail the pipeline
+          # even when the pattern matched. Older toolchains also print "minos 14"
+          # where newer ones print "minos 14.0", so compare the number.
+          BUILD_INFO="$(vtool -show-build "$APP/Contents/MacOS/ardm-native")"
+          MINOS="$(awk '/minos/ {gsub(/[^0-9.]/, "", $2); print $2; exit}' <<<"$BUILD_INFO")"
+          case "$MINOS" in
+            14|14.0) ;;
+            *) echo "::error::artifact is stamped minos '$MINOS', expected 14.0"; exit 1 ;;
+          esac
           test "$(lipo -archs "$APP/Contents/MacOS/ardm-native")" = "arm64"
           LANGS="$(find "$APP/Contents/Resources/langs" -name '*.js' | wc -l | tr -d ' ')"
           test "$LANGS" -ge 13                 || { echo "::error::only $LANGS language tables bundled"; exit 1; }

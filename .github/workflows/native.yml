@@ -54,15 +54,40 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and sign (ad-hoc)
-        run: bash native/build.sh
+        run: |
+          set -o pipefail
+          bash native/build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Surface the build error as annotations
+        # Job logs need an authenticated API call, annotations do not. Repeating
+        # the first errors here means a red build explains itself on the Checks
+        # page instead of making someone open the log.
+        if: failure()
+        # awk, not head: under Actions' default `-o pipefail` an early-exiting
+        # reader SIGPIPEs grep and fails the step for the wrong reason.
+        run: |
+          grep -E "error:|ERROR|fatal error|Undefined symbol" "$RUNNER_TEMP/build.log" \
+            | awk 'NR <= 12 { sub(/%/, "%25"); print "::error::" $0 }' \
+            | sed -n '1,20p'
+          grep -qE "error:|ERROR" "$RUNNER_TEMP/build.log" \
+            || echo "::error::build.sh failed without printing a recognizable error line; see the job log."
 
       - name: Assert the deployment target and architecture
         run: |
           set -euo pipefail
           BIN="native/ARDM Native.app/Contents/MacOS/ardm-native"
           lipo -info "$BIN"
-          vtool -show-build "$BIN" | awk '/minos/ {print "minos =", $2}'
-          test "$(vtool -show-build "$BIN" | awk '/minos/ {print $2; exit}')" = "14.0"
+          # Read the whole vtool report first: an `awk ... exit` inside a command
+          # substitution can SIGPIPE the writer, and `set -o pipefail` would then
+          # fail the step even though minos was correct. "14" and "14.0" are the
+          # same target, spelled differently by different toolchain generations.
+          BUILD_INFO="$(vtool -show-build "$BIN")"
+          MINOS="$(awk '/minos/ {gsub(/[^0-9.]/, "", $2); print $2; exit}' <<<"$BUILD_INFO")"
+          echo "minos = $MINOS"
+          case "$MINOS" in
+            14|14.0) ;;
+            *) echo "::error::binary is stamped minos '$MINOS', expected 14.0"; exit 1 ;;
+          esac
           codesign --verify --deep --strict "native/ARDM Native.app"
 
       - name: Package

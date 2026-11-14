@@ -18,7 +18,9 @@ if [[ "$DEVDIR" != *"Xcode"* ]]; then
     exit 1
 fi
 echo "  developer dir: $DEVDIR"
-xcrun swift --version | head -2
+# sed, not head: `head -2` exits while the writer still has bytes, and under
+# `set -o pipefail` that SIGPIPE would fail the build on a slower machine.
+xcrun swift --version 2>&1 | sed -n '1,2p'
 
 rm -rf "$BUILD" "$APP"
 mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources/langs"
@@ -71,10 +73,18 @@ plutil -lint "$APP/Contents/Info.plist"
 # version looks fine locally and is unlaunchable everywhere else, so fail loudly
 # instead of shipping it.
 WANT_MINOS="${DEPLOY_TARGET##*-apple-macos}"
-GOT_MINOS="$(vtool -show-build "$APP/Contents/MacOS/ardm-native" | awk '/minos/{print $2; exit}')"
-if [[ "$GOT_MINOS" != "$WANT_MINOS" ]]; then
-    echo "ERROR: LC_BUILD_VERSION minos is '$GOT_MINOS', expected '$WANT_MINOS'." >&2
-    echo "       The .app would refuse to launch on anything older than $GOT_MINOS." >&2
+# Resolve the inspector through xcrun (Mach-O tools live in the developer
+# directory, not always in PATH), print "minos 14" where a newer toolchain
+# prints "14.0", and compare the numbers rather than the strings.
+VTOOL="$(xcrun -f vtool 2>/dev/null || true)"
+[[ -x "$VTOOL" ]] || VTOOL="/Library/Developer/CommandLineTools/usr/bin/vtool"
+BUILD_INFO="$("$VTOOL" -show-build "$APP/Contents/MacOS/ardm-native" 2>&1 || true)"
+GOT_MINOS="$(printf '%s\n' "$BUILD_INFO" | awk '/minos/ {gsub(/[^0-9.]/, "", $2); print $2; exit}')"
+minmaj() { awk -v v="$1" 'BEGIN {split(v, a, "."); printf "%d.%d", a[1], (a[2] == "" ? 0 : a[2])}'; }
+if [[ "$(minmaj "${GOT_MINOS:-none}")" != "$(minmaj "$WANT_MINOS")" ]]; then
+    echo "ERROR: expected LC_BUILD_VERSION minos $WANT_MINOS, got '${GOT_MINOS:-<none>}'." >&2
+    echo "       '$VTOOL -show-build' said:" >&2
+    printf '%s\n' "$BUILD_INFO" >&2
     exit 1
 fi
 echo "  deployment target: macOS $GOT_MINOS (arch arm64)"
