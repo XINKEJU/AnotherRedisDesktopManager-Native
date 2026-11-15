@@ -65,7 +65,9 @@ bash native/package.sh      # → native/dist/RDM-Native-<版本>-arm64.zip + SH
 - 把 `.app` 拖进「应用程序」即可。构建为 **ad-hoc 签名**，下载副本若被 Gatekeeper 拦截，
   执行 `sudo xattr -rd com.apple.quarantine "/Applications/RDM Native.app"`。
 - 应用内更新器读取本仓库的 GitHub Release，并用 `SHA256SUMS` 校验下载包。
-  **只带 zip 不带 SHA256SUMS 的 Release 会被拒绝安装**——这是刻意设计，两个文件都要传。
+  **只带 zip 不带 SHA256SUMS 的 Release 会被拒绝安装**——这是刻意设计，所以推 `v*`
+  tag 就由 `.github/workflows/native-release.yml` 的发布任务把两个文件一起传上去，
+  上传前还会用 zip 实际重算一次哈希与 `SHA256SUMS` 对比。
 - 从 *ARDM Native* 改名保留了 Bundle ID，所以旧版本仍能自助更新——但会更新进
   `/Applications/ARDM Native.app`：更新器是原地替换，文件名跟着当前运行的 bundle 走。
   想要 `RDM Native.app` 这个名字，把本 Release 的 zip 解压到「应用程序」再删掉旧的即可，

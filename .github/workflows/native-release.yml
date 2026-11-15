@@ -1,9 +1,10 @@
 name: Native release artifacts
 
-# Builds and verifies the artifact that gets attached to a GitHub Release.
-# Publishing stays manual: this repo's releases are created by hand, and the
-# in-app updater refuses an ad-hoc build unless SHA256SUMS is attached too, so
-# the job's whole purpose is to hand you a zip whose contents are already proven.
+# Builds and verifies the artifact, then publishes the GitHub Release for a tag.
+# Publishing used to be manual, and a release that nobody attaches SHA256SUMS to
+# is worse than none: the in-app updater reads releases/latest, takes the first
+# .zip/.dmg asset, and refuses to install it unless SHA256SUMS is attached too.
+# Doing it here is what makes "check for updates" actually work.
 
 on:
   push:
@@ -113,9 +114,69 @@ jobs:
         run: |
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "native/RDM Native.app/Contents/Info.plist")"
           cat <<EOF
-          Download the artifact from this run, then attach BOTH files to the release:
+          On a tag push the release job publishes these two files for you:
             RDM-Native-${VERSION}-arm64.zip
             SHA256SUMS
           A release without SHA256SUMS cannot be auto-installed: the updater rejects
           ad-hoc signed downloads it cannot checksum.
           EOF
+
+  release:
+    name: Publish the GitHub Release
+    needs: artifact
+    # Only a tag is a release. workflow_dispatch builds the same artifact but must
+    # not move releases/latest out from under whatever is current.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: RDM-Native-${{ github.ref_name }}
+          path: assets
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="assets/RDM-Native-${VERSION}-arm64.zip"
+          SUMS="assets/SHA256SUMS"
+          test -f "$ZIP"  || { echo "::error::artifact has no $ZIP"; exit 1; }
+          test -f "$SUMS" || { echo "::error::artifact has no SHA256SUMS"; exit 1; }
+          # The runner re-hashes what it is about to publish rather than trusting
+          # the file the build job wrote: a mismatch means the two assets in this
+          # release disagree, and the updater would reject the download at runtime.
+          ACTUAL="$(sha256sum "$ZIP" | cut -d' ' -f1)"
+          grep -qE "^${ACTUAL}[[:space:]]+RDM-Native-${VERSION}-arm64\.zip$" "$SUMS" \
+            || { echo "::error::SHA256SUMS does not cover the zip being published"; exit 1; }
+
+          cat > notes.md <<EOF
+          RDM Native ${VERSION} — native SwiftUI + AppKit build, macOS 14.0+, Apple silicon.
+
+          | File | Purpose |
+          | --- | --- |
+          | \`RDM-Native-${VERSION}-arm64.zip\` | the \`.app\`, ad-hoc signed |
+          | \`SHA256SUMS\` | required by the in-app updater |
+
+          \`\`\`
+          ${ACTUAL}  RDM-Native-${VERSION}-arm64.zip
+          \`\`\`
+
+          Unzip and move \`RDM Native.app\` to /Applications. Ad-hoc signing means the
+          first launch needs a right-click Open, or \`xattr -dr com.apple.quarantine\`.
+          EOF
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" "$SUMS" --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Assets re-attached to the existing release."
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" "$SUMS" \
+              --title "RDM Native ${VERSION}" --notes-file notes.md \
+              --verify-tag --repo "$GITHUB_REPOSITORY"
+          fi
+          URL="$(gh release view "$GITHUB_REF_NAME" --json url -q .url --repo "$GITHUB_REPOSITORY")"
+          echo "### Published ${URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "published $URL"

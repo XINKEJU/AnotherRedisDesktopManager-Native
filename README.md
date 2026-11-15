@@ -74,7 +74,9 @@ bash native/package.sh      # → native/dist/RDM-Native-<version>-arm64.zip + S
   if Gatekeeper objects.
 - The in-app updater reads this repository's latest GitHub Release and verifies the
   download against `SHA256SUMS`. A release that carries only the `.zip` is
-  **refused on purpose** — attach both files.
+  **refused on purpose**, so pushing a `v*` tag publishes both files: the release
+  job in `.github/workflows/native-release.yml` re-hashes the zip against
+  `SHA256SUMS` before it attaches them.
 - Renaming from *ARDM Native* kept the bundle identifier, so an old install
   self-updates fine — into `/Applications/ARDM Native.app`, because the updater
   swaps in place and keeps whatever the running bundle is called. To get the

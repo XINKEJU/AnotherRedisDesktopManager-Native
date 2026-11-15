@@ -1391,7 +1391,7 @@
       "launching for verification needs `open -n`, not a direct exec of the binary: an exec'd process keeps a GUI session with no windows, so CGWindowList reports 0 even though the app connects to Redis and pings normally"
     ],
     "left_open": [
-      "the GitHub Release for 1.7.6 was never published and gh is still unavailable here, so 1.7.7 follows the same path: tag pushed, native-release.yml builds and verifies, attaching the zip stays manual"
+      "publishing was the missing half: native-release.yml only built and verified the artifact, so no release ever existed and the in-app updater had nothing to read. A release job now creates the GitHub Release and attaches the zip plus SHA256SUMS with the runner's own token, and it re-hashes the zip against SHA256SUMS before publishing."
     ]
   }
 }
