@@ -1392,6 +1392,7 @@
     ],
     "left_open": [
       "publishing was the missing half: native-release.yml only built and verified the artifact, so no release ever existed and the in-app updater had nothing to read. A release job now creates the GitHub Release and attaches the zip plus SHA256SUMS with the runner's own token, and it re-hashes the zip against SHA256SUMS before publishing."
-    ]
+    ],
+    "ref_moved": "v1.7.7 was force-retargeted from 0fc78f3 to the commit that adds the release job, because Actions reads the workflow from the tagged commit and the first v1.7.7 run therefore had no release job to run. This is recorded because it is the kind of move that needs a reason: no release existed yet, nothing had been downloaded, and 0fc78f3 stays reachable from main, so the tag can be put back exactly."
   }
 }
