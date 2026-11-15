@@ -67,7 +67,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 echo "[4/6] Bundling project assets (13 languages, command reference, icon)..."
 cp "$PROJECT"/src/i18n/langs/*.js "$APP/Contents/Resources/langs/"
 cp "$PROJECT"/src/commands.js "$APP/Contents/Resources/commands.js"
-# The app icon is the official Redis mark, rendered from native/icons/redis.svg
+# The app icon is the folder + Redis-stack mark, rendered from native/icons/redis.svg
 # by native/icons/make-icns.sh and committed as .icns so this step stays a copy.
 # Required, not optional: a silent skip ships a generic-document icon and nobody
 # notices until the release is out.

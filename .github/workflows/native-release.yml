@@ -94,7 +94,7 @@ jobs:
           LANGS="$(find "$APP/Contents/Resources/langs" -name '*.js' | wc -l | tr -d ' ')"
           test "$LANGS" -ge 13                 || { echo "::error::only $LANGS language tables bundled"; exit 1; }
           test -f "$APP/Contents/Resources/commands.js"
-          # The icon is the official Redis mark built by native/icons/make-icns.sh;
+          # The icon is the folder + Redis-stack mark built by native/icons/make-icns.sh;
           # a missing or empty .icns means the Finder/Dock icon silently fell back.
           test -s "$APP/Contents/Resources/icon.icns" \
             || { echo "::error::icon.icns is missing or empty"; exit 1; }

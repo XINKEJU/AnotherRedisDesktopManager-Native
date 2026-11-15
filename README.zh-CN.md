@@ -42,8 +42,9 @@
 `native/` 是本客户端的**纯 Swift 移植**：SwiftUI + AppKit 界面，自研 RESP 协议内核，
 不带 Electron、不带 Chromium、不捆绑 Node 运行时。上面的 Electron 版本不受影响，照常构建。
 
-应用名为 **RDM Native**，图标取自 Redis 官方标识（`native/icons/redis.svg`，
-由 `native/icons/make-icns.sh` 生成 `icon.icns`）。改名时刻意保留了
+应用名为 **RDM Native**，图标是一个装着 Redis 数据堆叠的文件夹（`native/icons/redis.svg`，
+由 `native/icons/make-icns.sh` 生成 `icon.icns`）——文件夹取中性墨色，让红色 Redis 标识
+成为主体。改名时刻意保留了
 `CFBundleIdentifier`（`me.qii404.ardm.native`）、钥匙串服务名和
 `~/.config/ardm-native/connections.json`——它们是旧版本升级过来的数据入口，
 动其中任何一项都会让已保存的连接和密码失效。

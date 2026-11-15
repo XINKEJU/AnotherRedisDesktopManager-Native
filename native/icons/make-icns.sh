@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regenerate native/icons/icon.icns from the official Redis SVG.
+# Regenerate native/icons/icon.icns from native/icons/redis.svg (folder + Redis stack).
 #
 #   bash native/icons/make-icns.sh
 #

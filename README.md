@@ -48,8 +48,9 @@
 top of a hand-written RESP client, with no Electron, no Chromium and no bundled Node
 runtime. The Electron app above is untouched and still builds.
 
-The app is named **RDM Native**, and its icon is the official Redis mark
-(`native/icons/redis.svg`, turned into `icon.icns` by `native/icons/make-icns.sh`).
+The app is named **RDM Native**, and its icon is a folder holding the Redis stack
+(`native/icons/redis.svg`, turned into `icon.icns` by `native/icons/make-icns.sh`):
+the folder is ink-neutral so the red Redis mark stays the subject.
 Renaming the bundle left `CFBundleIdentifier` (`me.qii404.ardm.native`), the
 keychain service name and `~/.config/ardm-native/connections.json` deliberately
 unchanged — they are the upgrade path for an existing install, and moving any of
