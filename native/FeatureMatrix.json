@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round16-icon + native-1.7.7-2026-11-15",
+  "revision": "round17-ci-publish + native-1.7.7-2026-11-15",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -1391,8 +1391,31 @@
       "launching for verification needs `open -n`, not a direct exec of the binary: an exec'd process keeps a GUI session with no windows, so CGWindowList reports 0 even though the app connects to Redis and pings normally"
     ],
     "left_open": [
-      "publishing was the missing half: native-release.yml only built and verified the artifact, so no release ever existed and the in-app updater had nothing to read. A release job now creates the GitHub Release and attaches the zip plus SHA256SUMS with the runner's own token, and it re-hashes the zip against SHA256SUMS before publishing."
-    ],
-    "ref_moved": "v1.7.7 was force-retargeted from 0fc78f3 to the commit that adds the release job, because Actions reads the workflow from the tagged commit and the first v1.7.7 run therefore had no release job to run. This is recorded because it is the kind of move that needs a reason: no release existed yet, nothing had been downloaded, and 0fc78f3 stays reachable from main, so the tag can be put back exactly."
+      "publishing was the missing half of this round, and it became round 17 rather than a footnote here: see round17_ci_publish."
+    ]
+  },
+  "round17_ci_publish": {
+    "date": "2026-11-15",
+    "trigger": "用户『推送打包部署』",
+    "problem_found": "native-release.yml built and verified the artifact, then printed instructions for attaching it by hand. Nobody had ever done that step: the repo had zero releases, and the in-app updater reads releases/latest — so 『检查更新』could only ever answer 『No release published for this native build yet』. The verified zip was being produced and then dropped on the floor.",
+    "fix": {
+      "release_job": "a second job publishes the GitHub Release on a tag push, using the runner's own GITHUB_TOKEN, so no local credential is involved and nothing needs gh installed here",
+      "no_credentials_needed": "the remote is SSH, which cannot sign a REST call, and there is no API token on this machine — CI was the only honest path to 部署",
+      "guard": "before attaching, the job re-hashes the zip on the publishing host and requires SHA256SUMS to contain exactly that digest for that filename; two assets that disagree pass CI and fail in the app, which is the worst place to find out",
+      "dispatch_stays_artifact_only": "workflow_dispatch has no tag to name a release after, and publishing releases/latest from an untagged build would offer every installed app an update that cannot be traced to a commit"
+    },
+    "ref_moved": "v1.7.7 was force-retargeted from 0fc78f3 to 6002369, the commit that adds the release job, because Actions reads the workflow from the tagged commit — the first v1.7.7 run therefore had no release job to run. Recorded rather than glossed: a published tag was moved. It was safe because no release existed yet, nothing had been downloaded, and 0fc78f3 stays reachable from main, so the tag can be put back exactly.",
+    "verification": {
+      "run": "Native release artifacts on 6002369 completed success — both jobs, including Publish the GitHub Release",
+      "release": "https://github.com/XINKEJU/AnotherRedisDesktopManager-Native/releases/tag/v1.7.7 is the repo's first release and is marked Latest, authored by github-actions",
+      "assets": "two uploaded files: RDM-Native-1.7.7-arm64.zip (1.56 MB) and SHA256SUMS (93 B); the UI's 'Assets 4' counts the auto-generated source archives, which are zipball_url/tarball_url and not in the assets array the updater iterates",
+      "end_to_end": "downloaded both from the release URL with no API call, shasum -c passed, and the extracted bundle is 1.7.7 / RDM Native / arm64 / minos 14.0 / codesign --verify --deep --strict OK / 13 languages / icon.icns 176650 bytes byte-identical to native/icons/icon.icns"
+    },
+    "false_negative_logged": "the local poller reported NO_RELEASE_YET after 15 minutes while the release had in fact been published. Two causes, both mine: the unauthenticated API quota (60/hr, shared egress IP) had hit 0 remaining and the poller read the rate-limit body as 'not found', and its window simply expired ~2 minutes before the macOS build finished. A poller has to distinguish 404 from 403 and from quota exhaustion, or it manufactures a failure.",
+    "known_fragility": "AppServices.swift:326-330 takes the FIRST asset ending in .zip/.dmg rather than selecting by name. Harmless while a release carries exactly one archive, but it decides what gets installed, so it stops being harmless the moment a release carries two (universal plus arm64, for instance). Left as-is: fixing it is not part of 部署 and the current release cannot trigger it.",
+    "left_open": [
+      "/Applications/RDM Native.app is still 1.7.6 with the old icon; the first 『检查更新』against this release should now succeed and is the natural way for it to update itself",
+      "v1.7.6 still has no release and will not get one retroactively — its artifact lives in that run's Actions downloads"
+    ]
   }
 }
