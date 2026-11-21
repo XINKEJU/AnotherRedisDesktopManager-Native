@@ -1,7 +1,7 @@
 {
   "project": "AnotherRedisDesktopManager 1.7.4",
   "target": "SwiftUI + AppKit native macOS application (system frameworks only)",
-  "revision": "round17-ci-publish + native-1.7.7-2026-11-15",
+  "revision": "round18-update-loop + native-1.7.7-2026-11-22",
   "status_legend": {
     "native": "等价能力已由原生代码实现，并通过协议回归或界面验证",
     "equivalent": "能力保留，但用系统原生组件等价替代第三方 Web 组件，部分 IDE 级特性不同",
@@ -66,8 +66,8 @@
   "verification": {
     "swift_typecheck_errors": 0,
     "build_warnings": 0,
-    "runtime_probe": "126 passed, 0 failed（core 111 + updater 15）。core 覆盖假 Redis 协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考；updater 覆盖 SHA-256、校验和格式、签名校验、原子替换与回滚、外来 bundle 与摘要不符的双重拒绝",
-    "probe_harness": "native/tests/（core/main.swift + core/fake_redis.py、updater/main.swift + updater/fixture.sh、run.sh）；runner 只依赖 swiftc 与 python3，不需要 redis-server、GUI 或完整 Xcode；无 bundle 运行时用 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 以加载 13 语言与 commands.js；CI 见 .github/workflows/native.yml（macos-14：tests 作业跑 103 条断言，build 作业出 .app 并打包）",
+    "runtime_probe": "135 passed, 0 failed（core 111 + updater 24）。core 覆盖假 Redis 协议往返 + viewer 编解码往返 + 事务 / 流式扫描 / 字段 TTL / RESTORE / 大整数 / Java / Pickle / Protobuf / OverSize 分页 / 钥匙串 / 迁移计数 / 13 语言 / 命令参考；updater 覆盖 SHA-256、校验和格式、签名校验、原子替换与回滚、回滚槽保留、安装目标跟随运行中 bundle、书签回读与摘要不符的双重拒绝",
+    "probe_harness": "native/tests/（core/main.swift + core/fake_redis.py、updater/main.swift + updater/fixture.sh、run.sh）；runner 只依赖 swiftc 与 python3，不需要 redis-server、GUI 或完整 Xcode；无 bundle 运行时用 ARDM_PROJECT_ROOT 指向 checkout 的 src/ 以加载 13 语言与 commands.js；CI 见 .github/workflows/native.yml（macos-26：tests 作业跑 135 条断言，build 作业出 .app 并打包）",
     "gui": "2026-11-13 12:46 实测截图：应用启动、三栏 SwiftUI 窗口、中文菜单栏/工具栏/标签条/空态/状态栏均正常，无 ERR、无控件挤压",
     "localization_probe": "13 张语言表全部可解析；12 张非英语表各自返回 message.new_connection 的本地译文（cn=新建连接 … vi=Kết nối mới）",
     "distinct_ui_labels_wrapped_in_l10n": 238,
@@ -302,7 +302,7 @@
         "【本轮新增】Download update：把最新 macOS Release 的 .dmg / .zip 资产下载到 ~/Downloads"
       ],
       "gaps": [
-        "自动安装已实现（挂载 dmg / 解压 zip → 替换 .app → 重启），但为 ad-hoc 签名，替换后首次启动仍需用户放行"
+        "自动安装在 round18 起真正重启：替换成功后等待旧进程退出再 open -n 新 bundle；仍为 ad-hoc 签名，替换后首次启动仍需用户放行"
       ],
       "gaps_note": "round 5 已关闭并从此清单移除：Vector 元素详情与量化参数、TimeSeries 聚合/过滤面板、Stream 分组与消费者明细、完整 Java/Pickle 反序列化、.proto 文件解析、KEYSPACE 分区统计、慢日志阈值展示、更新自动安装、Status 字段排序。"
     },
@@ -1416,6 +1416,35 @@
     "left_open": [
       "/Applications/RDM Native.app is still 1.7.6 with the old icon; the first 『检查更新』against this release should now succeed and is the natural way for it to update itself",
       "v1.7.6 still has no release and will not get one retroactively — its artifact lives in that run's Actions downloads"
+    ]
+  },
+  "round18_remediation": {
+    "date": "2026-11-22",
+    "trigger": "用户『按照建议修复』——按前一轮审计的 P0/P1 顺序落地更新闭环、版本与构建门槛，并补回归断言",
+    "fixed": [
+      "P0 更新后不重启：SettingsViews.swift:384 的「安装并重启」此前只调用 installPendingUpdate()，AppServices.installUpdate 成功分支仅用 NSWorkspace.open —— 对已运行的 bundle 只会激活旧进程。新增 relaunchInstalledApp(at:)：等旧 PID 退出后 /usr/bin/open -n 新 bundle，主线程随后 terminate；ARDM_SKIP_RELAUNCH=1 供探针跳过。",
+      "P0 目标路径硬编码：AppServices.installUpdate 原先把新版本固定写进 /Applications，从其它位置启动时运行的仍是旧二进制。新增可单测的 installDestination(runningBundle:) → 安装位置 = 运行中 bundle 的同目录同名；暂存目录同步改为同卷，确认对话框改为显示实际目录。",
+      "P0 回滚槽提前删除：installBundle 原先在任何备份动作之前删掉 .previous；备份失败即丢失上一版已知可用副本。改为先把旧 .previous 移到 .stale-<uuid>，仅在新版本就位后删除；备份或替换失败时按原路恢复两个槽位。",
+      "P1 书签只写不读：ConnectionViews.chooseFile 写入 ARDMScopedBookmarks 却无人读取，ExtraFeatures.importDumpSnapshot 又把文件 URL 当成目录传 NSOpenPanel。新增 scopedBookmark(forPath:) / saveScopedBookmark / resolvedScopedURL / lastFileDirectory；文件面板优先按当前路径恢复书签，否则用上次文件的父目录。",
+      "P1 版本漂移：根 package.json 与 package-lock.json 1.7.5 → 1.7.7（plist 是发版唯一来源）；build.sh 增加三方一致性断言，漂移即 exit 1。pack/electron/package.json 仍为 Electron 产物版本，明确不参与原生版发版号。",
+      "P1 构建门槛：UITheme 的 Glass 调用同时受 `#if compiler(>=6.1)` 与 `#available(macOS 26.0)` 保护，Xcode 15/16 编译材质回退而不再报 cannot find 'Glass' in scope；build.sh 从硬失败改为提示，CI 仍保持 macos-26 以覆盖 Glass 路径。README / README.zh-CN 同步更新。",
+      "P2 多归档选择：新增 updateAssetScore(_:) 按名称打分选 arm64 归档（arm64 +100、产品名 +50、universal -20、x86/x64 -50、source -1），不再依赖上传顺序；这是 round17 自己记录的 known_fragility"
+    ],
+    "verification": {
+      "build": "0 错误 0 警告；.app 6,229,840 B（5.94 MB）；minos 14.0 / arm64；版本一致性断言显示 1.7.7 三方一致",
+      "tests": "core 111 + updater 24 = 135 passed, 0 failed；新增 9 条 updater 断言：arm64 归档优先、源码包排除、安装目标跟随运行中 bundle、失败交换恢复两个槽位、失败不留 stale 槽、成功交换淘汰旧槽、书签回读、书签解析、文件面板起始目录",
+      "negative_control": "失败交换用『源文件位于目标目录内部』构造：目标搬走后源文件随之消失，最终 rename 必然失败，无需生产代码测试钩子；修复前该场景会先删掉 .previous，修复后 current/older 两份标记均复原"
+    },
+    "still_open": [
+      "ad-hoc 签名：无 Developer ID 与公证，下载副本仍需手动移除 quarantine，重建后钥匙串授权会重弹（需开发者账号）",
+      "多归档版本选择已在同轮修复（见 fixed 末条），checkForUpdate 仍只取单个最高分归档，未做 universal 二进制",
+      "回滚仍需手动把 .previous 改回 .app；本次未做一键回滚",
+      "无障碍 VoiceOver 端到端朗读、真实 /Applications 替换与重启链路未在 GUI 中实测（本机无辅助功能授权，避免改动用户系统）",
+      "Java/Pickle 写回、外部脚本 formatter、Monaco IDE 能力、SSH 交互式认证等平台性差距维持原结论"
+    ],
+    "corrected_claims": [
+      "domains[设置、主题与更新].gaps 中『自动安装已实现（…→ 重启）』在本轮之前是不实表述：NSWorkspace.open 不会重启已运行的 bundle；本轮才真正实现",
+      "verification.runtime_probe 由 126 更新为 133；probe_harness 的 runner 由 macos-14 更正为 macos-26"
     ]
   }
 }

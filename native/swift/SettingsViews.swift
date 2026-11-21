@@ -439,7 +439,8 @@ struct SettingsView: View {
         let trust = ARDMAppServices.pendingUpdateHasChecksum()
             ? L10n("The archive's SHA-256 matches the published checksum.")
             : L10n("No checksum published; only the code signature can be verified.")
-        return L10n("The app in /Applications will be replaced.")
+        let (parent, _) = ARDMAppServices.installDestination()
+        return L10n("The app in") + " \(parent) " + L10n("will be replaced.")
             + " " + L10n("Version") + ": \(version). "
             + L10n("The current version is kept as .previous for rollback.")
             + "\n" + trust

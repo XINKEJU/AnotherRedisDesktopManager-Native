@@ -250,6 +250,11 @@ enum ARDMFont {
 
 /// Builds the glass variant outside the ViewBuilder: assignments are statements
 /// and ViewBuilder only accepts declarations and view expressions.
+// `if #available(macOS 26.0)` guards the runtime, not the compile time: the
+// Glass symbols must exist in the SDK used to build. Gate them on the compiler
+// too so an Xcode 15/16 toolchain compiles the material fallback instead of
+// failing with "cannot find 'Glass' in scope". Xcode 26 ships Swift 6.1+.
+#if compiler(>=6.1)
 @available(macOS 26.0, *)
 private func ardmGlassVariant(tint: Color?, interactive: Bool) -> Glass {
     var glass = Glass.regular
@@ -257,6 +262,7 @@ private func ardmGlassVariant(tint: Color?, interactive: Bool) -> Glass {
     if interactive { glass = glass.interactive() }
     return glass
 }
+#endif
 
 extension View {
     /// Liquid Glass where the OS provides it, `.regularMaterial` below macOS 26.
@@ -269,32 +275,44 @@ extension View {
     /// out as a pill.
     @ViewBuilder
     func ardmGlass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        #if compiler(>=6.1)
         if #available(macOS 26.0, *) {
             self.glassEffect(ardmGlassVariant(tint: tint, interactive: interactive), in: shape)
         } else {
             self.background(.regularMaterial, in: shape)
         }
+        #else
+        self.background(.regularMaterial, in: shape)
+        #endif
     }
 
     /// Groups sibling glass shapes so they blend and morph instead of drawing
     /// individual frosted circles over each other. No-op below macOS 26.
     @ViewBuilder
     func ardmGlassContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        #if compiler(>=6.1)
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 12) { content() }
         } else {
             content()
         }
+        #else
+        content()
+        #endif
     }
 
     /// Prominent buttons pick up the glass button style on 26+, bordered below.
     @ViewBuilder
     func ardmGlassButton() -> some View {
+        #if compiler(>=6.1)
         if #available(macOS 26.0, *) {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.bordered)
         }
+        #else
+        self.buttonStyle(.bordered)
+        #endif
     }
 }
 

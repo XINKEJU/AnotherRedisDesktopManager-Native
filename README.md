@@ -79,9 +79,11 @@ bash native/package.sh      # → native/dist/RDM-Native-<version>-arm64.zip + S
   `SHA256SUMS` before it attaches them.
 - Renaming from *ARDM Native* kept the bundle identifier, so an old install
   self-updates fine — into `/Applications/ARDM Native.app`, because the updater
-  swaps in place and keeps whatever the running bundle is called. To get the
+  swaps in place, keeps whatever the running bundle is called and installs
+  beside the running copy rather than hard-coding `/Applications`. To get the
   `RDM Native.app` name, unzip this release into `/Applications` and delete the
-  old one; connections and passwords carry over.
+  old one; connections and passwords carry over. A successful install relaunches
+  the app from the new bundle.
 - Known gaps: arm64 only (no universal binary), no Developer ID signature or
   notarization, and the value editor is a native text view rather than a full IDE.
 - The release version comes from `native/Info.plist`; the version in
@@ -180,10 +182,13 @@ Needs the full Xcode toolchain (`xcode-select -s /Applications/Xcode.app/Content
 and nothing else — no `npm install`, since the app links only system frameworks and
 reads its language tables from `src/i18n/langs/`.
 
-**Build** requires Xcode 26 or newer: the interface calls SwiftUI's Glass APIs, and
-`if #available(macOS 26)` guards the runtime only, so those symbols must exist in the
-SDK at compile time. `build.sh` says so up front if it finds an older SDK. The
-**artifact** still runs on macOS 14.0+ — the deployment target is pinned separately.
+**Build** works with Xcode 26 or newer for the Liquid Glass path. Older
+Xcode/SDK combinations compile the material fallback: UITheme gates the Glass
+symbols on both `#if compiler(>=6.1)` and `#available(macOS 26)`, so the runtime
+guard is no longer the only condition. CI still builds on `macos-26` to exercise
+the Glass path. The **artifact** runs on macOS 14.0+ — the deployment target is
+pinned separately. `build.sh` also fails fast if `Info.plist`, `package.json`
+and `package-lock.json` disagree on the version.
 
 ```bash
 bash native/build.sh        # compile swift/*.swift → native/RDM Native.app

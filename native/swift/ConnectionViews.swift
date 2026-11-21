@@ -608,7 +608,7 @@ struct ConnectionEditorView: View {
             SecureField(L10n("Password / key passphrase"), text: $draft.sshPassword)
             HStack {
                 TextField(L10n("Private key path"), text: $draft.sshPrivateKey)
-                Button(L10n("Browse…")) { if let path = chooseFile() { draft.sshPrivateKey = path } }
+                Button(L10n("Browse…")) { if let path = chooseFile(currentPath: draft.sshPrivateKey) { draft.sshPrivateKey = path } }
             }
             SecureField(L10n("Key passphrase"), text: $draft.sshPassphrase)
             TextField(L10n("Timeout (s)"), text: $draft.sshTimeout)
@@ -659,20 +659,24 @@ struct ConnectionEditorView: View {
     private func fileRow(_ label: String, _ binding: Binding<String>) -> some View {
         HStack {
             TextField(label, text: binding)
-            Button(L10n("Browse…")) { if let path = chooseFile() { binding.wrappedValue = path } }
+            Button(L10n("Browse…")) { if let path = chooseFile(currentPath: binding.wrappedValue) { binding.wrappedValue = path } }
         }
     }
 
-    private func chooseFile() -> String? {
+    private func chooseFile(currentPath: String? = nil) -> String? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        if let currentPath, !currentPath.isEmpty,
+           let previous = ARDMAppServices.resolvedScopedURL(forPath: currentPath) {
+            panel.directoryURL = previous.deletingLastPathComponent()
+        } else if let directory = ARDMAppServices.lastFileDirectory() {
+            panel.directoryURL = directory
+        }
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         if let bookmark = ARDMAppServices.bookmark(for: url) {
-            var bookmarks = UserDefaults.standard.dictionary(forKey: "ARDMScopedBookmarks") ?? [:]
-            bookmarks[url.path] = bookmark
-            UserDefaults.standard.set(bookmarks, forKey: "ARDMScopedBookmarks")
+            ARDMAppServices.saveScopedBookmark(bookmark, forPath: url.path)
         }
         return url.path
     }

@@ -258,9 +258,44 @@ enum ARDMAppServices {
         return String(data: payload, encoding: .utf8)
     }
 
+    /// The update replaces the app where it actually runs, not a hard-coded
+    /// /Applications. Staging must be on the same volume as the destination for
+    /// the swap to be a pair of atomic renames.
+    static func installDestination(runningBundle: String = Bundle.main.bundlePath) -> (parent: String, name: String) {
+        let leaf = (runningBundle as NSString).lastPathComponent
+        let name = leaf.hasSuffix(".app") ? leaf : "RDM Native.app"
+        return ((runningBundle as NSString).deletingLastPathComponent, name)
+    }
+
+    /// Restart the freshly installed bundle. `NSWorkspace.open` alone is not
+    /// enough: opening a bundle whose identifier is already running merely
+    /// activates the old process, so the new binary never executes. A short
+    /// shell waits for this PID to disappear and then launches the new copy;
+    /// the app terminates on the next turn of the main loop.
+    static func relaunchInstalledApp(at bundlePath: String) {
+        guard (bundlePath as NSString).pathExtension.lowercased() == "app",
+              FileManager.default.fileExists(atPath: bundlePath),
+              ProcessInfo.processInfo.environment["ARDM_SKIP_RELAUNCH"] == nil else { return }
+        let escaped = bundlePath
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let script = "i=0; while kill -0 \(pid) 2>/dev/null && [ $i -lt 100 ]; "
+            + "do sleep 0.1; i=$((i+1)); done; exec /usr/bin/open -n \"\(escaped)\""
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", script]
+        try? task.run()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+    }
+
     /// Move the verified bundle into place without ever destroying the only copy:
     /// prepare → rename old to the rollback slot → rename new in → restore on failure.
     /// All three paths live in the same directory, so each rename is atomic.
+    ///
+    /// An existing `.previous` is moved aside first and deleted only after the
+    /// new bundle is in place. Removing it up front meant a failed backup lost
+    /// the last known-good rollback even though the running app was untouched.
     static func installBundle(_ newApp: String, destination: String, backup: String) -> String? {
         let fm = FileManager.default
         let parent = (destination as NSString).deletingLastPathComponent
@@ -268,27 +303,57 @@ enum ARDMAppServices {
             return "没有写入 \(parent) 的权限，请把应用移到可写位置或手动安装。"
         }
         let hadPrevious = fm.fileExists(atPath: destination)
-        try? fm.removeItem(atPath: backup)     // single rollback slot
+        let hadStaleBackup = fm.fileExists(atPath: backup)
+        let staleBackup = backup + ".stale-\(UUID().uuidString)"
+
+        func restoreStale() {
+            guard hadStaleBackup, fm.fileExists(atPath: staleBackup),
+                  !fm.fileExists(atPath: backup) else { return }
+            try? fm.moveItem(atPath: staleBackup, toPath: backup)
+        }
+        if hadStaleBackup {
+            do { try fm.moveItem(atPath: backup, toPath: staleBackup) } catch {
+                return "无法暂存旧回滚版本，已中止（未改动任何文件）：\(error.localizedDescription)"
+            }
+        }
         if hadPrevious {
             do {
                 try fm.moveItem(atPath: destination, toPath: backup)
             } catch {
+                restoreStale()
                 return "无法备份当前版本，已中止（未改动任何文件）：\(error.localizedDescription)"
             }
         }
         do {
             try fm.moveItem(atPath: newApp, toPath: destination)
         } catch {
-            var restore = ""
             if hadPrevious, (try? fm.moveItem(atPath: backup, toPath: destination)) != nil {
-                restore = "，旧版本已恢复"
+                restoreStale()
+                return "替换失败（\(error.localizedDescription)），旧版本已恢复。"
             }
-            return "替换失败（\(error.localizedDescription)）\(restore)。"
+            restoreStale()
+            return "替换失败（\(error.localizedDescription)）。"
         }
+        if hadStaleBackup { try? fm.removeItem(atPath: staleBackup) }
         return nil
     }
 
     // MARK: Update API
+
+    /// Score an installable archive. Higher wins; negative means "never install".
+    /// A release can carry both universal and arm64 builds; taking the first
+    /// .zip would otherwise decide the installed architecture by upload order.
+    static func updateAssetScore(_ name: String) -> Int {
+        let lower = name.lowercased()
+        guard lower.hasSuffix(".zip") || lower.hasSuffix(".dmg") else { return -1 }
+        if lower.contains("source") || lower.contains("src") { return -1 }
+        var score = 0
+        if lower.contains("arm64") || lower.contains("aarch64") { score += 100 }
+        if lower.contains("rdm-native") || lower.contains("ardm-native") { score += 50 }
+        if lower.contains("universal") { score -= 20 }
+        if lower.contains("x86") || lower.contains("x64") || lower.contains("intel") { score -= 50 }
+        return score
+    }
 
     static func checkForUpdate(_ completion: @escaping (String, URL?) -> Void) {
         var request = URLRequest(url: URL(string: updateAPI)!)
@@ -319,13 +384,17 @@ enum ARDMAppServices {
                     var checksumURL: String?
                     let checksumNames = ["sha256sums", "sha256sums.txt", "checksums.txt",
                                          "sha256.txt", "sha256sum.txt"]
+                    var bestScore = -1
                     for asset in assets {
                         guard let asset = asset as? [String: Any],
                               let name = asset["name"] as? String else { continue }
                         let lower = name.lowercased()
                         if lower.hasSuffix(".dmg") || lower.hasSuffix(".zip") {
-                            if updateAssetURL == nil {
-                                updateAssetURL = (asset["browser_download_url"] as? String).flatMap(URL.init(string:))
+                            let score = updateAssetScore(name)
+                            if score > bestScore,
+                               let url = (asset["browser_download_url"] as? String).flatMap(URL.init(string:)) {
+                                bestScore = score
+                                updateAssetURL = url
                                 updateAssetName = name
                             }
                         } else if lower.hasSuffix(".sha256") || checksumNames.contains(lower) {
@@ -505,15 +574,13 @@ enum ARDMAppServices {
                     status = "Installation refused: unsigned update with no published SHA-256 — provenance "
                         + "cannot be established."
                 } else {
-                    // 5. Stage inside /Applications so the swap is a same-volume rename.
-                    let currentApp = Bundle.main.bundlePath
-                    let currentLeaf = (currentApp as NSString).lastPathComponent
-                    let destName = currentLeaf.hasSuffix(".app")
-                        ? currentLeaf
-                        : (sourceApp! as NSString).lastPathComponent
-                    let dest = ("/Applications" as NSString).appendingPathComponent(destName)
+                    // 5. Stage beside the running app so the swap is a same-volume
+                    //    rename. A copy dropped in /Applications while the app runs
+                    //    from elsewhere would leave the old process in charge.
+                    let (parent, destName) = installDestination()
+                    let dest = (parent as NSString).appendingPathComponent(destName)
                     let backup = dest + ".previous"
-                    let staged = ("/Applications" as NSString)
+                    let staged = (parent as NSString)
                         .appendingPathComponent(".ardm-new-\(UUID().uuidString).app")
 
                     do {
@@ -531,14 +598,14 @@ enum ARDMAppServices {
                             status = "Installed \(version) to \(dest). The previous version is kept as "
                                 + "“\((backup as NSString).lastPathComponent)” — rename it back "
                                 + "to .app to roll back, or delete it once the new version checks out."
-                            NSWorkspace.shared.open(URL(fileURLWithPath: dest))
+                            relaunchInstalledApp(at: dest)
                         }
                     } catch {
                         let downloads = (NSHomeDirectory() as NSString).appendingPathComponent("Downloads")
                         let fallback = (downloads as NSString).appendingPathComponent(destName)
                         try? fm.removeItem(atPath: fallback)
                         if (try? fm.copyItem(atPath: sourceApp!, toPath: fallback)) != nil {
-                            status = "没有写入 /Applications 的权限，未做任何替换。新版本已放到 \(fallback)，可手动拖入「应用程序」文件夹。"
+                            status = "没有写入 \(parent) 的权限，未做任何替换。新版本已放到 \(fallback)，可手动拖入应用程序文件夹。"
                         } else {
                             status = "Install failed while staging: \(error.localizedDescription)"
                         }
@@ -572,6 +639,36 @@ enum ARDMAppServices {
                                          relativeTo: nil)
         }
         return data
+    }
+
+    /// Per-field file bookmarks, keyed by the chosen path. These are read back
+    /// when the file panel opens again; writing them without a reader only grew
+    /// UserDefaults on every Browse… click.
+    static func scopedBookmark(forPath path: String) -> Data? {
+        (UserDefaults.standard.dictionary(forKey: "ARDMScopedBookmarks") as? [String: Data])?[path]
+    }
+
+    static func saveScopedBookmark(_ bookmark: Data, forPath path: String) {
+        var bookmarks = (UserDefaults.standard.dictionary(forKey: "ARDMScopedBookmarks") as? [String: Data]) ?? [:]
+        bookmarks[path] = bookmark
+        UserDefaults.standard.set(bookmarks, forKey: "ARDMScopedBookmarks")
+        // The last resolved file is also the panel's next starting directory.
+        UserDefaults.standard.set(bookmark, forKey: "ARDMLastDumpBookmark")
+    }
+
+    static func resolvedScopedURL(forPath path: String) -> URL? {
+        guard let data = scopedBookmark(forPath: path) else { return nil }
+        return resolveBookmark(data)
+    }
+
+    /// Directory an NSOpenPanel should start in: the parent of the last file,
+    /// or the URL itself when a directory was saved.
+    static func lastFileDirectory() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: "ARDMLastDumpBookmark"),
+              let url = resolveBookmark(data) else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
+        return isDirectory.boolValue ? url : url.deletingLastPathComponent()
     }
 
     static func resolveBookmark(_ bookmark: Data) -> URL? {

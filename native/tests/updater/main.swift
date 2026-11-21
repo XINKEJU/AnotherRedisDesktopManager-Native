@@ -139,6 +139,70 @@ let backupMarker = try? String(contentsOfFile: (backup as NSString).appendingPat
 check("swap installs new bundle", swapError == nil && installedMarker == "new", swapError ?? "")
 check("swap keeps previous as .previous", backupMarker == "old", backupMarker ?? "missing")
 
+// ---- 5b. Install target follows the running bundle --------------------
+check("arm64 archive wins over x86 when both are published",
+      ARDMAppServices.updateAssetScore("RDM-Native-1.8.0-arm64.zip")
+        > ARDMAppServices.updateAssetScore("RDM-Native-1.8.0-x64.zip"))
+check("source archives are never install candidates",
+      ARDMAppServices.updateAssetScore("Source code.zip") < 0)
+let chosen = ARDMAppServices.installDestination(runningBundle: "/tmp/OtherPlace/RDM Native.app")
+check("update installs beside the running app",
+      chosen.parent == "/tmp/OtherPlace" && chosen.name == "RDM Native.app",
+      "\(chosen.parent)/\(chosen.name)")
+
+// ---- 5c. A failed swap preserves the older rollback slot --------------
+let failRoot = (root as NSString).appendingPathComponent("RollbackCase")
+let failDest = (failRoot as NSString).appendingPathComponent("RDM Native.app")
+let failBackup = failDest + ".previous"
+try? fm.createDirectory(atPath: (failDest as NSString).appendingPathComponent("nested"),
+                        withIntermediateDirectories: true)
+try? fm.createDirectory(atPath: failBackup, withIntermediateDirectories: true)
+writeMarker("current", to: failDest)
+writeMarker("older", to: failBackup)
+// The source lives inside the destination; moving the destination away makes
+// the source disappear, so the final rename fails without any test-only hook.
+let failError = ARDMAppServices.installBundle((failDest as NSString).appendingPathComponent("nested"),
+                                              destination: failDest, backup: failBackup)
+let failCurrent = try? String(contentsOfFile: (failDest as NSString).appendingPathComponent("marker"), encoding: .utf8)
+let failOlder = try? String(contentsOfFile: (failBackup as NSString).appendingPathComponent("marker"), encoding: .utf8)
+let staleNames = ((try? fm.contentsOfDirectory(atPath: failRoot)) ?? []).filter { $0.contains(".stale-") }
+check("failed swap restores both bundles",
+      failError != nil && failCurrent == "current" && failOlder == "older",
+      "\(failCurrent ?? "-")/\(failOlder ?? "-")")
+check("failed swap leaves no stale rollback slot", staleNames.isEmpty, staleNames.joined(separator: ","))
+
+// ---- 5d. A successful swap retires the older rollback slot ------------
+let successRoot = (root as NSString).appendingPathComponent("SuccessCase")
+let successDest = (successRoot as NSString).appendingPathComponent("RDM Native.app")
+let successBackup = successDest + ".previous"
+let successNew = (successRoot as NSString).appendingPathComponent(".new.app")
+for dir in [successDest, successBackup, successNew] { try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true) }
+writeMarker("current", to: successDest)
+writeMarker("older", to: successBackup)
+writeMarker("new", to: successNew)
+let successError = ARDMAppServices.installBundle(successNew, destination: successDest, backup: successBackup)
+let successNow = try? String(contentsOfFile: (successDest as NSString).appendingPathComponent("marker"), encoding: .utf8)
+let successPrev = try? String(contentsOfFile: (successBackup as NSString).appendingPathComponent("marker"), encoding: .utf8)
+let successStale = ((try? fm.contentsOfDirectory(atPath: successRoot)) ?? []).filter { $0.contains(".stale-") }
+check("successful swap retires the old rollback slot",
+      successError == nil && successNow == "new" && successPrev == "current" && successStale.isEmpty,
+      "\(successNow ?? "-")/\(successPrev ?? "-")")
+
+// ---- 5e. File bookmarks are read back, not just written ---------------
+let scopedFile = (root as NSString).appendingPathComponent("scoped.txt")
+try? "x".write(toFile: scopedFile, atomically: true, encoding: .utf8)
+if let scoped = ARDMAppServices.bookmark(for: URL(fileURLWithPath: scopedFile)) {
+    ARDMAppServices.saveScopedBookmark(scoped, forPath: scopedFile)
+    check("scoped bookmark is read back", ARDMAppServices.scopedBookmark(forPath: scopedFile) == scoped)
+    check("scoped bookmark resolves to its file",
+          ARDMAppServices.resolvedScopedURL(forPath: scopedFile)?.standardizedFileURL.path
+            == URL(fileURLWithPath: scopedFile).standardizedFileURL.path)
+    check("file panel starts in the bookmarked parent",
+          ARDMAppServices.lastFileDirectory()?.standardizedFileURL.path == root)
+} else {
+    check("scoped bookmark is read back", false, "bookmark(for:) returned nil")
+}
+
 // ---- 6. Refuses to touch a read-only location ------------------------
 let locked = (root as NSString).appendingPathComponent("Locked")
 try? fm.createDirectory(atPath: locked, withIntermediateDirectories: true)

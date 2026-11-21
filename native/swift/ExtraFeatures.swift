@@ -38,15 +38,16 @@ extension AppStore {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.message = "Each line: keyHex,dumpHex,ttl  →  RESTORE key ttl dump REPLACE"
-        // Restore the last-used directory from a security-scoped bookmark (resolveBookmark).
-        if let data = UserDefaults.standard.data(forKey: "ARDMLastDumpBookmark"),
-           let url = ARDMAppServices.resolveBookmark(data) {
-            panel.directoryURL = url
+        // Restore the last-used directory from the same bookmark store the
+        // Browse… panels write; passing the file itself as directoryURL never
+        // opened its parent on macOS.
+        if let directory = ARDMAppServices.lastFileDirectory() {
+            panel.directoryURL = directory
         }
         guard panel.runModal() == .OK, let url = panel.url,
               let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-        if let data = ARDMAppServices.bookmark(for: url) {
-            UserDefaults.standard.set(data, forKey: "ARDMLastDumpBookmark")
+        if let bookmark = ARDMAppServices.bookmark(for: url) {
+            ARDMAppServices.saveScopedBookmark(bookmark, forPath: url.path)
         }
         var entries: [(Data, Data, Int)] = []
         for line in text.split(whereSeparator: \.isNewline) {

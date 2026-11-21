@@ -169,10 +169,11 @@ bash native/package.sh      # → native/dist/RDM-Native-<版本>-arm64.zip + SH
 只需要完整 Xcode 工具链（`xcode-select -s /Applications/Xcode.app/Contents/Developer`），
 不需要 `npm install`：原生版只链接系统框架，语言表直接读仓库里的 `src/i18n/langs/`。
 
-**构建**需要 Xcode 26 及以上：界面用到了 SwiftUI 的 Glass API，而
-`if #available(macOS 26)` 只保护运行时，编译期仍要求 SDK 里存在这些符号；
-`build.sh` 在检测到更旧的 SDK 时会直接说明。**产物**依然可运行在 macOS 14.0+，
-部署目标是单独钉住的。
+**构建**在 Xcode 26 及以上会得到 Liquid Glass 效果；更旧的 Xcode/SDK 会编译
+材质回退版本：`UITheme` 同时用 `#if compiler(>=6.1)` 与 `#available(macOS 26)`
+保护 Glass 符号，不再只依赖运行时判断。CI 仍在 `macos-26` 上构建以覆盖 Glass 路径。
+**产物**依然可运行在 macOS 14.0+，部署目标是单独钉住的。`build.sh` 还会校验
+`Info.plist`、`package.json` 与 `package-lock.json` 的版本号一致，漂移即失败。
 
 ```bash
 bash native/build.sh        # 编译 swift/*.swift → native/RDM Native.app

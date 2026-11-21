@@ -24,15 +24,23 @@ echo "  sdk: macOS $SDK_VERSION"
 # `set -o pipefail` that SIGPIPE would fail the build on a slower machine.
 xcrun swift --version 2>&1 | sed -n '1,2p'
 
-# UITheme.swift reaches for SwiftUI's Glass APIs inside `if #available(macOS 26)`,
-# which guards the *runtime* only — the symbols still have to exist at compile
-# time, so an older SDK dies with "cannot find 'Glass' in scope" hundreds of
-# lines before that matters. Say so up front instead of letting the compiler.
+# Glass symbols are guarded in UITheme.swift by `#if compiler(>=6.1)` as well as
+# `#available(macOS 26.0)`: an older SDK/compiler builds the material fallback
+# instead of failing on a symbol that does not exist at compile time. CI still
+# uses macos-26 so the Glass path is exercised on every release.
 if [[ "${SDK_VERSION%%.*}" -lt 26 ]]; then
-    echo "ERROR: compiling the native app needs the macOS 26 SDK or newer (SwiftUI Glass), found $SDK_VERSION." >&2
-    echo "       Pick a newer toolchain, e.g.: sudo xcode-select -s /Applications/Xcode_26.app/Contents/Developer" >&2
+    echo "  note: SDK $SDK_VERSION has no Glass symbols; UITheme will use material fallbacks."
+fi
+
+PLIST_VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$ROOT/Info.plist")"
+NODE_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PROJECT/package.json")"
+LOCK_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$PROJECT/package-lock.json")"
+if [[ "$PLIST_VERSION" != "$NODE_VERSION" || "$PLIST_VERSION" != "$LOCK_VERSION" ]]; then
+    echo "ERROR: version drift: Info.plist=$PLIST_VERSION package.json=$NODE_VERSION package-lock.json=$LOCK_VERSION." >&2
+    echo "       native/Info.plist is the release version; update the other two before building." >&2
     exit 1
 fi
+echo "  version: $PLIST_VERSION (plist / package.json / lock agree)"
 
 rm -rf "$BUILD" "$APP"
 mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources/langs"

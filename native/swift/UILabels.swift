@@ -333,6 +333,8 @@ let uiChinese: [String: String] = [
     "Subscription messages": "订阅消息",
     "SwiftUI + AppKit (system frameworks, zero bundled runtime)": "SwiftUI + AppKit（系统框架，零捆绑运行时）",
     "The app in /Applications will be replaced.": "将替换「应用程序」中的当前应用。",
+    "The app in": "将替换目录",
+    "will be replaced.": "中的应用。",
     "The archive's SHA-256 matches the published checksum.": "安装包的 SHA-256 与发布值一致。",
     "The current version is kept as .previous for rollback.": "当前版本会保留为 .previous，可用于回滚。",
     "TLS / SSL": "TLS / SSL",
